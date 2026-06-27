@@ -1,13 +1,20 @@
 #!/usr/bin/env node
+import { startRuntimeConsole } from "./console.js";
 import { startRuntimeServerFromConfigFile, loadEnvFile } from "./index.js";
 
 interface CliOptions {
+  readonly command: "start" | "console";
   readonly configPath: string;
   readonly envFile?: string;
 }
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+
+  if (options.command === "console") {
+    await startRuntimeConsole(options);
+    return;
+  }
 
   if (options.envFile !== undefined) {
     loadEnvFile(options.envFile);
@@ -35,11 +42,17 @@ async function main(): Promise<void> {
 }
 
 function parseArgs(args: readonly string[]): CliOptions {
+  let command: CliOptions["command"] = "start";
   let configPath = "runtime.config.yaml";
   let envFile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+
+    if (index === 0 && (arg === "start" || arg === "console")) {
+      command = arg;
+      continue;
+    }
 
     if (arg === "--help" || arg === "-h") {
       printHelp();
@@ -74,13 +87,18 @@ function parseArgs(args: readonly string[]): CliOptions {
   }
 
   return {
+    command,
     configPath,
     ...(envFile === undefined ? {} : { envFile })
   };
 }
 
 function printHelp(): void {
-  console.log(`Usage: synapse-runtime [options]
+  console.log(`Usage: synapse-runtime [command] [options]
+
+Commands:
+  start                 Start the runtime server. Default command
+  console               Start the interactive runtime console
 
 Options:
   -c, --config <path>   Runtime config file. Defaults to runtime.config.yaml

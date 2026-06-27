@@ -98,10 +98,11 @@ export function matchesTrigger(
   }
 
   const text = getTextContent(message);
+  const botUserIds = policy.botUserIds ?? [];
   const hasKeyword = (policy.keywords ?? []).some((keyword) => text.includes(keyword));
   const mentionsBot =
-    isPlatformMentionEvent(event) ||
-    (policy.botUserIds ?? []).some((botUserId) => text.includes(`@${botUserId}`));
+    hasMentionSegment(message, botUserIds) ||
+    botUserIds.some((botUserId) => text.includes(`@${botUserId}`) || text.includes(`<@${botUserId}>`));
 
   if (policy.mode === "keyword") {
     return hasKeyword;
@@ -114,14 +115,16 @@ export function matchesTrigger(
   return hasKeyword || mentionsBot;
 }
 
-function isPlatformMentionEvent(event: SynapseChannelEvent | undefined): boolean {
-  if (event?.platform !== "qq" || !isRecord(event.raw)) {
-    return false;
-  }
+function hasMentionSegment(message: SynapseMessage, botUserIds: readonly string[]): boolean {
+  return message.segments.some((segment) => {
+    if (segment.type !== "mention") {
+      return false;
+    }
 
-  return event.raw.t === "GROUP_AT_MESSAGE_CREATE" || event.raw.t === "AT_MESSAGE_CREATE";
-}
+    if (botUserIds.length === 0 || segment.userId === undefined) {
+      return true;
+    }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null;
+    return botUserIds.includes(segment.userId);
+  });
 }

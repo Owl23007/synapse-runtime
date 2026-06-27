@@ -136,7 +136,7 @@ describe("RuntimeServer", () => {
     ]);
   });
 
-  it("treats QQ official at-message webhooks as group mention triggers", async () => {
+  it("treats QQ official group messages with mentions as group mention triggers", async () => {
     const sentMessages: unknown[] = [];
     const fetch: RuntimeFetch = async (url, init) => {
       if (url === "https://bots.qq.com/app/getAppAccessToken") {
@@ -190,12 +190,13 @@ describe("RuntimeServer", () => {
         method: "POST",
         body: signedQqBody("app-secret", {
           op: 0,
-          t: "GROUP_AT_MESSAGE_CREATE",
+          t: "GROUP_MESSAGE_CREATE",
           d: {
             id: "event-1",
             msg_id: "message-1",
             group_openid: "group-openid",
-            content: "hello"
+            content: "<@bot-openid> hello",
+            mentions: [{ id: "bot-openid" }]
           }
         })
       })
@@ -209,7 +210,7 @@ describe("RuntimeServer", () => {
       }
     });
     expect(JSON.parse((sentMessages[0] as { body: string }).body)).toMatchObject({
-      content: "echo: hello",
+      content: "echo: <@bot-openid> hello",
       msg_type: 0,
       msg_id: "message-1"
     });

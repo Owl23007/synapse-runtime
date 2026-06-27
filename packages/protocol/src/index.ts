@@ -18,6 +18,7 @@ export type MessageType = "text" | "image" | "file" | "audio" | "video" | "mixed
 
 export type MessageSegment =
   | { readonly type: "text"; readonly text: string }
+  | { readonly type: "mention"; readonly userId?: string; readonly label?: string }
   | {
       readonly type: "image";
       readonly url?: string;

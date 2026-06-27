@@ -103,7 +103,7 @@ describe("normalizeQqOfficialDispatch", () => {
       message: {
         id: "message-1",
         type: "text",
-        segments: [{ type: "text", text: "hello Synapse" }]
+        segments: [{ type: "text", text: "hello Synapse" }, { type: "mention" }]
       }
     });
   });
