@@ -37,6 +37,7 @@
     "ink": "^5.2.1",
     "nova-http": "^0.1.1",
     "react": "^18.3.1",
+    "smol-toml": "^1.7.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

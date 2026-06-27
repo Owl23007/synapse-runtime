@@ -28,7 +28,7 @@ export const RuntimeSettingsSchema = z
     dataDir: z.string().min(1).default(".synapse"),
     logLevel: LogLevelSchema.default("info")
   })
-  .strict();
+  .passthrough();
 
 export const ServerSettingsSchema = z
   .object({
@@ -36,7 +36,7 @@ export const ServerSettingsSchema = z
     port: z.number().int().min(0).max(65535).default(3000),
     publicBaseUrl: z.string().url().optional()
   })
-  .strict();
+  .passthrough();
 
 export const TriggerModeSchema = z.enum(["always", "mention", "keyword", "mention_or_keyword", "never"]);
 
@@ -51,14 +51,14 @@ export const ConversationTriggerPolicySchema = z
     keywords: z.array(z.string().min(1)).default([]),
     botUserIds: z.array(z.string().min(1)).default([])
   })
-  .strict();
+  .passthrough();
 
 export const ContextPolicySchema = z
   .object({
     includeHistory: z.boolean().default(true),
     maxMessages: z.number().int().positive().default(20)
   })
-  .strict();
+  .passthrough();
 
 export const ConversationSettingsSchema = z
   .object({
@@ -66,7 +66,7 @@ export const ConversationSettingsSchema = z
     groupTrigger: ConversationTriggerPolicySchema.default({ mode: "mention" }),
     contextPolicy: ContextPolicySchema.default({})
   })
-  .strict();
+  .passthrough();
 
 export const AgentProviderIdSchema = z
   .string()
@@ -75,34 +75,56 @@ export const AgentProviderIdSchema = z
     message: "Agent provider id must start with a letter or number and contain only letters, numbers, _ or -."
   });
 
+export const AgentProviderBaseSchema = z.enum([
+  "openai",
+  "qwen",
+  "deepseek",
+  "moonshot",
+  "zhipu",
+  "mistral",
+  "gemini",
+  "groq",
+  "xai",
+  "openrouter",
+  "siliconflow"
+]);
+
+const ChatProviderTuningSchema = {
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  topP: z.number().min(0).max(1).optional(),
+  headers: z.record(z.string().min(1), z.string()).default({}),
+  extraBody: z.record(z.string().min(1), z.unknown()).default({})
+} as const;
+
 export const QwenAgentProviderConfigSchema = z
   .object({
     type: z.literal("qwen"),
+    base: z.literal("qwen").default("qwen"),
     apiKey: z.string().min(1),
     model: z.string().min(1).default("qwen-plus"),
     baseUrl: z.string().url().default("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-    temperature: z.number().min(0).max(2).optional(),
-    maxTokens: z.number().int().positive().optional()
+    ...ChatProviderTuningSchema
   })
-  .strict();
+  .passthrough();
 
 export const OpenAiCompatibleAgentProviderConfigSchema = z
   .object({
     type: z.literal("openai-compatible"),
+    base: AgentProviderBaseSchema.default("openai"),
     apiKey: z.string().min(1),
-    baseUrl: z.string().url(),
-    model: z.string().min(1),
-    temperature: z.number().min(0).max(2).optional(),
-    maxTokens: z.number().int().positive().optional()
+    baseUrl: z.string().url().optional(),
+    model: z.string().min(1).optional(),
+    ...ChatProviderTuningSchema
   })
-  .strict();
+  .passthrough();
 
 export const EchoAgentProviderConfigSchema = z
   .object({
     type: z.literal("echo"),
     prefix: z.string().default("")
   })
-  .strict();
+  .passthrough();
 
 export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
   QwenAgentProviderConfigSchema,
@@ -116,7 +138,7 @@ export const AgentSettingsSchema = z
     systemPrompt: z.string().min(1).optional(),
     providers: z.record(AgentProviderIdSchema, AgentProviderConfigSchema).default({})
   })
-  .strict()
+  .passthrough()
   .superRefine((agent, ctx) => {
     if (agent.default === undefined) {
       return;
@@ -141,7 +163,7 @@ export const OneBot11ChannelConfigSchema = z
     enabled: z.boolean().default(true),
     riskLevel: RiskLevelSchema.default("high")
   })
-  .strict();
+  .passthrough();
 
 export const QqOfficialChannelConfigSchema = z
   .object({
@@ -155,7 +177,7 @@ export const QqOfficialChannelConfigSchema = z
     enabled: z.boolean().default(false),
     riskLevel: RiskLevelSchema.default("low")
   })
-  .strict();
+  .passthrough();
 
 export const ChannelConfigSchema = z.discriminatedUnion("adapter", [
   OneBot11ChannelConfigSchema,
@@ -180,7 +202,7 @@ export const RuntimeConfigSchema = z
       .record(z.string().min(1), PermissionPolicySchema)
       .default(DEFAULT_PERMISSIONS)
   })
-  .strict()
+  .passthrough()
   .superRefine((config, ctx) => {
     if (config.runtime.mode !== "hosted") {
       return;
@@ -208,6 +230,7 @@ export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicy
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
 export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
 export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
+export type AgentProviderBase = z.infer<typeof AgentProviderBaseSchema>;
 export type QwenAgentProviderConfig = z.infer<typeof QwenAgentProviderConfigSchema>;
 export type OpenAiCompatibleAgentProviderConfig = z.infer<typeof OpenAiCompatibleAgentProviderConfigSchema>;
 export type EchoAgentProviderConfig = z.infer<typeof EchoAgentProviderConfigSchema>;

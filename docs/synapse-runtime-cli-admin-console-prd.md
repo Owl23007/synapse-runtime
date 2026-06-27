@@ -154,14 +154,14 @@ TUI 的数据来源是 Admin API 与日志事件流，而不是直接创建 Runt
 启动 Runtime 服务：
 
 ```bash
-synapse-runtime serve --config runtime.config.yaml
+synapse-runtime serve --config runtime.config.toml
 ```
 
 指定 Admin API：
 
 ```bash
 synapse-runtime serve \
-  --config runtime.config.yaml \
+  --config runtime.config.toml \
   --admin-host 127.0.0.1 \
   --admin-port 3766
 ```
@@ -170,7 +170,7 @@ synapse-runtime serve \
 
 ```bash
 synapse-runtime serve \
-  --config /srv/synapse/runtime.config.yaml \
+  --config /srv/synapse/runtime.config.toml \
   --admin-host 0.0.0.0 \
   --admin-port 3766 \
   --admin-token-env SYNAPSE_ADMIN_TOKEN
@@ -222,7 +222,7 @@ synapse-runtime reload
 当本地服务未运行时，用户可以显式要求 CLI 拉起服务：
 
 ```bash
-synapse-runtime console --spawn --config runtime.config.yaml
+synapse-runtime console --spawn --config runtime.config.toml
 ```
 
 行为：
@@ -517,7 +517,7 @@ Runtime Server 内保留内存 ring buffer：
 
 ### 13.1 本地连接
 
-- 启动 `synapse-runtime serve --config runtime.config.yaml` 后，CLI 可在任意目录执行 `synapse-runtime status`。
+- 启动 `synapse-runtime serve --config runtime.config.toml` 后，CLI 可在任意目录执行 `synapse-runtime status`。
 - 默认 endpoint 为 `http://127.0.0.1:3766`。
 - 外部机器无法访问默认 Admin API。
 
@@ -548,7 +548,7 @@ Runtime Server 内保留内存 ring buffer：
 |---|---|---|
 | Admin API 被误暴露 | 用户监听 `0.0.0.0` 但未配置安全策略 | 启动时强校验，远程必须 token |
 | CLI 与 Server 版本不匹配 | 不同版本字段变化 | `/admin/status` 返回 protocolVersion |
-| 配置写回破坏格式 | YAML 重新序列化会改变注释和格式 | 第一阶段限制写回范围，后续引入保留注释的编辑策略 |
+| 配置写回破坏格式 | TOML/YAML 重新序列化会改变注释和格式 | 第一阶段限制写回范围，后续引入保留注释的编辑策略 |
 | TUI 复杂度上升 | 全屏交互和表单容易膨胀 | 第一阶段只做命令式 TUI |
 | 日志量过大 | 内存 buffer 不适合长期存储 | ring buffer 限制大小，持久化后置 |
 
@@ -586,5 +586,5 @@ Runtime Server 内保留内存 ring buffer：
 - Admin API 是否与业务 HTTP 服务共用端口，还是默认独立端口？
 - CLI 包是否立即从 `runtime-server` 中拆出？
 - 远程连接是否优先支持 HTTPS，还是推荐 SSH tunnel/VPN？
-- 配置写回是否需要保留 YAML 注释？
+- 配置写回是否需要保留 TOML/YAML 注释？
 - 是否需要 Windows 服务、systemd、launchd 等守护进程安装命令？

@@ -49,6 +49,9 @@ export function createChatProvider(
       baseUrl: providerConfig.baseUrl,
       ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
       ...(providerConfig.maxTokens === undefined ? {} : { maxTokens: providerConfig.maxTokens }),
+      ...(providerConfig.topP === undefined ? {} : { topP: providerConfig.topP }),
+      headers: providerConfig.headers,
+      extraBody: providerConfig.extraBody,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch })
     });
   }
@@ -57,10 +60,14 @@ export function createChatProvider(
     return new OpenAiCompatibleChatProvider({
       id: providerId,
       apiKey: providerConfig.apiKey,
-      baseUrl: providerConfig.baseUrl,
-      model: providerConfig.model,
+      base: providerConfig.base,
+      ...(providerConfig.baseUrl === undefined ? {} : { baseUrl: providerConfig.baseUrl }),
+      ...(providerConfig.model === undefined ? {} : { model: providerConfig.model }),
       ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
       ...(providerConfig.maxTokens === undefined ? {} : { maxTokens: providerConfig.maxTokens }),
+      ...(providerConfig.topP === undefined ? {} : { topP: providerConfig.topP }),
+      headers: providerConfig.headers,
+      extraBody: providerConfig.extraBody,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch })
     });
   }

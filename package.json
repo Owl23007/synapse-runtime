@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r build",
-    "start": "node packages/runtime-server/dist/cli.js --config examples/runtime.config.yaml --env-file .env",
+    "start": "node packages/runtime-server/dist/cli.js --config examples/runtime.config.toml --env-file .env",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

@@ -229,7 +229,7 @@ export interface ChannelCapabilities {
 
 ### 6.5 配置文件
 
-Runtime 支持 YAML 或 JSON 配置。
+Runtime 默认使用 TOML 配置，并兼容读取 YAML 或 JSON 配置。
 
 示例：
 
@@ -305,7 +305,7 @@ permissions:
 | Monorepo | pnpm workspace / Turborepo 可选 |
 | HTTP | Fastify 或自研 nova-http |
 | WebSocket | ws |
-| 配置 | zod + yaml |
+| 配置 | zod + toml/yaml |
 | 日志 | pino |
 | 数据库 | SQLite |
 | ORM | Drizzle ORM |

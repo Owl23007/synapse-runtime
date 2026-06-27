@@ -4,16 +4,15 @@ import { parseConfigContent, parseConfigObject } from "./loader.js";
 import { redactConfig } from "./redact.js";
 
 describe("runtime config", () => {
-  it("loads yaml, expands env placeholders and applies defaults", () => {
+  it("loads toml, expands env placeholders and applies defaults", () => {
     const config = parseConfigContent(
       `
-channels:
-  qq-local:
-    adapter: onebot11
-    endpoint: ws://127.0.0.1:3001
-    accessToken: $\{NAPCAT_TOKEN}
+[channels."qq-local"]
+adapter = "onebot11"
+endpoint = "ws://127.0.0.1:3001"
+accessToken = "$\{NAPCAT_TOKEN}"
 `,
-      "runtime.config.yaml",
+      "runtime.config.toml",
       { env: { NAPCAT_TOKEN: "secret-token" } }
     );
 
@@ -27,6 +26,44 @@ channels:
       riskLevel: "high"
     });
     expect(config.permissions["channel.qq.manage_group"]).toBe("deny");
+  });
+
+  it("supports openai-compatible provider bases in toml configs", () => {
+    const config = parseConfigContent(
+      `
+[agent]
+default = "openai"
+
+[agent.providers.openai]
+type = "openai-compatible"
+base = "openai"
+apiKey = "$\{OPENAI_API_KEY}"
+model = "gpt-4.1-mini"
+topP = 0.8
+
+[agent.providers.openai.headers]
+"HTTP-Referer" = "https://example.com"
+
+[agent.providers.openai.extraBody]
+seed = 7
+`,
+      "runtime.config.toml",
+      { env: { OPENAI_API_KEY: "openai-key" } }
+    );
+
+    expect(config.agent.providers.openai).toMatchObject({
+      type: "openai-compatible",
+      base: "openai",
+      apiKey: "openai-key",
+      model: "gpt-4.1-mini",
+      topP: 0.8,
+      headers: {
+        "HTTP-Referer": "https://example.com"
+      },
+      extraBody: {
+        seed: 7
+      }
+    });
   });
 
   it("supports json configs", () => {

@@ -16,6 +16,7 @@ export {
 } from "./loader.js";
 export {
   AgentProviderConfigSchema,
+  AgentProviderBaseSchema,
   AgentProviderIdSchema,
   AgentSettingsSchema,
   ChannelConfigSchema,
@@ -38,6 +39,7 @@ export {
   ServerSettingsSchema,
   TriggerModeSchema,
   type AgentProviderConfig,
+  type AgentProviderBase,
   type AgentProviderId,
   type AgentSettings,
   type ChannelConfig,

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { textMessage } from "@synapse/runtime-protocol";
-import { ApiChatAgent, createQwenChatProvider, QWEN_COMPATIBLE_BASE_URL } from "./index.js";
+import {
+  ApiChatAgent,
+  createQwenChatProvider,
+  OpenAiCompatibleChatProvider,
+  OPENAI_COMPATIBLE_PROVIDER_PRESETS,
+  QWEN_COMPATIBLE_BASE_URL
+} from "./index.js";
 
 describe("createQwenChatProvider", () => {
   it("calls the Qwen OpenAI-compatible chat completions endpoint", async () => {
@@ -41,6 +47,57 @@ describe("createQwenChatProvider", () => {
           model: "qwen-plus",
           messages: [{ role: "user", content: "ping" }],
           temperature: 0.2
+        })
+      }
+    ]);
+  });
+});
+
+describe("OpenAiCompatibleChatProvider", () => {
+  it("resolves base presets and forwards compatible request options", async () => {
+    const requests: Array<{ url: string; headers?: Readonly<Record<string, string>>; body?: string }> = [];
+    const provider = new OpenAiCompatibleChatProvider({
+      id: "openai",
+      apiKey: "api-key",
+      base: "openai",
+      model: "gpt-4.1-mini",
+      topP: 0.8,
+      headers: {
+        "x-provider": "test"
+      },
+      extraBody: {
+        seed: 7
+      },
+      fetch: async (url, init) => {
+        requests.push({
+          url,
+          ...(init?.headers === undefined ? {} : { headers: init.headers }),
+          ...(init?.body === undefined ? {} : { body: init.body })
+        });
+
+        return jsonResponse({
+          choices: [{ message: { content: "pong" } }]
+        });
+      }
+    });
+
+    await provider.complete({
+      messages: [{ role: "user", content: "ping" }]
+    });
+
+    expect(requests).toEqual([
+      {
+        url: `${OPENAI_COMPATIBLE_PROVIDER_PRESETS.openai.baseUrl}/chat/completions`,
+        headers: {
+          "x-provider": "test",
+          authorization: "Bearer api-key",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          seed: 7,
+          model: "gpt-4.1-mini",
+          messages: [{ role: "user", content: "ping" }],
+          top_p: 0.8
         })
       }
     ]);

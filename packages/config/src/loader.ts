@@ -1,5 +1,6 @@
-﻿import { readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { parse as parseYaml } from "yaml";
 import { ZodError } from "zod";
 import { expandEnv, type EnvSource } from "./env.js";
@@ -32,7 +33,7 @@ export async function loadConfigFile(
 
 export function parseConfigContent(
   content: string,
-  sourcePath = "runtime.config.yaml",
+  sourcePath = "runtime.config.toml",
   options: LoadConfigOptions = {}
 ): RuntimeConfig {
   const raw = parseRawConfig(content, sourcePath);
@@ -74,13 +75,17 @@ function parseRawConfig(content: string, sourcePath: string): unknown {
       return JSON.parse(content) as unknown;
     }
 
-    if (extension === ".yaml" || extension === ".yml" || extension === "") {
+    if (extension === ".toml" || extension === "") {
+      return parseToml(content) as unknown;
+    }
+
+    if (extension === ".yaml" || extension === ".yml") {
       return parseYaml(content) as unknown;
     }
 
     throw new ConfigError(
       "CONFIG_PARSE_FAILED",
-      `Unsupported runtime config extension "${extension}". Use .yaml, .yml or .json.`
+      `Unsupported runtime config extension "${extension}". Use .toml, .yaml, .yml or .json.`
     );
   } catch (error) {
     if (error instanceof ConfigError) {

@@ -1,4 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { extname } from "node:path";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 export async function updateChannelConfigFile(
@@ -38,10 +40,32 @@ export async function addChannelConfigFile(
 
 async function readRawConfig(configPath: string): Promise<unknown> {
   const content = await readFile(configPath, "utf8");
+  const extension = extname(configPath).toLowerCase();
+
+  if (extension === ".toml" || extension === "") {
+    return parseToml(content);
+  }
+
+  if (extension === ".json") {
+    return JSON.parse(content) as unknown;
+  }
+
   return parseYaml(content);
 }
 
 async function writeRawConfig(configPath: string, raw: unknown): Promise<void> {
+  const extension = extname(configPath).toLowerCase();
+
+  if (extension === ".toml" || extension === "") {
+    await writeFile(configPath, stringifyToml(ensureRecord(raw)), "utf8");
+    return;
+  }
+
+  if (extension === ".json") {
+    await writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    return;
+  }
+
   await writeFile(configPath, stringifyYaml(raw), "utf8");
 }
 

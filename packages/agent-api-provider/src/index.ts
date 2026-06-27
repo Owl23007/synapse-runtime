@@ -4,6 +4,55 @@ import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 
 export const QWEN_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
+export const OPENAI_COMPATIBLE_PROVIDER_PRESETS = {
+  openai: {
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1-mini"
+  },
+  qwen: {
+    baseUrl: QWEN_COMPATIBLE_BASE_URL,
+    model: "qwen-plus"
+  },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-chat"
+  },
+  moonshot: {
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "moonshot-v1-8k"
+  },
+  zhipu: {
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4-flash"
+  },
+  mistral: {
+    baseUrl: "https://api.mistral.ai/v1",
+    model: "mistral-small-latest"
+  },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.0-flash"
+  },
+  groq: {
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "llama-3.1-8b-instant"
+  },
+  xai: {
+    baseUrl: "https://api.x.ai/v1",
+    model: "grok-2-latest"
+  },
+  openrouter: {
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4o-mini"
+  },
+  siliconflow: {
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "Qwen/Qwen2.5-7B-Instruct"
+  }
+} as const;
+
+export type OpenAiCompatibleProviderBase = keyof typeof OPENAI_COMPATIBLE_PROVIDER_PRESETS;
+
 export type ChatRole = "system" | "user" | "assistant";
 
 export interface ChatCompletionMessage {
@@ -16,6 +65,8 @@ export interface ChatCompletionRequest {
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
+  readonly topP?: number;
+  readonly extraBody?: Readonly<Record<string, unknown>>;
 }
 
 export interface ChatCompletionResult {
@@ -31,10 +82,14 @@ export interface ChatCompletionProvider {
 export interface OpenAiCompatibleChatProviderOptions {
   readonly id: string;
   readonly apiKey: string;
-  readonly baseUrl: string;
-  readonly model: string;
+  readonly base?: OpenAiCompatibleProviderBase;
+  readonly baseUrl?: string;
+  readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
+  readonly topP?: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly extraBody?: Readonly<Record<string, unknown>>;
   readonly fetch?: FetchLike;
 }
 
@@ -45,6 +100,9 @@ export interface QwenChatProviderOptions {
   readonly baseUrl?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
+  readonly topP?: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly extraBody?: Readonly<Record<string, unknown>>;
   readonly fetch?: FetchLike;
 }
 
@@ -84,30 +142,45 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   readonly #model: string;
   readonly #temperature: number | undefined;
   readonly #maxTokens: number | undefined;
+  readonly #topP: number | undefined;
+  readonly #headers: Readonly<Record<string, string>>;
+  readonly #extraBody: Readonly<Record<string, unknown>>;
   readonly #fetch: FetchLike;
 
   constructor(options: OpenAiCompatibleChatProviderOptions) {
+    const preset = options.base === undefined
+      ? undefined
+      : OPENAI_COMPATIBLE_PROVIDER_PRESETS[options.base];
+
     this.id = options.id;
     this.#apiKey = parseRequiredString(options.apiKey, "apiKey");
-    this.#baseUrl = parseRequiredString(options.baseUrl, "baseUrl");
-    this.#model = parseRequiredString(options.model, "model");
+    this.#baseUrl = parseRequiredString(options.baseUrl ?? preset?.baseUrl ?? "", "baseUrl");
+    this.#model = parseRequiredString(options.model ?? preset?.model ?? "", "model");
     this.#temperature = options.temperature;
     this.#maxTokens = options.maxTokens;
+    this.#topP = options.topP;
+    this.#headers = options.headers ?? {};
+    this.#extraBody = options.extraBody ?? {};
     this.#fetch = options.fetch ?? defaultFetch;
   }
 
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
     const temperature = request.temperature ?? this.#temperature;
     const maxTokens = request.maxTokens ?? this.#maxTokens;
+    const topP = request.topP ?? this.#topP;
     const body = {
+      ...this.#extraBody,
+      ...request.extraBody,
       model: request.model ?? this.#model,
       messages: request.messages,
       ...(temperature === undefined ? {} : { temperature }),
-      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens })
+      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
+      ...(topP === undefined ? {} : { top_p: topP })
     };
     const response = await this.#fetch(`${this.#baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
+        ...this.#headers,
         authorization: `Bearer ${this.#apiKey}`,
         "content-type": "application/json"
       },
@@ -203,10 +276,14 @@ export function createQwenChatProvider(options: QwenChatProviderOptions): OpenAi
   return new OpenAiCompatibleChatProvider({
     id: options.id,
     apiKey: options.apiKey,
-    baseUrl: options.baseUrl ?? QWEN_COMPATIBLE_BASE_URL,
-    model: options.model ?? "qwen-plus",
+    base: "qwen",
+    ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
+    ...(options.model === undefined ? {} : { model: options.model }),
     ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
     ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
+    ...(options.topP === undefined ? {} : { topP: options.topP }),
+    ...(options.headers === undefined ? {} : { headers: options.headers }),
+    ...(options.extraBody === undefined ? {} : { extraBody: options.extraBody }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch })
   });
 }

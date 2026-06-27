@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 
 function parseArgs(args: readonly string[]): CliOptions {
   let command: CliOptions["command"] = "start";
-  let configPath = "runtime.config.yaml";
+  let configPath = "runtime.config.toml";
   let envFile: string | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -101,7 +101,7 @@ Commands:
   console               Start the interactive runtime console
 
 Options:
-  -c, --config <path>   Runtime config file. Defaults to runtime.config.yaml
+  -c, --config <path>   Runtime config file. Defaults to runtime.config.toml
   --env-file <path>     Optional .env file loaded before config expansion
   -h, --help            Show this help message
 `);

@@ -27,19 +27,19 @@ describe("ConsoleLogStore", () => {
 });
 
 describe("console channel config helpers", () => {
-  it("updates and adds channels in yaml config files", async () => {
+  it("updates and adds channels in toml config files", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-console-"));
-    const configPath = join(dir, "runtime.config.yaml");
+    const configPath = join(dir, "runtime.config.toml");
     writeFileSync(
       configPath,
-      `runtime:
-  logLevel: info
-channels:
-  qq-official:
-    adapter: qq-official
-    appId: app-id
-    appSecret: app-secret
-    enabled: false
+      `[runtime]
+logLevel = "info"
+
+[channels."qq-official"]
+adapter = "qq-official"
+appId = "app-id"
+appSecret = "app-secret"
+enabled = false
 `,
       "utf8"
     );
