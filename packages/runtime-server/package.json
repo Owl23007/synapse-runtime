@@ -27,6 +27,7 @@
     "@synapse/runtime-agent-api-provider": "workspace:*",
     "@synapse/runtime-agent-core": "workspace:*",
     "@synapse/runtime-channel": "workspace:*",
+    "@synapse/runtime-channel-onebot11": "workspace:*",
     "@synapse/runtime-channel-qq-official": "workspace:*",
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-conversation": "workspace:*",

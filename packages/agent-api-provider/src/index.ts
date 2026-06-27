@@ -53,13 +53,16 @@ export const OPENAI_COMPATIBLE_PROVIDER_PRESETS = {
 
 export type OpenAiCompatibleProviderBase = keyof typeof OPENAI_COMPATIBLE_PROVIDER_PRESETS;
 
+/* 角色 */
 export type ChatRole = "system" | "user" | "assistant";
 
+/* 聊天消息 */
 export interface ChatCompletionMessage {
   readonly role: ChatRole;
   readonly content: string;
 }
 
+/* 聊天请求 */
 export interface ChatCompletionRequest {
   readonly messages: readonly ChatCompletionMessage[];
   readonly model?: string;
@@ -74,6 +77,7 @@ export interface ChatCompletionResult {
   readonly raw?: unknown;
 }
 
+/* 服务提供商 */
 export interface ChatCompletionProvider {
   readonly id: string;
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;

@@ -1,4 +1,5 @@
 import type { ChannelAdapter } from "@synapse/runtime-channel";
+import { OneBot11ChannelAdapter } from "@synapse/runtime-channel-onebot11";
 import { QqOfficialChannelAdapter } from "@synapse/runtime-channel-qq-official";
 import type { ChannelConfig } from "@synapse/runtime-config";
 import type { RuntimeFetch } from "../types.js";
@@ -17,6 +18,16 @@ export function createChannelAdapter(
       ...(channelConfig.apiBaseUrl === undefined ? {} : { apiBaseUrl: channelConfig.apiBaseUrl }),
       ...(channelConfig.tokenEndpoint === undefined ? {} : { tokenEndpoint: channelConfig.tokenEndpoint }),
       ...(options.fetch === undefined ? {} : { fetch: options.fetch })
+    });
+  }
+
+  if (channelConfig.adapter === "onebot11") {
+    return new OneBot11ChannelAdapter({
+      id: channelId,
+      provider: channelConfig.provider,
+      transport: channelConfig.transport,
+      endpoint: channelConfig.endpoint,
+      ...(channelConfig.accessToken === undefined ? {} : { accessToken: channelConfig.accessToken })
     });
   }
 

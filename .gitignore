@@ -8,4 +8,5 @@ coverage/
 .env.*
 !.env.example
 !.env.template
+deploy/napcat/data/
 %SystemDrive%/
