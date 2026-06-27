@@ -1,0 +1,236 @@
+import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
+import type { AgentRequest } from "@synapse/runtime-conversation";
+import { getTextContent, textMessage } from "@synapse/runtime-protocol";
+
+export const QWEN_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
+export type ChatRole = "system" | "user" | "assistant";
+
+export interface ChatCompletionMessage {
+  readonly role: ChatRole;
+  readonly content: string;
+}
+
+export interface ChatCompletionRequest {
+  readonly messages: readonly ChatCompletionMessage[];
+  readonly model?: string;
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+}
+
+export interface ChatCompletionResult {
+  readonly content: string;
+  readonly raw?: unknown;
+}
+
+export interface ChatCompletionProvider {
+  readonly id: string;
+  complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;
+}
+
+export interface OpenAiCompatibleChatProviderOptions {
+  readonly id: string;
+  readonly apiKey: string;
+  readonly baseUrl: string;
+  readonly model: string;
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+  readonly fetch?: FetchLike;
+}
+
+export interface QwenChatProviderOptions {
+  readonly id: string;
+  readonly apiKey: string;
+  readonly model?: string;
+  readonly baseUrl?: string;
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+  readonly fetch?: FetchLike;
+}
+
+export interface ApiChatAgentOptions {
+  readonly id: string;
+  readonly provider: ChatCompletionProvider;
+  readonly systemPrompt?: string;
+}
+
+type FetchLike = (url: string, init?: FetchInitLike) => Promise<FetchResponseLike>;
+
+interface FetchInitLike {
+  readonly method?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+}
+
+interface FetchResponseLike {
+  readonly ok: boolean;
+  readonly status: number;
+  json(): Promise<unknown>;
+}
+
+interface ChatCompletionResponse {
+  readonly choices?: readonly {
+    readonly message?: {
+      readonly content?: unknown;
+    };
+  }[];
+  readonly error?: unknown;
+}
+
+export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
+  readonly id: string;
+  readonly #apiKey: string;
+  readonly #baseUrl: string;
+  readonly #model: string;
+  readonly #temperature: number | undefined;
+  readonly #maxTokens: number | undefined;
+  readonly #fetch: FetchLike;
+
+  constructor(options: OpenAiCompatibleChatProviderOptions) {
+    this.id = options.id;
+    this.#apiKey = parseRequiredString(options.apiKey, "apiKey");
+    this.#baseUrl = parseRequiredString(options.baseUrl, "baseUrl");
+    this.#model = parseRequiredString(options.model, "model");
+    this.#temperature = options.temperature;
+    this.#maxTokens = options.maxTokens;
+    this.#fetch = options.fetch ?? defaultFetch;
+  }
+
+  async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    const temperature = request.temperature ?? this.#temperature;
+    const maxTokens = request.maxTokens ?? this.#maxTokens;
+    const body = {
+      model: request.model ?? this.#model,
+      messages: request.messages,
+      ...(temperature === undefined ? {} : { temperature }),
+      ...(maxTokens === undefined ? {} : { max_tokens: maxTokens })
+    };
+    const response = await this.#fetch(`${this.#baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.#apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const responseBody = (await response.json()) as ChatCompletionResponse;
+
+    if (!response.ok) {
+      throw new Error(`Chat completion failed with HTTP ${response.status}: ${safeJson(responseBody)}`);
+    }
+
+    const content = responseBody.choices?.[0]?.message?.content;
+
+    if (typeof content !== "string" || content.length === 0) {
+      throw new Error("Chat completion response is missing choices[0].message.content.");
+    }
+
+    return {
+      content,
+      raw: responseBody
+    };
+  }
+}
+
+export class ApiChatAgent implements Agent {
+  readonly id: string;
+  readonly #provider: ChatCompletionProvider;
+  readonly #systemPrompt: string | undefined;
+
+  constructor(options: ApiChatAgentOptions) {
+    this.id = options.id;
+    this.#provider = options.provider;
+    this.#systemPrompt = options.systemPrompt;
+  }
+
+  async run(request: AgentRequest): Promise<AgentRun> {
+    const startedAt = new Date().toISOString();
+    const userText = getTextContent(request.input);
+
+    try {
+      const result = await this.#provider.complete({
+        messages: [
+          ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
+          { role: "user", content: userText }
+        ]
+      });
+      const finishedAt = new Date().toISOString();
+
+      return {
+        id: `run-${request.event.id}`,
+        agentId: this.id,
+        sessionId: request.sessionId,
+        status: "succeeded",
+        input: request.input,
+        steps: [
+          {
+            id: "model-1",
+            kind: "model",
+            status: "succeeded",
+            startedAt,
+            finishedAt,
+            detail: this.#provider.id
+          }
+        ],
+        output: textMessage(result.content)
+      };
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+
+      return {
+        id: `run-${request.event.id}`,
+        agentId: this.id,
+        sessionId: request.sessionId,
+        status: "failed",
+        input: request.input,
+        steps: [
+          {
+            id: "model-1",
+            kind: "model",
+            status: "failed",
+            startedAt,
+            finishedAt,
+            detail: this.#provider.id
+          }
+        ],
+        error: error instanceof Error ? error.message : "Unknown chat completion error."
+      };
+    }
+  }
+}
+
+export function createQwenChatProvider(options: QwenChatProviderOptions): OpenAiCompatibleChatProvider {
+  return new OpenAiCompatibleChatProvider({
+    id: options.id,
+    apiKey: options.apiKey,
+    baseUrl: options.baseUrl ?? QWEN_COMPATIBLE_BASE_URL,
+    model: options.model ?? "qwen-plus",
+    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch })
+  });
+}
+
+async function defaultFetch(url: string, init?: FetchInitLike): Promise<FetchResponseLike> {
+  if (globalThis.fetch === undefined) {
+    throw new Error("No fetch implementation is available in this runtime.");
+  }
+
+  return globalThis.fetch(url, init) as Promise<FetchResponseLike>;
+}
+
+function parseRequiredString(value: string, field: string): string {
+  if (value.length === 0) {
+    throw new Error(`Chat provider option "${field}" must not be empty.`);
+  }
+
+  return value;
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable response]";
+  }
+}

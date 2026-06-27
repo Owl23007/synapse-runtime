@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.synapse/
+.pnpm*/
+
+.env
+.env.*
+!.env.example
+!.env.template
+%SystemDrive%/

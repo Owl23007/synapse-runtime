@@ -1,0 +1,219 @@
+import { z } from "zod";
+
+export const PermissionPolicySchema = z.enum([
+  "allow",
+  "confirm",
+  "deny",
+  "sandbox",
+  "rate_limit"
+]);
+
+export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
+
+export const RuntimeModeSchema = z.enum(["local", "attached", "hosted"]);
+
+export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
+
+export const DEFAULT_PERMISSIONS = {
+  "channel.qq.send_group_message": "allow",
+  "channel.qq.send_channel_message": "allow",
+  "channel.qq.send_private_message": "confirm",
+  "channel.qq.manage_group": "deny",
+  "channel.qq.send_media": "confirm"
+} as const;
+
+export const RuntimeSettingsSchema = z
+  .object({
+    mode: RuntimeModeSchema.default("local"),
+    dataDir: z.string().min(1).default(".synapse"),
+    logLevel: LogLevelSchema.default("info")
+  })
+  .strict();
+
+export const ServerSettingsSchema = z
+  .object({
+    host: z.string().min(1).default("0.0.0.0"),
+    port: z.number().int().min(0).max(65535).default(3000),
+    publicBaseUrl: z.string().url().optional()
+  })
+  .strict();
+
+export const TriggerModeSchema = z.enum(["always", "mention", "keyword", "mention_or_keyword", "never"]);
+
+const OptionalSecretSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional()
+);
+
+export const ConversationTriggerPolicySchema = z
+  .object({
+    mode: TriggerModeSchema.default("always"),
+    keywords: z.array(z.string().min(1)).default([]),
+    botUserIds: z.array(z.string().min(1)).default([])
+  })
+  .strict();
+
+export const ContextPolicySchema = z
+  .object({
+    includeHistory: z.boolean().default(true),
+    maxMessages: z.number().int().positive().default(20)
+  })
+  .strict();
+
+export const ConversationSettingsSchema = z
+  .object({
+    privateTrigger: ConversationTriggerPolicySchema.default({ mode: "always" }),
+    groupTrigger: ConversationTriggerPolicySchema.default({ mode: "mention" }),
+    contextPolicy: ContextPolicySchema.default({})
+  })
+  .strict();
+
+export const AgentProviderIdSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, {
+    message: "Agent provider id must start with a letter or number and contain only letters, numbers, _ or -."
+  });
+
+export const QwenAgentProviderConfigSchema = z
+  .object({
+    type: z.literal("qwen"),
+    apiKey: z.string().min(1),
+    model: z.string().min(1).default("qwen-plus"),
+    baseUrl: z.string().url().default("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().positive().optional()
+  })
+  .strict();
+
+export const OpenAiCompatibleAgentProviderConfigSchema = z
+  .object({
+    type: z.literal("openai-compatible"),
+    apiKey: z.string().min(1),
+    baseUrl: z.string().url(),
+    model: z.string().min(1),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().positive().optional()
+  })
+  .strict();
+
+export const EchoAgentProviderConfigSchema = z
+  .object({
+    type: z.literal("echo"),
+    prefix: z.string().default("")
+  })
+  .strict();
+
+export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
+  QwenAgentProviderConfigSchema,
+  OpenAiCompatibleAgentProviderConfigSchema,
+  EchoAgentProviderConfigSchema
+]);
+
+export const AgentSettingsSchema = z
+  .object({
+    default: AgentProviderIdSchema.optional(),
+    systemPrompt: z.string().min(1).optional(),
+    providers: z.record(AgentProviderIdSchema, AgentProviderConfigSchema).default({})
+  })
+  .strict()
+  .superRefine((agent, ctx) => {
+    if (agent.default === undefined) {
+      return;
+    }
+
+    if (agent.providers[agent.default] === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["default"],
+        message: `Default agent provider "${agent.default}" is not defined in agent.providers.`
+      });
+    }
+  });
+
+export const OneBot11ChannelConfigSchema = z
+  .object({
+    adapter: z.literal("onebot11"),
+    provider: z.string().min(1).default("napcat"),
+    transport: z.enum(["websocket", "http", "http-websocket"]).default("websocket"),
+    endpoint: z.string().min(1),
+    accessToken: OptionalSecretSchema,
+    enabled: z.boolean().default(true),
+    riskLevel: RiskLevelSchema.default("high")
+  })
+  .strict();
+
+export const QqOfficialChannelConfigSchema = z
+  .object({
+    adapter: z.literal("qq-official"),
+    appId: z.string().min(1),
+    appSecret: z.string().min(1),
+    mode: z.enum(["webhook", "websocket"]).default("webhook"),
+    apiBaseUrl: z.string().url().optional(),
+    tokenEndpoint: z.string().url().optional(),
+    webhookPath: z.string().min(1).optional(),
+    enabled: z.boolean().default(false),
+    riskLevel: RiskLevelSchema.default("low")
+  })
+  .strict();
+
+export const ChannelConfigSchema = z.discriminatedUnion("adapter", [
+  OneBot11ChannelConfigSchema,
+  QqOfficialChannelConfigSchema
+]);
+
+export const ChannelIdSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, {
+    message: "Channel id must start with a letter or number and contain only letters, numbers, _ or -."
+  });
+
+export const RuntimeConfigSchema = z
+  .object({
+    runtime: RuntimeSettingsSchema.default({}),
+    server: ServerSettingsSchema.default({}),
+    agent: AgentSettingsSchema.default({}),
+    conversation: ConversationSettingsSchema.default({}),
+    channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
+    permissions: z
+      .record(z.string().min(1), PermissionPolicySchema)
+      .default(DEFAULT_PERMISSIONS)
+  })
+  .strict()
+  .superRefine((config, ctx) => {
+    if (config.runtime.mode !== "hosted") {
+      return;
+    }
+
+    for (const [channelId, channel] of Object.entries(config.channels)) {
+      if (channel.adapter === "onebot11" && channel.enabled) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["channels", channelId],
+          message: "Hosted mode cannot enable onebot11 channels."
+        });
+      }
+    }
+  });
+
+export type PermissionPolicy = z.infer<typeof PermissionPolicySchema>;
+export type RiskLevel = z.infer<typeof RiskLevelSchema>;
+export type RuntimeMode = z.infer<typeof RuntimeModeSchema>;
+export type LogLevel = z.infer<typeof LogLevelSchema>;
+export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
+export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
+export type TriggerMode = z.infer<typeof TriggerModeSchema>;
+export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
+export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
+export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
+export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
+export type QwenAgentProviderConfig = z.infer<typeof QwenAgentProviderConfigSchema>;
+export type OpenAiCompatibleAgentProviderConfig = z.infer<typeof OpenAiCompatibleAgentProviderConfigSchema>;
+export type EchoAgentProviderConfig = z.infer<typeof EchoAgentProviderConfigSchema>;
+export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>;
+export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
+export type OneBot11ChannelConfig = z.infer<typeof OneBot11ChannelConfigSchema>;
+export type QqOfficialChannelConfig = z.infer<typeof QqOfficialChannelConfigSchema>;
+export type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
+export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;

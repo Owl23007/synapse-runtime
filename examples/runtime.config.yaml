@@ -1,0 +1,54 @@
+runtime:
+  mode: local
+  dataDir: .synapse
+  logLevel: info
+
+server:
+  host: 0.0.0.0
+  port: 3000
+  publicBaseUrl: ${PUBLIC_BASE_URL:-http://127.0.0.1:3000}
+
+agent:
+  default: qwen
+  systemPrompt: You are Synapse Runtime, a concise assistant in QQ conversations.
+  providers:
+    qwen:
+      type: qwen
+      apiKey: ${QWEN_API_KEY}
+      model: qwen-plus
+      temperature: 0.3
+
+conversation:
+  privateTrigger:
+    mode: always
+  groupTrigger:
+    mode: mention
+  contextPolicy:
+    includeHistory: true
+    maxMessages: 20
+
+channels:
+  qq-local:
+    adapter: onebot11
+    provider: napcat
+    transport: websocket
+    endpoint: ws://127.0.0.1:3001
+    accessToken: ${NAPCAT_TOKEN:-}
+    enabled: false
+    riskLevel: high
+
+  qq-official:
+    adapter: qq-official
+    appId: ${QQ_BOT_APP_ID}
+    appSecret: ${QQ_BOT_APP_SECRET}
+    mode: webhook
+    webhookPath: /webhooks/qq-official/qq-official
+    enabled: true
+    riskLevel: low
+
+permissions:
+  channel.qq.send_group_message: allow
+  channel.qq.send_channel_message: allow
+  channel.qq.send_private_message: allow
+  channel.qq.manage_group: deny
+  channel.qq.send_media: confirm

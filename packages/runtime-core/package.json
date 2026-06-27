@@ -1,0 +1,30 @@
+{
+  "name": "@synapse/runtime-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-channel": "workspace:*",
+    "@synapse/runtime-conversation": "workspace:*",
+    "@synapse/runtime-permission": "workspace:*",
+    "@synapse/runtime-protocol": "workspace:*",
+    "@synapse/runtime-tool-runtime": "workspace:*"
+  }
+}

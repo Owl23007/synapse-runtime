@@ -1,0 +1,39 @@
+{
+  "name": "@synapse/runtime-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "synapse-runtime": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@synapse/runtime-agent-api-provider": "workspace:*",
+    "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-channel": "workspace:*",
+    "@synapse/runtime-channel-qq-official": "workspace:*",
+    "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-conversation": "workspace:*",
+    "@synapse/runtime-permission": "workspace:*",
+    "@synapse/runtime-protocol": "workspace:*",
+    "@synapse/runtime-core": "workspace:*",
+    "@synapse/runtime-tool-runtime": "workspace:*",
+    "nova-http": "^0.1.1"
+  }
+}
