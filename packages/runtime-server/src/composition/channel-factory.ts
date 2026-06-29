@@ -9,7 +9,9 @@ export function createChannelAdapter(
   channelConfig: ChannelConfig,
   options: { readonly fetch?: RuntimeFetch } = {}
 ): ChannelAdapter {
-  if (channelConfig.adapter === "qq-official") {
+  const adapter = channelConfig.adapter;
+
+  if (adapter === "qq-official") {
     return new QqOfficialChannelAdapter({
       id: channelId,
       appId: channelConfig.appId,
@@ -21,7 +23,7 @@ export function createChannelAdapter(
     });
   }
 
-  if (channelConfig.adapter === "onebot11") {
+  if (adapter === "onebot11") {
     return new OneBot11ChannelAdapter({
       id: channelId,
       provider: channelConfig.provider,
@@ -31,5 +33,5 @@ export function createChannelAdapter(
     });
   }
 
-  throw new Error(`Channel adapter "${channelConfig.adapter}" is not implemented by runtime-server yet.`);
+  throw new Error(`Channel adapter "${adapter}" is not implemented by runtime-server yet.`);
 }

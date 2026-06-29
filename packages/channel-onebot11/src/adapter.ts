@@ -157,9 +157,11 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       };
     }
 
+    const messageId = extractMessageId(response.data);
+
     return {
       ok: true,
-      ...(extractMessageId(response.data) === undefined ? {} : { messageId: extractMessageId(response.data) })
+      ...(messageId === undefined ? {} : { messageId })
     };
   }
 

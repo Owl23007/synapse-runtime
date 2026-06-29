@@ -36,7 +36,7 @@ describe("normalizeOneBot11Event", () => {
         type: "mixed",
         segments: [{ type: "mention", userId: "10000" }, { type: "text", text: " hello" }]
       },
-      receivedAt: "2026-05-20T16:00:00.000Z"
+      receivedAt: "2026-05-23T16:00:00.000Z"
     });
   });
 
@@ -120,7 +120,9 @@ describe("OneBot11ChannelAdapter", () => {
       WebSocketCtor: fakeWebSocketCtor(socket)
     });
     const events: unknown[] = [];
-    adapter.onEvent((event) => events.push(event));
+    adapter.onEvent((event) => {
+      events.push(event);
+    });
 
     const connectPromise = adapter.connect();
     socket.open();
