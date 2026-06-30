@@ -1,6 +1,6 @@
 import { InMemoryChannelRegistry, type ChannelAdapter } from "@synapse/runtime-channel";
 import { QqOfficialChannelAdapter } from "@synapse/runtime-channel-qq-official";
-import { loadConfigFile, redactConfig, type AdminSettings, type ChannelConfig } from "@synapse/runtime-config";
+import { loadConfigFile, redactConfig, type AdminSettings, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { RuntimeCore } from "@synapse/runtime-core";
@@ -10,14 +10,14 @@ import { createAgentFromConfig } from "../composition/agent-factory.js";
 import { createChannelAdapter } from "../composition/channel-factory.js";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
-import { getNovaServerAddress, sendJson } from "./http.js";
+import { getNovaServerAddress, readJsonBody, sendJson } from "./http.js";
 import { handleQqOfficialWebhook, type QqOfficialRoute } from "./qq-official-webhook.js";
 import { summarizeChannelConfig } from "./summaries.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 export class RuntimeServer {
-  readonly #config: RuntimeServerOptions["config"];
+  #config: RuntimeConfig;
   readonly #logger: RuntimeServerLogger;
   readonly #awaitDispatch: boolean;
   readonly #fetch: RuntimeFetch | undefined;
@@ -26,6 +26,7 @@ export class RuntimeServer {
   readonly #adminApp: Nova;
   readonly #logBuffer: RuntimeLogBuffer;
   readonly #qqOfficialRoutes = new Map<string, QqOfficialRoute>();
+  readonly #registeredWebhookPaths = new Set<string>();
   readonly #runtime: RuntimeCore;
   readonly #startedAt = new Date().toISOString();
 
@@ -164,6 +165,42 @@ export class RuntimeServer {
         channels: await this.#getAdminChannelSummaries()
       });
     });
+    this.#adminApp.patch("/admin/channels/:id", async (request: NovaRequest, response: NovaResponse) => {
+      const channelId = request.params.id;
+
+      if (channelId === undefined) {
+        sendJson(response, 400, { ok: false, error: "missing_channel_id" });
+        return;
+      }
+
+      const channelConfig = this.#config.channels[channelId];
+
+      if (channelConfig === undefined) {
+        sendJson(response, 404, { ok: false, error: "channel_not_found" });
+        return;
+      }
+
+      const patch = readJsonBody(request);
+      if (!isChannelAdminPatch(patch)) {
+        sendJson(response, 400, { ok: false, error: "invalid_channel_patch" });
+        return;
+      }
+
+      try {
+        await this.#applyChannelPatch(channelId, channelConfig, patch);
+        const nextChannelConfig = this.#config.channels[channelId] ?? channelConfig;
+        sendJson(response, 200, {
+          ok: true,
+          channel: await this.#getAdminChannelSummary(channelId, nextChannelConfig)
+        });
+      } catch (error) {
+        this.#logger.error("Admin channel patch failed.", {
+          channelId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        sendJson(response, 500, { ok: false, error: "channel_patch_failed" });
+      }
+    });
     this.#adminApp.get("/admin/logs", (request: NovaRequest, response: NovaResponse) => {
       const limit = parsePositiveInt(request.query.get("limit")) ?? 100;
       sendJson(response, 200, {
@@ -215,21 +252,75 @@ export class RuntimeServer {
 
   async #getAdminChannelSummaries(): Promise<unknown[]> {
     const channels = await Promise.all(
-      Object.entries(this.#config.channels).map(async ([channelId, channelConfig]) => {
-        const adapter = this.#channels.get(channelId);
-        return {
-          id: channelId,
-          adapter: channelConfig.adapter,
-          enabled: channelConfig.enabled,
-          provider: channelConfig.adapter === "onebot11" ? channelConfig.provider : "qq-official",
-          status: adapter === undefined
-            ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }
-            : await adapter.getStatus()
-        };
-      })
+      Object.entries(this.#config.channels).map(([channelId, channelConfig]) =>
+        this.#getAdminChannelSummary(channelId, channelConfig)
+      )
     );
 
     return channels;
+  }
+
+  async #getAdminChannelSummary(channelId: string, channelConfig: ChannelConfig): Promise<unknown> {
+    const adapter = this.#channels.get(channelId);
+    return {
+      id: channelId,
+      adapter: channelConfig.adapter,
+      enabled: channelConfig.enabled,
+      provider: channelConfig.adapter === "onebot11" ? channelConfig.provider : "qq-official",
+      status: adapter === undefined
+        ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }
+        : await adapter.getStatus()
+    };
+  }
+
+  async #applyChannelPatch(
+    channelId: string,
+    channelConfig: ChannelConfig,
+    patch: ChannelAdminPatch
+  ): Promise<void> {
+    if (patch.enabled === undefined || patch.enabled === channelConfig.enabled) {
+      return;
+    }
+
+    if (patch.enabled) {
+      await this.#enableChannel(channelId, { ...channelConfig, enabled: true } as ChannelConfig);
+      return;
+    }
+
+    await this.#disableChannel(channelId, { ...channelConfig, enabled: false } as ChannelConfig);
+  }
+
+  async #enableChannel(channelId: string, channelConfig: ChannelConfig): Promise<void> {
+    if (this.#channels.get(channelId) !== undefined) {
+      this.#config = updateChannelConfig(this.#config, channelId, channelConfig);
+      return;
+    }
+
+    const channel = createChannelAdapter(channelId, channelConfig, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
+    this.#runtime.attachChannel(channel);
+    this.#registerWebhookRoute(channelId, channelConfig, channel);
+    await channel.connect();
+    this.#config = updateChannelConfig(this.#config, channelId, channelConfig);
+    this.#logger.info("Admin enabled channel.", {
+      channelId,
+      adapter: channelConfig.adapter,
+      status: await channel.getStatus()
+    });
+  }
+
+  async #disableChannel(channelId: string, channelConfig: ChannelConfig): Promise<void> {
+    const channel = this.#channels.unregister(channelId);
+
+    if (channel !== undefined) {
+      await channel.disconnect();
+    }
+
+    this.#removeWebhookRoute(channelId, channelConfig);
+    this.#config = updateChannelConfig(this.#config, channelId, channelConfig);
+    this.#logger.info("Admin disabled channel.", {
+      channelId,
+      adapter: channelConfig.adapter
+    });
   }
 
   #attachChannels(): void {
@@ -264,10 +355,22 @@ export class RuntimeServer {
       adapter: channel
     };
     this.#qqOfficialRoutes.set(path, route);
+    if (this.#registeredWebhookPaths.has(path)) {
+      return;
+    }
+
+    this.#registeredWebhookPaths.add(path);
     this.#app.post(path, async (request: NovaRequest, response: NovaResponse) => {
+      const activeRoute = this.#qqOfficialRoutes.get(path);
+
+      if (activeRoute === undefined) {
+        sendJson(response, 404, { ok: false, error: "channel_route_disabled" });
+        return;
+      }
+
       try {
         await handleQqOfficialWebhook({
-          route,
+          route: activeRoute,
           request,
           response,
           awaitDispatch: this.#awaitDispatch,
@@ -284,6 +387,38 @@ export class RuntimeServer {
     });
     this.#logger.info("Registered QQ official webhook route.", { channelId, path });
   }
+
+  #removeWebhookRoute(channelId: string, channelConfig: ChannelConfig): void {
+    if (channelConfig.adapter !== "qq-official") {
+      return;
+    }
+
+    const path = channelConfig.webhookPath ?? `/webhooks/qq-official/${channelId}`;
+    this.#qqOfficialRoutes.delete(path);
+  }
+}
+
+interface ChannelAdminPatch {
+  readonly enabled?: boolean;
+}
+
+function isChannelAdminPatch(value: unknown): value is ChannelAdminPatch {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Readonly<Record<string, unknown>>;
+  return record.enabled === undefined || typeof record.enabled === "boolean";
+}
+
+function updateChannelConfig(config: RuntimeConfig, channelId: string, channelConfig: ChannelConfig): RuntimeConfig {
+  return {
+    ...config,
+    channels: {
+      ...config.channels,
+      [channelId]: channelConfig
+    }
+  };
 }
 
 function validateAdminSecurity(admin: AdminSettings): void {

@@ -3,9 +3,16 @@ import { startRuntimeConsole } from "./console.js";
 import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeAdminClient } from "./admin-client.js";
 import { RuntimeServer, loadEnvFile } from "./index.js";
+import {
+  connectProfile,
+  getDefaultProfilePath,
+  loadProfileConfig,
+  resolveRuntimeConnection,
+  useProfile
+} from "./profile-store.js";
 
 interface CliOptions {
-  readonly command: "start" | "serve" | "console" | "status" | "logs" | "channels";
+  readonly command: "start" | "serve" | "console" | "status" | "logs" | "channels" | "channel" | "connect" | "profiles" | "use";
   readonly configPath: string;
   readonly envFile?: string;
   readonly adminHost?: string;
@@ -14,6 +21,11 @@ interface CliOptions {
   readonly endpoint?: string;
   readonly token?: string;
   readonly tail?: number;
+  readonly profile?: string;
+  readonly profilePath?: string;
+  readonly channelAction?: "enable" | "disable";
+  readonly channelId?: string;
+  readonly positional?: readonly string[];
 }
 
 async function main(): Promise<void> {
@@ -24,8 +36,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (options.command === "status" || options.command === "logs" || options.command === "channels") {
+  if (options.command === "status" || options.command === "logs" || options.command === "channels" || options.command === "channel") {
     await runAdminCommand(options);
+    return;
+  }
+
+  if (options.command === "connect" || options.command === "profiles" || options.command === "use") {
+    await runProfileCommand(options);
     return;
   }
 
@@ -66,11 +83,16 @@ function parseArgs(args: readonly string[]): CliOptions {
   let endpoint: string | undefined;
   let token: string | undefined;
   let tail: number | undefined;
+  let profile: string | undefined;
+  let profilePath: string | undefined;
+  let channelAction: CliOptions["channelAction"];
+  let channelId: string | undefined;
+  const positional: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
-    if (index === 0 && (arg === "start" || arg === "serve" || arg === "console" || arg === "status" || arg === "logs" || arg === "channels")) {
+    if (index === 0 && (arg === "start" || arg === "serve" || arg === "console" || arg === "status" || arg === "logs" || arg === "channels" || arg === "channel" || arg === "connect" || arg === "profiles" || arg === "use")) {
       command = arg;
       continue;
     }
@@ -157,6 +179,30 @@ function parseArgs(args: readonly string[]): CliOptions {
       continue;
     }
 
+    if (arg === "--profile") {
+      const value = args[index + 1];
+
+      if (value === undefined) {
+        throw new Error("--profile requires a profile name.");
+      }
+
+      profile = value;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--profile-config") {
+      const value = args[index + 1];
+
+      if (value === undefined) {
+        throw new Error("--profile-config requires a file path.");
+      }
+
+      profilePath = value;
+      index += 1;
+      continue;
+    }
+
     if (arg === "--token") {
       const value = args[index + 1];
 
@@ -181,7 +227,35 @@ function parseArgs(args: readonly string[]): CliOptions {
       continue;
     }
 
+    if (arg !== undefined && !arg.startsWith("-")) {
+      positional.push(arg);
+      continue;
+    }
+
     throw new Error(`Unknown argument "${arg}".`);
+  }
+
+  if (command === "connect" && endpoint === undefined && positional[0] !== undefined) {
+    endpoint = positional[0];
+  }
+
+  if (command === "use" && profile === undefined && positional[0] !== undefined) {
+    profile = positional[0];
+  }
+
+  if (command === "channel") {
+    const action = positional[0];
+
+    if (action !== "enable" && action !== "disable") {
+      throw new Error('channel command requires "enable" or "disable".');
+    }
+
+    if (positional[1] === undefined) {
+      throw new Error("channel command requires a channel id.");
+    }
+
+    channelAction = action;
+    channelId = positional[1];
   }
 
   return {
@@ -193,31 +267,81 @@ function parseArgs(args: readonly string[]): CliOptions {
     ...(adminTokenEnv === undefined ? {} : { adminTokenEnv }),
     ...(endpoint === undefined ? {} : { endpoint }),
     ...(token === undefined ? {} : { token }),
-    ...(tail === undefined ? {} : { tail })
+    ...(tail === undefined ? {} : { tail }),
+    ...(profile === undefined ? {} : { profile }),
+    ...(profilePath === undefined ? {} : { profilePath }),
+    ...(channelAction === undefined ? {} : { channelAction }),
+    ...(channelId === undefined ? {} : { channelId }),
+    ...(positional.length === 0 ? {} : { positional })
   };
 }
 
 async function runAdminCommand(options: CliOptions): Promise<void> {
-  const token = resolveAdminToken(options);
-  const client = new RuntimeAdminClient({
-    endpoint: resolveAdminEndpoint(options),
-    ...(token === undefined ? {} : { token })
+  const connection = await resolveRuntimeConnection({
+    ...(options.endpoint === undefined ? {} : { endpoint: options.endpoint }),
+    ...(options.token === undefined ? {} : { token: options.token }),
+    ...(options.profile === undefined ? {} : { profile: options.profile }),
+    ...(options.profilePath === undefined ? {} : { profilePath: options.profilePath })
   });
-  const result = options.command === "status"
-    ? await client.status()
-    : options.command === "channels"
-      ? await client.channels()
-      : await client.logs({ limit: options.tail ?? 100 });
+  const client = new RuntimeAdminClient({
+    endpoint: connection.endpoint,
+    ...(connection.token === undefined ? {} : { token: connection.token })
+  });
+  const result = await runAdminClientCommand(client, options);
 
   console.log(JSON.stringify(result, null, 2));
 }
 
-function resolveAdminEndpoint(options: CliOptions): string {
-  return options.endpoint ?? process.env.SYNAPSE_RUNTIME_URL ?? "http://127.0.0.1:3766";
+function runAdminClientCommand(client: RuntimeAdminClient, options: CliOptions): Promise<unknown> {
+  if (options.command === "status") {
+    return client.status();
+  }
+
+  if (options.command === "channels") {
+    return client.channels();
+  }
+
+  if (options.command === "channel") {
+    if (options.channelAction === undefined || options.channelId === undefined) {
+      throw new Error("channel command requires an action and channel id.");
+    }
+
+    return client.updateChannel(options.channelId, { enabled: options.channelAction === "enable" });
+  }
+
+  return client.logs({ limit: options.tail ?? 100 });
 }
 
-function resolveAdminToken(options: CliOptions): string | undefined {
-  return options.token ?? process.env.SYNAPSE_RUNTIME_TOKEN;
+async function runProfileCommand(options: CliOptions): Promise<void> {
+  const profilePath = options.profilePath ?? getDefaultProfilePath();
+
+  if (options.command === "connect") {
+    if (options.endpoint === undefined) {
+      throw new Error("connect requires an endpoint, for example: synapse-runtime connect http://127.0.0.1:3766");
+    }
+
+    const next = await connectProfile({
+      endpoint: options.endpoint,
+      ...(options.token === undefined ? {} : { token: options.token }),
+      ...(options.profile === undefined ? {} : { profile: options.profile }),
+      profilePath
+    });
+    console.log(JSON.stringify({ ok: true, current: next.current, profilePath }, null, 2));
+    return;
+  }
+
+  if (options.command === "use") {
+    if (options.profile === undefined) {
+      throw new Error("use requires a profile name, for example: synapse-runtime use prod");
+    }
+
+    const next = await useProfile(options.profile, profilePath);
+    console.log(JSON.stringify({ ok: true, current: next.current, profilePath }, null, 2));
+    return;
+  }
+
+  const config = await loadProfileConfig(profilePath);
+  console.log(JSON.stringify({ ok: true, profilePath, ...config }, null, 2));
 }
 
 function parsePositiveInt(value: string, optionName: string): number {
@@ -264,6 +388,11 @@ Commands:
   status                Print Admin API runtime status as JSON
   logs                  Print Admin API buffered logs as JSON
   channels              Print Admin API channels as JSON
+  channel enable <id>   Enable a configured channel through Admin API
+  channel disable <id>  Disable a configured channel through Admin API
+  connect <endpoint>    Save an Admin API endpoint to a CLI profile
+  profiles              Print configured CLI profiles as JSON
+  use <profile>         Switch the current CLI profile
 
 Options:
   -c, --config <path>   Runtime config file. Defaults to runtime.config.toml
@@ -273,6 +402,8 @@ Options:
   --admin-token-env <n> Read admin token from an environment variable
   --endpoint <url>      Admin API endpoint. Defaults to SYNAPSE_RUNTIME_URL or http://127.0.0.1:3766
   --token <token>       Admin API bearer token. Defaults to SYNAPSE_RUNTIME_TOKEN
+  --profile <name>      CLI profile name for connect/status/logs/channels/use
+  --profile-config <p>  CLI profile config path. Defaults to ~/.synapse/cli.json
   --tail <n>            Log entry count for logs. Defaults to 100
   -h, --help            Show this help message
 `);

@@ -323,6 +323,78 @@ describe("RuntimeServer", () => {
     expect((logs as { logs?: unknown[] }).logs?.length).toBeLessThanOrEqual(2);
   });
 
+  it("enables and disables channels through the admin API", async () => {
+    const config = parseConfigObject({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { host: "127.0.0.1", port: 0 },
+      channels: {
+        "qq-official": {
+          adapter: "qq-official",
+          appId: "app-id",
+          appSecret: "app-secret",
+          enabled: false
+        }
+      }
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
+    const started = await server.start();
+    const baseUrl = `http://127.0.0.1:${started.port}`;
+    const adminBaseUrl = `http://127.0.0.1:${started.admin?.port}`;
+
+    await expect(
+      fetchJson(`${adminBaseUrl}/admin/channels/qq-official`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: true })
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      channel: {
+        id: "qq-official",
+        enabled: true,
+        status: { state: "online" }
+      }
+    });
+    await expect(
+      fetchJson(`${baseUrl}/webhooks/qq-official/qq-official`, {
+        method: "POST",
+        body: JSON.stringify({
+          op: 13,
+          d: {
+            plain_token: "plain-token",
+            event_ts: "1700000000"
+          }
+        })
+      })
+    ).resolves.toMatchObject({ plain_token: "plain-token" });
+
+    await expect(
+      fetchJson(`${adminBaseUrl}/admin/channels/qq-official`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false })
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      channel: {
+        id: "qq-official",
+        enabled: false,
+        status: { state: "disabled" }
+      }
+    });
+    await expect(
+      fetchStatus(`${baseUrl}/webhooks/qq-official/qq-official`, {
+        method: "POST",
+        body: JSON.stringify({
+          op: 13,
+          d: {
+            plain_token: "plain-token",
+            event_ts: "1700000000"
+          }
+        })
+      })
+    ).resolves.toBe(404);
+  });
+
   it("rejects remote admin API without an admin token", async () => {
     const config = parseConfigObject({
       server: { host: "127.0.0.1", port: 0 },

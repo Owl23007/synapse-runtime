@@ -9,6 +9,7 @@ export type AdminFetch = (url: string, init?: AdminFetchInit) => Promise<AdminFe
 export interface AdminFetchInit {
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
 }
 
 export interface AdminFetchResponse {
@@ -44,18 +45,32 @@ export class RuntimeAdminClient {
     return this.#get("/admin/channels");
   }
 
+  updateChannel(channelId: string, patch: { readonly enabled?: boolean }): Promise<unknown> {
+    return this.#request(`/admin/channels/${encodeURIComponent(channelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch)
+    });
+  }
+
   logs(options: { readonly limit?: number } = {}): Promise<unknown> {
     const query = options.limit === undefined ? "" : `?limit=${encodeURIComponent(String(options.limit))}`;
     return this.#get(`/admin/logs${query}`);
   }
 
-  async #get(path: string): Promise<unknown> {
+  #get(path: string): Promise<unknown> {
+    return this.#request(path, { method: "GET" });
+  }
+
+  async #request(path: string, init: AdminFetchInit): Promise<unknown> {
     const response = await this.#fetch(`${this.#endpoint}${path}`, {
-      method: "GET",
+      ...init,
       headers: {
         accept: "application/json",
+        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+        ...init.headers,
         ...(this.#token === undefined ? {} : { authorization: `Bearer ${this.#token}` })
-      }
+      },
+      ...(init.body === undefined ? {} : { body: init.body })
     });
     const body = await response.json();
 

@@ -49,6 +49,7 @@ export interface ChannelAdapter {
 
 export interface ChannelRegistry {
   register(adapter: ChannelAdapter): void;
+  unregister(channelId: string): ChannelAdapter | undefined;
   get(channelId: string): ChannelAdapter | undefined;
   list(): readonly ChannelAdapter[];
 }
@@ -62,6 +63,16 @@ export class InMemoryChannelRegistry implements ChannelRegistry {
     }
 
     this.#adapters.set(adapter.id, adapter);
+  }
+
+  unregister(channelId: string): ChannelAdapter | undefined {
+    const adapter = this.#adapters.get(channelId);
+
+    if (adapter !== undefined) {
+      this.#adapters.delete(channelId);
+    }
+
+    return adapter;
   }
 
   get(channelId: string): ChannelAdapter | undefined {
