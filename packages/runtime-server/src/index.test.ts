@@ -321,6 +321,16 @@ describe("RuntimeServer", () => {
     const logs = await fetchJson(`${adminBaseUrl}/admin/logs?limit=2`);
     expect(logs).toMatchObject({ ok: true });
     expect((logs as { logs?: unknown[] }).logs?.length).toBeLessThanOrEqual(2);
+
+    const streamResponse = await fetch(`${adminBaseUrl}/admin/events/stream`);
+    expect(streamResponse.status).toBe(200);
+    expect(streamResponse.headers.get("content-type")).toContain("text/event-stream");
+    const reader = streamResponse.body?.getReader();
+    expect(reader).toBeDefined();
+    const text = reader === undefined ? "" : await readStreamUntil(reader, "event: log");
+    expect(text).toContain(": connected");
+    expect(text).toContain("event: log");
+    await reader?.cancel();
   });
 
   it("enables and disables channels through the admin API", async () => {
@@ -540,6 +550,26 @@ async function fetchStatus(url: string, init?: FetchJsonInit): Promise<number> {
   });
 
   return response.status;
+}
+
+async function readStreamUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  pattern: string
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+
+  for (let index = 0; index < 5 && !text.includes(pattern); index += 1) {
+    const chunk = await reader.read();
+
+    if (chunk.done) {
+      break;
+    }
+
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+
+  return text;
 }
 
 class SignedQqBody {

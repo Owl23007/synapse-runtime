@@ -9,7 +9,7 @@ import { bodyParser, createApp, type Nova, type NovaRequest, type NovaResponse }
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import { createChannelAdapter } from "../composition/channel-factory.js";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
-import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
+import type { RuntimeFetch, RuntimeLogEntry, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
 import { getNovaServerAddress, readJsonBody, sendJson } from "./http.js";
 import { handleQqOfficialWebhook, type QqOfficialRoute } from "./qq-official-webhook.js";
 import { summarizeChannelConfig } from "./summaries.js";
@@ -200,6 +200,9 @@ export class RuntimeServer {
         logs: this.#logBuffer.entries.slice(-limit)
       });
     });
+    this.#adminApp.get("/admin/events/stream", (_request: NovaRequest, response: NovaResponse) =>
+      streamLogEvents(response, this.#logBuffer)
+    );
     this.#adminApp.post("/admin/reload", async (_request: NovaRequest, response: NovaResponse) => {
       if (this.#configPath === undefined) {
         sendJson(response, 400, { ok: false, error: "reload_config_path_not_available" });
@@ -519,6 +522,47 @@ function parsePositiveInt(value: string | null): number | undefined {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function streamLogEvents(response: NovaResponse, logBuffer: RuntimeLogBuffer): Promise<void> {
+  const socket = response.socket;
+  const responseState = response as unknown as { _headersSent: boolean };
+  responseState._headersSent = true;
+
+  socket.write([
+    "HTTP/1.1 200 OK",
+    "content-type: text/event-stream; charset=utf-8",
+    "cache-control: no-cache, no-transform",
+    "connection: keep-alive",
+    "x-accel-buffering: no",
+    "",
+    ": connected",
+    "",
+    ""
+  ].join("\r\n"));
+
+  for (const entry of logBuffer.entries) {
+    writeSseLogEntry(socket, entry);
+  }
+
+  const unsubscribe = logBuffer.subscribe((entry) => {
+    writeSseLogEntry(socket, entry);
+  });
+
+  return new Promise((resolve) => {
+    socket.once("close", () => {
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+function writeSseLogEntry(socket: NovaResponse["socket"], entry: RuntimeLogEntry): void {
+  if (socket.destroyed) {
+    return;
+  }
+
+  socket.write(`id: ${entry.id}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`);
 }
 
 export async function startRuntimeServerFromConfigFile(

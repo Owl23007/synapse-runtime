@@ -45,12 +45,20 @@ export function createLevelLogger(logger: RuntimeServerLogger, logLevel: LogLeve
 
 export class RuntimeLogBuffer implements RuntimeServerLogger {
   readonly #entries: RuntimeLogEntry[] = [];
+  readonly #listeners = new Set<(entry: RuntimeLogEntry) => void>();
   #nextId = 1;
 
   constructor(readonly limit: number) {}
 
   get entries(): readonly RuntimeLogEntry[] {
     return this.#entries;
+  }
+
+  subscribe(listener: (entry: RuntimeLogEntry) => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   debug(message: string, metadata?: Readonly<Record<string, unknown>>): void {
@@ -70,17 +78,22 @@ export class RuntimeLogBuffer implements RuntimeServerLogger {
   }
 
   #append(level: RuntimeLogLevel, message: string, metadata?: Readonly<Record<string, unknown>>): void {
-    this.#entries.push({
+    const entry: RuntimeLogEntry = {
       id: this.#nextId,
       timestamp: new Date().toISOString(),
       level,
       message,
       ...(metadata === undefined ? {} : { metadata })
-    });
+    };
+    this.#entries.push(entry);
     this.#nextId += 1;
 
     while (this.#entries.length > this.limit) {
       this.#entries.shift();
+    }
+
+    for (const listener of this.#listeners) {
+      listener(entry);
     }
   }
 }
