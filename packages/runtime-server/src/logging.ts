@@ -1,5 +1,5 @@
 import { redactConfig, type LogLevel } from "@synapse/runtime-config";
-import type { RuntimeServerLogger } from "./types.js";
+import type { RuntimeLogEntry, RuntimeLogLevel, RuntimeServerLogger } from "./types.js";
 
 export const DEFAULT_LOGGER: RuntimeServerLogger = {
   debug(message, metadata) {
@@ -38,6 +38,73 @@ export function createLevelLogger(logger: RuntimeServerLogger, logLevel: LogLeve
     error(message, metadata) {
       if (LOG_LEVEL_ORDER.error >= threshold) {
         logger.error(message, redactConfig(metadata));
+      }
+    }
+  };
+}
+
+export class RuntimeLogBuffer implements RuntimeServerLogger {
+  readonly #entries: RuntimeLogEntry[] = [];
+  #nextId = 1;
+
+  constructor(readonly limit: number) {}
+
+  get entries(): readonly RuntimeLogEntry[] {
+    return this.#entries;
+  }
+
+  debug(message: string, metadata?: Readonly<Record<string, unknown>>): void {
+    this.#append("debug", message, metadata);
+  }
+
+  info(message: string, metadata?: Readonly<Record<string, unknown>>): void {
+    this.#append("info", message, metadata);
+  }
+
+  warn(message: string, metadata?: Readonly<Record<string, unknown>>): void {
+    this.#append("warn", message, metadata);
+  }
+
+  error(message: string, metadata?: Readonly<Record<string, unknown>>): void {
+    this.#append("error", message, metadata);
+  }
+
+  #append(level: RuntimeLogLevel, message: string, metadata?: Readonly<Record<string, unknown>>): void {
+    this.#entries.push({
+      id: this.#nextId,
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      ...(metadata === undefined ? {} : { metadata })
+    });
+    this.#nextId += 1;
+
+    while (this.#entries.length > this.limit) {
+      this.#entries.shift();
+    }
+  }
+}
+
+export function createTeeLogger(loggers: readonly RuntimeServerLogger[]): RuntimeServerLogger {
+  return {
+    debug(message, metadata) {
+      for (const logger of loggers) {
+        logger.debug?.(message, metadata);
+      }
+    },
+    info(message, metadata) {
+      for (const logger of loggers) {
+        logger.info(message, metadata);
+      }
+    },
+    warn(message, metadata) {
+      for (const logger of loggers) {
+        logger.warn(message, metadata);
+      }
+    },
+    error(message, metadata) {
+      for (const logger of loggers) {
+        logger.error(message, metadata);
       }
     }
   };

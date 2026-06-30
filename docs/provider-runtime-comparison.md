@@ -22,16 +22,16 @@ default = "openai"
 
 [agent.providers.openai]
 type = "openai-compatible"
-base = "openai"
 apiKey = "${OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
 model = "gpt-4.1-mini"
 temperature = 0.3
 topP = 0.8
 
 [agent.providers.deepseek]
 type = "openai-compatible"
-base = "deepseek"
 apiKey = "${DEEPSEEK_API_KEY}"
+baseUrl = "https://api.deepseek.com"
 model = "deepseek-chat"
 ```
 
@@ -51,12 +51,11 @@ model = "deepseek-chat"
 | `openrouter` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
 | `siliconflow` | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-7B-Instruct` |
 
-`model` 不做枚举校验。新增模型时只改配置，不需要改 schema。私有网关或未内置厂商可以直接覆盖 `baseUrl`：
+`model` 不做枚举校验。新增模型时只改配置，不需要改 schema。推荐显式配置 `baseUrl` 和 `model`，`base` 只作为内置厂商的可选快捷预设。私有网关或未内置厂商可以直接声明自己的 `baseUrl`：
 
 ```toml
 [agent.providers.private-gateway]
 type = "openai-compatible"
-base = "openai"
 baseUrl = "https://llm-gateway.internal/v1"
 apiKey = "${LLM_GATEWAY_API_KEY}"
 model = "company-chat-prod"
@@ -120,7 +119,7 @@ Synapse Runtime 可以把 LlamaIndex 封装为 Agent 或 Tool：
 
 扩展优先级：
 
-1. 默认走 `openai-compatible`，用 `base` 和 `model` 配置切换。
+1. 默认走 `openai-compatible`，优先用显式 `baseUrl` 和 `model` 配置切换。
 2. 专属请求字段放到 `extraBody`。
 3. 专属 header 放到 `headers`。
 4. 只有当协议不兼容或能力无法表达时，新增独立 provider 类型。

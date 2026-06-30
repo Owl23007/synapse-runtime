@@ -102,6 +102,41 @@ describe("OpenAiCompatibleChatProvider", () => {
       }
     ]);
   });
+
+  it("uses explicit baseUrl and model without requiring a built-in base preset", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    const provider = new OpenAiCompatibleChatProvider({
+      id: "private-gateway",
+      apiKey: "api-key",
+      base: "tenant-gateway",
+      baseUrl: "https://llm-gateway.internal/v1",
+      model: "company-chat-prod",
+      fetch: async (url, init) => {
+        requests.push({
+          url,
+          ...(init?.body === undefined ? {} : { body: init.body })
+        });
+
+        return jsonResponse({
+          choices: [{ message: { content: "pong" } }]
+        });
+      }
+    });
+
+    await provider.complete({
+      messages: [{ role: "user", content: "ping" }]
+    });
+
+    expect(requests).toEqual([
+      {
+        url: "https://llm-gateway.internal/v1/chat/completions",
+        body: JSON.stringify({
+          model: "company-chat-prod",
+          messages: [{ role: "user", content: "ping" }]
+        })
+      }
+    ]);
+  });
 });
 
 describe("ApiChatAgent", () => {

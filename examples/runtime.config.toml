@@ -8,6 +8,15 @@ host = "0.0.0.0"
 port = 3000
 publicBaseUrl = "${PUBLIC_BASE_URL:-http://127.0.0.1:3000}"
 
+[admin]
+enabled = true
+host = "127.0.0.1"
+port = 3766
+token = "${SYNAPSE_ADMIN_TOKEN:-}"
+allowedOrigins = ["http://127.0.0.1:3766", "http://localhost:3766"]
+allowedRemoteAddresses = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
+logBufferSize = 300
+
 [agent]
 default = "qwen"
 systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."
@@ -15,21 +24,29 @@ systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations
 [agent.providers.qwen]
 type = "qwen"
 apiKey = "${QWEN_API_KEY}"
+baseUrl = "${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
 model = "qwen-plus"
 temperature = 0.3
 
 # [agent.providers.openai]
 # type = "openai-compatible"
-# base = "openai"
 # apiKey = "${OPENAI_API_KEY}"
+# baseUrl = "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
 # model = "gpt-4.1-mini"
 # temperature = 0.3
 #
 # [agent.providers.deepseek]
 # type = "openai-compatible"
-# base = "deepseek"
 # apiKey = "${DEEPSEEK_API_KEY}"
+# baseUrl = "${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
 # model = "deepseek-chat"
+# temperature = 0.3
+#
+# [agent.providers.private-gateway]
+# type = "openai-compatible"
+# apiKey = "${LLM_GATEWAY_API_KEY}"
+# baseUrl = "https://llm-gateway.internal/v1"
+# model = "company-chat-prod"
 # temperature = 0.3
 
 [conversation.privateTrigger]

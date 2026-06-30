@@ -29,7 +29,21 @@ export interface RuntimeServerLogger {
   error(message: string, metadata?: Readonly<Record<string, unknown>>): void;
 }
 
+export type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
+
+export interface RuntimeLogEntry {
+  readonly id: number;
+  readonly timestamp: string;
+  readonly level: RuntimeLogLevel;
+  readonly message: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
 export interface RuntimeServerStartResult {
   readonly host: string;
   readonly port: number;
+  readonly admin?: {
+    readonly host: string;
+    readonly port: number;
+  };
 }

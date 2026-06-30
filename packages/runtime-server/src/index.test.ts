@@ -33,6 +33,7 @@ describe("RuntimeServer", () => {
     };
     const config = parseConfigObject({
       server: { host: "127.0.0.1", port: 0 },
+      admin: { enabled: false },
       agent: {
         default: "echo",
         providers: {
@@ -155,6 +156,7 @@ describe("RuntimeServer", () => {
     };
     const config = parseConfigObject({
       server: { host: "127.0.0.1", port: 0 },
+      admin: { enabled: false },
       agent: {
         default: "echo",
         providers: {
@@ -230,6 +232,7 @@ describe("RuntimeServer", () => {
   it("accepts the QQ official signature demo payload", async () => {
     const config = parseConfigObject({
       server: { host: "127.0.0.1", port: 0 },
+      admin: { enabled: false },
       channels: {
         "qq-official": {
           adapter: "qq-official",
@@ -255,6 +258,99 @@ describe("RuntimeServer", () => {
         body: "{\n  \"op\": 0,\n  \"d\": {},\n  \"t\": \"GATEWAY_EVENT_NAME\"\n}"
       })
     ).resolves.toEqual({ op: 12 });
+  });
+
+  it("serves local admin health, status, config, channels and logs", async () => {
+    const config = parseConfigObject({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { host: "127.0.0.1", port: 0, logBufferSize: 100 },
+      channels: {
+        "qq-official": {
+          adapter: "qq-official",
+          appId: "app-id",
+          appSecret: "app-secret",
+          enabled: false
+        }
+      }
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
+    const started = await server.start();
+    expect(started.admin).toBeDefined();
+    const adminBaseUrl = `http://127.0.0.1:${started.admin?.port}`;
+
+    await expect(fetchJson(`${adminBaseUrl}/admin/health`)).resolves.toEqual({ ok: true });
+    await expect(fetchJson(`${adminBaseUrl}/admin/status`)).resolves.toMatchObject({
+      ok: true,
+      protocolVersion: 1,
+      runtime: {
+        mode: "local",
+        logLevel: "info"
+      },
+      channels: [
+        {
+          id: "qq-official",
+          adapter: "qq-official",
+          enabled: false,
+          status: { state: "disabled" }
+        }
+      ]
+    });
+    await expect(fetchJson(`${adminBaseUrl}/admin/channels`)).resolves.toMatchObject({
+      ok: true,
+      channels: [
+        {
+          id: "qq-official",
+          adapter: "qq-official",
+          enabled: false,
+          status: { state: "disabled" }
+        }
+      ]
+    });
+    await expect(fetchJson(`${adminBaseUrl}/admin/config`)).resolves.toMatchObject({
+      ok: true,
+      config: {
+        channels: {
+          "qq-official": {
+            appSecret: "[REDACTED]"
+          }
+        }
+      }
+    });
+
+    const logs = await fetchJson(`${adminBaseUrl}/admin/logs?limit=2`);
+    expect(logs).toMatchObject({ ok: true });
+    expect((logs as { logs?: unknown[] }).logs?.length).toBeLessThanOrEqual(2);
+  });
+
+  it("rejects remote admin API without an admin token", async () => {
+    const config = parseConfigObject({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { host: "0.0.0.0", port: 0 }
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+
+    await expect(server.start()).rejects.toThrow(/Remote admin API requires admin\.token/);
+  });
+
+  it("requires admin bearer token when token is configured", async () => {
+    const config = parseConfigObject({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { host: "127.0.0.1", port: 0, token: "admin-token" }
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
+    const started = await server.start();
+    const adminBaseUrl = `http://127.0.0.1:${started.admin?.port}`;
+
+    await expect(fetchStatus(`${adminBaseUrl}/admin/status`)).resolves.toBe(401);
+    await expect(
+      fetchJson(`${adminBaseUrl}/admin/status`, {
+        headers: {
+          authorization: "Bearer admin-token"
+        }
+      })
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it("loads .env files without overwriting existing variables", () => {

@@ -14,6 +14,11 @@ export const RuntimeModeSchema = z.enum(["local", "attached", "hosted"]);
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 
+const OptionalSecretSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional()
+);
+
 export const DEFAULT_PERMISSIONS = {
   "channel.qq.send_group_message": "allow",
   "channel.qq.send_channel_message": "allow",
@@ -38,12 +43,23 @@ export const ServerSettingsSchema = z
   })
   .passthrough();
 
-export const TriggerModeSchema = z.enum(["always", "mention", "keyword", "mention_or_keyword", "never"]);
+export const AdminSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    host: z.string().min(1).default("127.0.0.1"),
+    port: z.number().int().min(0).max(65535).default(3766),
+    token: OptionalSecretSchema,
+    allowedOrigins: z
+      .array(z.string().min(1))
+      .default(["http://127.0.0.1:3766", "http://localhost:3766"]),
+    allowedRemoteAddresses: z
+      .array(z.string().min(1))
+      .default(["127.0.0.1", "::1", "::ffff:127.0.0.1"]),
+    logBufferSize: z.number().int().min(100).max(10_000).default(300)
+  })
+  .passthrough();
 
-const OptionalSecretSchema = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.string().min(1).optional()
-);
+export const TriggerModeSchema = z.enum(["always", "mention", "keyword", "mention_or_keyword", "never"]);
 
 export const ConversationTriggerPolicySchema = z
   .object({
@@ -75,19 +91,7 @@ export const AgentProviderIdSchema = z
     message: "Agent provider id must start with a letter or number and contain only letters, numbers, _ or -."
   });
 
-export const AgentProviderBaseSchema = z.enum([
-  "openai",
-  "qwen",
-  "deepseek",
-  "moonshot",
-  "zhipu",
-  "mistral",
-  "gemini",
-  "groq",
-  "xai",
-  "openrouter",
-  "siliconflow"
-]);
+export const AgentProviderBaseSchema = z.string().min(1);
 
 const ChatProviderTuningSchema = {
   temperature: z.number().min(0).max(2).optional(),
@@ -111,7 +115,7 @@ export const QwenAgentProviderConfigSchema = z
 export const OpenAiCompatibleAgentProviderConfigSchema = z
   .object({
     type: z.literal("openai-compatible"),
-    base: AgentProviderBaseSchema.default("openai"),
+    base: AgentProviderBaseSchema.optional(),
     apiKey: z.string().min(1),
     baseUrl: z.string().url().optional(),
     model: z.string().min(1).optional(),
@@ -130,7 +134,28 @@ export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
   QwenAgentProviderConfigSchema,
   OpenAiCompatibleAgentProviderConfigSchema,
   EchoAgentProviderConfigSchema
-]);
+]).superRefine((provider, ctx) => {
+  if (provider.type !== "openai-compatible" || provider.base !== undefined) {
+    return;
+  }
+
+  // 未选择内置预设时，必须显式声明调用地址和模型，避免新增厂商时修改代码表。
+  if (provider.baseUrl === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["baseUrl"],
+      message: "baseUrl is required when openai-compatible provider base is not set."
+    });
+  }
+
+  if (provider.model === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["model"],
+      message: "model is required when openai-compatible provider base is not set."
+    });
+  }
+});
 
 export const AgentSettingsSchema = z
   .object({
@@ -195,6 +220,7 @@ export const RuntimeConfigSchema = z
   .object({
     runtime: RuntimeSettingsSchema.default({}),
     server: ServerSettingsSchema.default({}),
+    admin: AdminSettingsSchema.default({}),
     agent: AgentSettingsSchema.default({}),
     conversation: ConversationSettingsSchema.default({}),
     channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
@@ -225,6 +251,7 @@ export type RuntimeMode = z.infer<typeof RuntimeModeSchema>;
 export type LogLevel = z.infer<typeof LogLevelSchema>;
 export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
 export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
+export type AdminSettings = z.infer<typeof AdminSettingsSchema>;
 export type TriggerMode = z.infer<typeof TriggerModeSchema>;
 export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;

@@ -66,6 +66,55 @@ seed = 7
     });
   });
 
+  it("supports explicit openai-compatible providers without built-in bases", () => {
+    const config = parseConfigContent(
+      `
+[agent]
+default = "private-gateway"
+
+[agent.providers.private-gateway]
+type = "openai-compatible"
+apiKey = "$\{LLM_GATEWAY_API_KEY}"
+baseUrl = "https://llm-gateway.internal/v1"
+model = "company-chat-prod"
+`,
+      "runtime.config.toml",
+      { env: { LLM_GATEWAY_API_KEY: "gateway-key" } }
+    );
+
+    expect(config.agent.providers["private-gateway"]).toMatchObject({
+      type: "openai-compatible",
+      apiKey: "gateway-key",
+      baseUrl: "https://llm-gateway.internal/v1",
+      model: "company-chat-prod"
+    });
+  });
+
+  it("allows custom openai-compatible base names with explicit endpoint and model", () => {
+    const config = parseConfigContent(
+      `
+[agent]
+default = "custom"
+
+[agent.providers.custom]
+type = "openai-compatible"
+base = "tenant-gateway"
+apiKey = "$\{LLM_GATEWAY_API_KEY}"
+baseUrl = "https://llm-gateway.internal/v1"
+model = "company-chat-prod"
+`,
+      "runtime.config.toml",
+      { env: { LLM_GATEWAY_API_KEY: "gateway-key" } }
+    );
+
+    expect(config.agent.providers.custom).toMatchObject({
+      type: "openai-compatible",
+      base: "tenant-gateway",
+      baseUrl: "https://llm-gateway.internal/v1",
+      model: "company-chat-prod"
+    });
+  });
+
   it("supports json configs", () => {
     const config = parseConfigContent(
       JSON.stringify({
@@ -91,6 +140,11 @@ seed = 7
     );
 
     expect(config.runtime.logLevel).toBe("debug");
+    expect(config.admin).toMatchObject({
+      enabled: true,
+      host: "127.0.0.1",
+      port: 3766
+    });
     expect(config.agent.providers.qwen).toMatchObject({
       type: "qwen",
       apiKey: "qwen-key",
@@ -132,6 +186,22 @@ seed = 7
         }
       })
     ).toThrow(/Default agent provider "missing" is not defined/);
+  });
+
+  it("requires explicit endpoint and model when openai-compatible provider base is omitted", () => {
+    expect(() =>
+      parseConfigObject({
+        agent: {
+          default: "private-gateway",
+          providers: {
+            "private-gateway": {
+              type: "openai-compatible",
+              apiKey: "gateway-key"
+            }
+          }
+        }
+      })
+    ).toThrow(/baseUrl is required when openai-compatible provider base is not set/);
   });
 
   it("rejects enabled onebot channels in hosted mode", () => {

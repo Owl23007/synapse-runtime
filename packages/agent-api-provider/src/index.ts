@@ -52,6 +52,7 @@ export const OPENAI_COMPATIBLE_PROVIDER_PRESETS = {
 } as const;
 
 export type OpenAiCompatibleProviderBase = keyof typeof OPENAI_COMPATIBLE_PROVIDER_PRESETS;
+export type OpenAiCompatibleProviderBaseName = OpenAiCompatibleProviderBase | (string & {});
 
 /* 角色 */
 export type ChatRole = "system" | "user" | "assistant";
@@ -86,7 +87,7 @@ export interface ChatCompletionProvider {
 export interface OpenAiCompatibleChatProviderOptions {
   readonly id: string;
   readonly apiKey: string;
-  readonly base?: OpenAiCompatibleProviderBase;
+  readonly base?: OpenAiCompatibleProviderBaseName;
   readonly baseUrl?: string;
   readonly model?: string;
   readonly temperature?: number;
@@ -152,9 +153,7 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   readonly #fetch: FetchLike;
 
   constructor(options: OpenAiCompatibleChatProviderOptions) {
-    const preset = options.base === undefined
-      ? undefined
-      : OPENAI_COMPATIBLE_PROVIDER_PRESETS[options.base];
+    const preset = resolveProviderPreset(options.base);
 
     this.id = options.id;
     this.#apiKey = parseRequiredString(options.apiKey, "apiKey");
@@ -207,6 +206,25 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
       raw: responseBody
     };
   }
+}
+
+function resolveProviderPreset(base: OpenAiCompatibleProviderBaseName | undefined): {
+  readonly baseUrl: string;
+  readonly model: string;
+} | undefined {
+  if (base === undefined) {
+    return undefined;
+  }
+
+  if (isKnownProviderBase(base)) {
+    return OPENAI_COMPATIBLE_PROVIDER_PRESETS[base];
+  }
+
+  return undefined;
+}
+
+function isKnownProviderBase(base: string): base is OpenAiCompatibleProviderBase {
+  return Object.prototype.hasOwnProperty.call(OPENAI_COMPATIBLE_PROVIDER_PRESETS, base);
 }
 
 export class ApiChatAgent implements Agent {

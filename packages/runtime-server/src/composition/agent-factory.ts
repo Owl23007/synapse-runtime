@@ -60,7 +60,7 @@ export function createChatProvider(
     return new OpenAiCompatibleChatProvider({
       id: providerId,
       apiKey: providerConfig.apiKey,
-      base: providerConfig.base,
+      ...(providerConfig.base === undefined ? {} : { base: providerConfig.base }),
       ...(providerConfig.baseUrl === undefined ? {} : { baseUrl: providerConfig.baseUrl }),
       ...(providerConfig.model === undefined ? {} : { model: providerConfig.model }),
       ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
