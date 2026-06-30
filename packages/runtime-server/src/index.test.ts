@@ -395,6 +395,63 @@ describe("RuntimeServer", () => {
     ).resolves.toBe(404);
   });
 
+  it("reloads config from disk and rebuilds configured channels", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-reload-"));
+    const configPath = join(dir, "runtime.config.toml");
+    writeFileSync(configPath, runtimeConfigToml({ enabled: false }), "utf8");
+    const config = parseConfigObject({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { host: "127.0.0.1", port: 0 },
+      channels: {
+        "qq-official": {
+          adapter: "qq-official",
+          appId: "app-id",
+          appSecret: "app-secret",
+          enabled: false
+        }
+      }
+    });
+    const server = new RuntimeServer({ config, configPath, logger: silentLogger });
+    servers.push(server);
+    const started = await server.start();
+    const baseUrl = `http://127.0.0.1:${started.port}`;
+    const adminBaseUrl = `http://127.0.0.1:${started.admin?.port}`;
+
+    await expect(fetchStatus(`${baseUrl}/webhooks/qq-official/qq-official`, {
+      method: "POST",
+      body: JSON.stringify({
+        op: 13,
+        d: {
+          plain_token: "plain-token",
+          event_ts: "1700000000"
+        }
+      })
+    })).resolves.toBe(404);
+
+    writeFileSync(configPath, runtimeConfigToml({ enabled: true }), "utf8");
+
+    await expect(fetchJson(`${adminBaseUrl}/admin/reload`, { method: "POST" })).resolves.toMatchObject({
+      ok: true,
+      channels: [
+        {
+          id: "qq-official",
+          enabled: true,
+          status: { state: "online" }
+        }
+      ]
+    });
+    await expect(fetchJson(`${baseUrl}/webhooks/qq-official/qq-official`, {
+      method: "POST",
+      body: JSON.stringify({
+        op: 13,
+        d: {
+          plain_token: "plain-token",
+          event_ts: "1700000000"
+        }
+      })
+    })).resolves.toMatchObject({ plain_token: "plain-token" });
+  });
+
   it("rejects remote admin API without an admin token", async () => {
     const config = parseConfigObject({
       server: { host: "127.0.0.1", port: 0 },
@@ -532,6 +589,27 @@ function jsonResponse(body: unknown) {
       return body;
     }
   };
+}
+
+function runtimeConfigToml(options: { readonly enabled: boolean }): string {
+  return `
+[runtime]
+mode = "local"
+
+[server]
+host = "127.0.0.1"
+port = 0
+
+[admin]
+host = "127.0.0.1"
+port = 0
+
+[channels."qq-official"]
+adapter = "qq-official"
+appId = "app-id"
+appSecret = "app-secret"
+enabled = ${String(options.enabled)}
+`;
 }
 
 const silentLogger = {

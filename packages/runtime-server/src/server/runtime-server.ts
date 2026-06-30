@@ -18,6 +18,7 @@ const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 export class RuntimeServer {
   #config: RuntimeConfig;
+  readonly #configPath: string | undefined;
   readonly #logger: RuntimeServerLogger;
   readonly #awaitDispatch: boolean;
   readonly #fetch: RuntimeFetch | undefined;
@@ -27,11 +28,12 @@ export class RuntimeServer {
   readonly #logBuffer: RuntimeLogBuffer;
   readonly #qqOfficialRoutes = new Map<string, QqOfficialRoute>();
   readonly #registeredWebhookPaths = new Set<string>();
-  readonly #runtime: RuntimeCore;
+  #runtime: RuntimeCore;
   readonly #startedAt = new Date().toISOString();
 
   constructor(options: RuntimeServerOptions) {
     this.#config = options.config;
+    this.#configPath = options.configPath;
     this.#logBuffer = new RuntimeLogBuffer(this.#config.admin.logBufferSize);
     this.#logger = createLevelLogger(
       createTeeLogger([this.#logBuffer, options.logger ?? DEFAULT_LOGGER]),
@@ -42,17 +44,7 @@ export class RuntimeServer {
     this.#app = createApp({ maxBodySize: MAX_JSON_BODY_BYTES });
     this.#adminApp = createApp({ maxBodySize: MAX_JSON_BODY_BYTES });
 
-    const agent = createAgentFromConfig(this.#config, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
-    const conversation = new ConversationRouter(this.#config.conversation);
-    const tools = new ToolRuntime(new StaticPermissionEngine(this.#config.permissions));
-
-    this.#runtime = new RuntimeCore({
-      channels: this.#channels,
-      conversation,
-      agent,
-      tools,
-      logger: this.#logger
-    });
+    this.#runtime = this.#createRuntime(this.#config);
     this.#configureGateway();
     this.#configureAdmin();
   }
@@ -208,6 +200,38 @@ export class RuntimeServer {
         logs: this.#logBuffer.entries.slice(-limit)
       });
     });
+    this.#adminApp.post("/admin/reload", async (_request: NovaRequest, response: NovaResponse) => {
+      if (this.#configPath === undefined) {
+        sendJson(response, 400, { ok: false, error: "reload_config_path_not_available" });
+        return;
+      }
+
+      try {
+        await this.#reloadConfig();
+        sendJson(response, 200, {
+          ok: true,
+          config: redactConfig(this.#config),
+          channels: await this.#getAdminChannelSummaries()
+        });
+      } catch (error) {
+        this.#logger.error("Admin reload failed.", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        sendJson(response, 500, { ok: false, error: "reload_failed" });
+      }
+    });
+    this.#adminApp.post("/admin/shutdown", (_request: NovaRequest, response: NovaResponse) => {
+      sendJson(response, 202, { ok: true });
+
+      // 先写出响应，再异步关闭服务，避免客户端在响应发送前连接被切断。
+      setTimeout(() => {
+        this.stop().catch((error) => {
+          this.#logger.error("Admin shutdown failed.", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }, 0);
+    });
   }
 
   async #startAdminApp(): Promise<RuntimeServerStartResult["admin"] | undefined> {
@@ -271,6 +295,58 @@ export class RuntimeServer {
         ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }
         : await adapter.getStatus()
     };
+  }
+
+  async #reloadConfig(): Promise<void> {
+    if (this.#configPath === undefined) {
+      throw new Error("Runtime server was not started from a config file.");
+    }
+
+    const nextConfig = await loadConfigFile(this.#configPath);
+    validateAdminSecurity(nextConfig.admin);
+    await this.#replaceRuntimeConfig(nextConfig);
+    this.#logger.info("Admin reloaded runtime config.", {
+      configPath: this.#configPath,
+      enabledChannels: Object.entries(nextConfig.channels)
+        .filter(([, channel]) => channel.enabled)
+        .map(([channelId, channel]) => ({ channelId, adapter: channel.adapter }))
+    });
+  }
+
+  async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
+    await this.#disconnectAllChannels();
+    this.#config = nextConfig;
+    this.#runtime = this.#createRuntime(nextConfig);
+    this.#qqOfficialRoutes.clear();
+    this.#attachChannels();
+
+    for (const channel of this.#channels.list()) {
+      await channel.connect();
+    }
+  }
+
+  async #disconnectAllChannels(): Promise<void> {
+    const channels = this.#channels.list();
+
+    for (const channel of channels) {
+      this.#channels.unregister(channel.id);
+    }
+
+    await Promise.all(channels.map((channel) => channel.disconnect()));
+  }
+
+  #createRuntime(config: RuntimeConfig): RuntimeCore {
+    const agent = createAgentFromConfig(config, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
+    const conversation = new ConversationRouter(config.conversation);
+    const tools = new ToolRuntime(new StaticPermissionEngine(config.permissions));
+
+    return new RuntimeCore({
+      channels: this.#channels,
+      conversation,
+      agent,
+      tools,
+      logger: this.#logger
+    });
   }
 
   async #applyChannelPatch(
@@ -450,7 +526,7 @@ export async function startRuntimeServerFromConfigFile(
   options: Omit<RuntimeServerOptions, "config"> = {}
 ): Promise<RuntimeServer> {
   const config = await loadConfigFile(configPath);
-  const server = new RuntimeServer({ ...options, config });
+  const server = new RuntimeServer({ ...options, config, configPath });
   await server.start();
   return server;
 }

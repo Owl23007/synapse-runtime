@@ -2,6 +2,7 @@ import type { RuntimeConfig } from "@synapse/runtime-config";
 
 export interface RuntimeServerOptions {
   readonly config: RuntimeConfig;
+  readonly configPath?: string;
   readonly awaitDispatch?: boolean;
   readonly fetch?: RuntimeFetch;
   readonly logger?: RuntimeServerLogger;

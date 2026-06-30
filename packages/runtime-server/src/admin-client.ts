@@ -52,6 +52,14 @@ export class RuntimeAdminClient {
     });
   }
 
+  reload(): Promise<unknown> {
+    return this.#request("/admin/reload", { method: "POST" });
+  }
+
+  shutdown(): Promise<unknown> {
+    return this.#request("/admin/shutdown", { method: "POST" });
+  }
+
   logs(options: { readonly limit?: number } = {}): Promise<unknown> {
     const query = options.limit === undefined ? "" : `?limit=${encodeURIComponent(String(options.limit))}`;
     return this.#get(`/admin/logs${query}`);

@@ -12,7 +12,7 @@ import {
 } from "./profile-store.js";
 
 interface CliOptions {
-  readonly command: "start" | "serve" | "console" | "status" | "logs" | "channels" | "channel" | "connect" | "profiles" | "use";
+  readonly command: "start" | "serve" | "console" | "status" | "logs" | "channels" | "channel" | "reload" | "shutdown" | "connect" | "profiles" | "use";
   readonly configPath: string;
   readonly envFile?: string;
   readonly adminHost?: string;
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (options.command === "status" || options.command === "logs" || options.command === "channels" || options.command === "channel") {
+  if (options.command === "status" || options.command === "logs" || options.command === "channels" || options.command === "channel" || options.command === "reload" || options.command === "shutdown") {
     await runAdminCommand(options);
     return;
   }
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   }
 
   const config = applyCliOverrides(await loadConfigFile(options.configPath), options);
-  const server = new RuntimeServer({ config });
+  const server = new RuntimeServer({ config, configPath: options.configPath });
   await server.start();
 
   const shutdown = async () => {
@@ -92,7 +92,7 @@ function parseArgs(args: readonly string[]): CliOptions {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
-    if (index === 0 && (arg === "start" || arg === "serve" || arg === "console" || arg === "status" || arg === "logs" || arg === "channels" || arg === "channel" || arg === "connect" || arg === "profiles" || arg === "use")) {
+    if (index === 0 && (arg === "start" || arg === "serve" || arg === "console" || arg === "status" || arg === "logs" || arg === "channels" || arg === "channel" || arg === "reload" || arg === "shutdown" || arg === "connect" || arg === "profiles" || arg === "use")) {
       command = arg;
       continue;
     }
@@ -309,6 +309,14 @@ function runAdminClientCommand(client: RuntimeAdminClient, options: CliOptions):
     return client.updateChannel(options.channelId, { enabled: options.channelAction === "enable" });
   }
 
+  if (options.command === "reload") {
+    return client.reload();
+  }
+
+  if (options.command === "shutdown") {
+    return client.shutdown();
+  }
+
   return client.logs({ limit: options.tail ?? 100 });
 }
 
@@ -390,6 +398,8 @@ Commands:
   channels              Print Admin API channels as JSON
   channel enable <id>   Enable a configured channel through Admin API
   channel disable <id>  Disable a configured channel through Admin API
+  reload                Reload runtime config through Admin API
+  shutdown              Stop the runtime server through Admin API
   connect <endpoint>    Save an Admin API endpoint to a CLI profile
   profiles              Print configured CLI profiles as JSON
   use <profile>         Switch the current CLI profile
