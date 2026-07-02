@@ -1,15 +1,18 @@
 import type { RuntimeConfig } from "@synapse/runtime-config";
+import { RuntimeAdminClient } from "../admin-client.js";
 import { loadEnvFile, RuntimeServer } from "../index.js";
+import { resolveRuntimeConnection } from "../profile-store.js";
 import { parseAssignments, parseCommandValue, splitCommand, formatError } from "./commands.js";
 import { addChannelConfigFile, updateChannelConfigFile } from "./config-editor.js";
 import { ConsoleLogStore } from "./log-store.js";
-import type { ConsoleState, RuntimeConsoleOptions, StateListener } from "./types.js";
+import type { ConsoleLogEntry, ConsoleState, RuntimeConsoleChannelSummary, RuntimeConsoleOptions, StateListener } from "./types.js";
 
 export class RuntimeConsoleController {
   readonly #options: RuntimeConsoleOptions;
   readonly #logger = new ConsoleLogStore();
   readonly #listeners = new Set<StateListener>();
   #server: RuntimeServer | undefined;
+  #client: RuntimeAdminClient | undefined;
   #state: ConsoleState;
 
   constructor(options: RuntimeConsoleOptions) {
@@ -20,7 +23,7 @@ export class RuntimeConsoleController {
       configPath: options.configPath,
       logs: this.#logger.entries,
       notices: [
-        "Type /help for commands."
+        "输入 /help 查看命令。"
       ]
     };
     this.#logger.subscribe(() => this.#setState({ logs: this.#logger.entries }));
@@ -46,20 +49,12 @@ export class RuntimeConsoleController {
     this.#setState({ status: "starting" });
 
     try {
-      if (this.#options.envFile !== undefined) {
-        loadEnvFile(this.#options.envFile);
+      if (this.#options.spawn === true) {
+        await this.#startLocalRuntime();
+        return;
       }
 
-      const config = await this.#loadConfig();
-      const server = new RuntimeServer({ config, logger: this.#logger });
-      this.#server = server;
-      const started = await server.start();
-      this.#setState({
-        status: "running",
-        config,
-        started,
-        notices: [`Runtime started on ${started.host}:${started.port}.`]
-      });
+      await this.#connectRemoteRuntime();
     } catch (error) {
       this.#logger.error("Runtime console failed to start.", { error: formatError(error) });
       this.#setState({
@@ -78,7 +73,7 @@ export class RuntimeConsoleController {
 
     try {
       await this.#server?.stop();
-      this.#setState({ status: "stopped", notices: ["Runtime stopped."] });
+      this.#setState({ status: "stopped", notices: [this.#server === undefined ? "控制台已断开连接。" : "Runtime 已停止。"] });
     } catch (error) {
       this.#logger.error("Runtime console failed to stop.", { error: formatError(error) });
       this.#setState({ status: "failed", notices: [formatError(error)] });
@@ -107,26 +102,37 @@ export class RuntimeConsoleController {
       }
 
       if (name === "/status") {
+        await this.#refreshRemoteState();
         this.#setState({ view: "overview", notices: [this.#formatStatus()] });
         return "continue";
       }
 
       if (name === "/logs") {
+        await this.#refreshRemoteLogs();
         this.#setState({ view: "logs", notices: [`Showing ${this.#state.logs.length} buffered log entries.`] });
         return "continue";
       }
 
       if (name === "/config") {
+        await this.#refreshRemoteConfig();
         this.#setState({ view: "config", notices: ["Showing redacted runtime config."] });
         return "continue";
       }
 
       if (name === "/channels") {
+        await this.#refreshRemoteChannels();
         this.#setState({ view: "channels", notices: ["Showing configured channels."] });
         return "continue";
       }
 
       if (name === "/reload") {
+        if (this.#client !== undefined) {
+          const result = await this.#client.reload();
+          this.#applyRemoteReload(result);
+          this.#setState({ view: "overview", notices: ["远程配置已重载。"] });
+          return "continue";
+        }
+
         const config = await this.#loadConfig();
         this.#setState({ config, notices: ["Config reloaded. Restart console to reattach channels."] });
         return "continue";
@@ -156,6 +162,16 @@ export class RuntimeConsoleController {
     }
 
     if ((action === "enable" || action === "disable") && channelId !== undefined) {
+      if (this.#client !== undefined) {
+        await this.#client.updateChannel(channelId, { enabled: action === "enable" });
+        await this.#refreshRemoteChannels();
+        this.#setState({
+          view: "channels",
+          notices: [`频道 "${channelId}" 已${action === "enable" ? "启用" : "停用"}。`]
+        });
+        return;
+      }
+
       await updateChannelConfigFile(this.#options.configPath, channelId, { enabled: action === "enable" });
       const config = await this.#loadConfig();
       this.#setState({
@@ -216,11 +232,157 @@ export class RuntimeConsoleController {
     return loadConfigFile(this.#options.configPath);
   }
 
+  async #startLocalRuntime(): Promise<void> {
+    if (this.#options.envFile !== undefined) {
+      loadEnvFile(this.#options.envFile);
+    }
+
+    const config = await this.#loadConfig();
+    const server = new RuntimeServer({ config, logger: this.#logger });
+    this.#server = server;
+    const started = await server.start();
+    this.#setState({
+      status: "running",
+      config,
+      started,
+      ...(started.admin === undefined ? {} : { endpoint: `http://${started.admin.host}:${started.admin.port}` }),
+      notices: [`Runtime 已启动：${started.host}:${started.port}。`]
+    });
+  }
+
+  async #connectRemoteRuntime(): Promise<void> {
+    const connection = await resolveRuntimeConnection({
+      ...(this.#options.endpoint === undefined ? {} : { endpoint: this.#options.endpoint }),
+      ...(this.#options.token === undefined ? {} : { token: this.#options.token }),
+      ...(this.#options.profile === undefined ? {} : { profile: this.#options.profile }),
+      ...(this.#options.profilePath === undefined ? {} : { profilePath: this.#options.profilePath })
+    });
+    this.#client = new RuntimeAdminClient({
+      endpoint: connection.endpoint,
+      ...(connection.token === undefined ? {} : { token: connection.token })
+    });
+    await this.#refreshRemoteState();
+    this.#setState({
+      status: "running",
+      endpoint: connection.endpoint,
+      notices: [`已连接 Admin API：${connection.endpoint}${connection.profile === undefined ? "" : ` (${connection.profile})`}。`]
+    });
+  }
+
+  async #refreshRemoteState(): Promise<void> {
+    if (this.#client === undefined) {
+      return;
+    }
+
+    const [status, config, logs] = await Promise.all([
+      this.#client.status(),
+      this.#client.config(),
+      this.#client.logs({ limit: 100 })
+    ]);
+    this.#applyRemoteStatus(status);
+    this.#applyRemoteConfig(config);
+    this.#applyRemoteLogs(logs);
+  }
+
+  async #refreshRemoteConfig(): Promise<void> {
+    if (this.#client === undefined) {
+      return;
+    }
+
+    this.#applyRemoteConfig(await this.#client.config());
+  }
+
+  async #refreshRemoteChannels(): Promise<void> {
+    if (this.#client === undefined) {
+      return;
+    }
+
+    this.#applyRemoteChannels(await this.#client.channels());
+  }
+
+  async #refreshRemoteLogs(): Promise<void> {
+    if (this.#client === undefined) {
+      return;
+    }
+
+    this.#applyRemoteLogs(await this.#client.logs({ limit: 100 }));
+  }
+
+  #applyRemoteStatus(value: unknown): void {
+    if (!isRecord(value)) {
+      return;
+    }
+
+    const server = isRecord(value.server) ? value.server : undefined;
+    const admin = isRecord(value.admin) ? value.admin : undefined;
+    const runtime = isRecord(value.runtime) ? value.runtime : undefined;
+    const host = typeof server?.host === "string" ? server.host : "unknown";
+    const port = typeof server?.port === "number" ? server.port : 0;
+    const adminHost = typeof admin?.host === "string" ? admin.host : undefined;
+    const adminPort = typeof admin?.port === "number" ? admin.port : undefined;
+    const channels = Array.isArray(value.channels) ? parseChannelSummaries(value.channels) : undefined;
+
+    this.#setState({
+      started: {
+        host,
+        port,
+        ...(adminHost === undefined || adminPort === undefined ? {} : { admin: { host: adminHost, port: adminPort } })
+      },
+      config: {
+        ...this.#state.config,
+        runtime: {
+          ...this.#state.config?.runtime,
+          mode: runtime?.mode === "attached" || runtime?.mode === "hosted" ? runtime.mode : "local",
+          logLevel: parseLogLevel(runtime?.logLevel)
+        }
+      } as RuntimeConfig,
+      ...(channels === undefined ? {} : { channels })
+    });
+  }
+
+  #applyRemoteConfig(value: unknown): void {
+    if (!isRecord(value) || !isRecord(value.config)) {
+      return;
+    }
+
+    this.#setState({ config: value.config as unknown as RuntimeConfig });
+  }
+
+  #applyRemoteChannels(value: unknown): void {
+    if (!isRecord(value) || !Array.isArray(value.channels)) {
+      return;
+    }
+
+    this.#setState({ channels: parseChannelSummaries(value.channels) });
+  }
+
+  #applyRemoteLogs(value: unknown): void {
+    if (!isRecord(value) || !Array.isArray(value.logs)) {
+      return;
+    }
+
+    this.#setState({ logs: parseLogEntries(value.logs) });
+  }
+
+  #applyRemoteReload(value: unknown): void {
+    if (!isRecord(value)) {
+      return;
+    }
+
+    if (isRecord(value.config)) {
+      this.#setState({ config: value.config as unknown as RuntimeConfig });
+    }
+
+    if (Array.isArray(value.channels)) {
+      this.#setState({ channels: parseChannelSummaries(value.channels) });
+    }
+  }
+
   #formatStatus(): string {
     const address = this.#state.started === undefined
       ? "not listening"
       : `${this.#state.started.host}:${this.#state.started.port}`;
-    return `status=${this.#state.status} server=${address} logs=${this.#state.logs.length}`;
+    return `状态=${this.#state.status} 服务=${address} 日志=${this.#state.logs.length}`;
   }
 
   #setState(patch: Partial<ConsoleState>): void {
@@ -230,4 +392,42 @@ export class RuntimeConsoleController {
       listener(this.#state);
     }
   }
+}
+
+function parseChannelSummaries(values: readonly unknown[]): RuntimeConsoleChannelSummary[] {
+  return values.filter(isRecord).map((value) => ({
+    id: typeof value.id === "string" ? value.id : "-",
+    adapter: typeof value.adapter === "string" ? value.adapter : "-",
+    enabled: value.enabled === true,
+    ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
+    ...(isRecord(value.status) ? {
+      status: {
+        ...(typeof value.status.state === "string" ? { state: value.status.state } : {}),
+        ...(typeof value.status.detail === "string" ? { detail: value.status.detail } : {}),
+        ...(typeof value.status.checkedAt === "string" ? { checkedAt: value.status.checkedAt } : {})
+      }
+    } : {})
+  }));
+}
+
+function parseLogEntries(values: readonly unknown[]): ConsoleLogEntry[] {
+  return values.filter(isRecord).map((value, index) => ({
+    id: typeof value.id === "number" ? value.id : index + 1,
+    timestamp: typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString(),
+    level: parseLogLevel(value.level),
+    message: typeof value.message === "string" ? value.message : JSON.stringify(value),
+    ...(isRecord(value.metadata) ? { metadata: value.metadata } : {})
+  }));
+}
+
+function parseLogLevel(value: unknown): "debug" | "info" | "warn" | "error" {
+  if (value === "debug" || value === "warn" || value === "error") {
+    return value;
+  }
+
+  return "info";
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
 }

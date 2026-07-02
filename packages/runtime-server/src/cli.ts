@@ -23,6 +23,7 @@ interface CliOptions {
   readonly tail?: number;
   readonly profile?: string;
   readonly profilePath?: string;
+  readonly spawn?: boolean;
   readonly channelAction?: "enable" | "disable";
   readonly channelId?: string;
   readonly positional?: readonly string[];
@@ -85,6 +86,7 @@ function parseArgs(args: readonly string[]): CliOptions {
   let tail: number | undefined;
   let profile: string | undefined;
   let profilePath: string | undefined;
+  let spawn = false;
   let channelAction: CliOptions["channelAction"];
   let channelId: string | undefined;
   const positional: string[] = [];
@@ -203,6 +205,11 @@ function parseArgs(args: readonly string[]): CliOptions {
       continue;
     }
 
+    if (arg === "--spawn") {
+      spawn = true;
+      continue;
+    }
+
     if (arg === "--token") {
       const value = args[index + 1];
 
@@ -270,6 +277,7 @@ function parseArgs(args: readonly string[]): CliOptions {
     ...(tail === undefined ? {} : { tail }),
     ...(profile === undefined ? {} : { profile }),
     ...(profilePath === undefined ? {} : { profilePath }),
+    ...(spawn ? { spawn } : {}),
     ...(channelAction === undefined ? {} : { channelAction }),
     ...(channelId === undefined ? {} : { channelId }),
     ...(positional.length === 0 ? {} : { positional })
@@ -392,7 +400,7 @@ function printHelp(): void {
 Commands:
   start                 Start the runtime server. Default command
   serve                 Alias of start
-  console               Start the interactive runtime console
+  console               Start the interactive runtime console connected to Admin API
   status                Print Admin API runtime status as JSON
   logs                  Print Admin API buffered logs as JSON
   channels              Print Admin API channels as JSON
@@ -414,6 +422,7 @@ Options:
   --token <token>       Admin API bearer token. Defaults to SYNAPSE_RUNTIME_TOKEN
   --profile <name>      CLI profile name for connect/status/logs/channels/use
   --profile-config <p>  CLI profile config path. Defaults to ~/.synapse/cli.json
+  --spawn               For console only: start a local runtime inside the TUI
   --tail <n>            Log entry count for logs. Defaults to 100
   -h, --help            Show this help message
 `);

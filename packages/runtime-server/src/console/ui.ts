@@ -64,8 +64,12 @@ function Header({ state }: { readonly state: ConsoleState }) {
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(Text, { bold: true }, "Synapse Runtime Console"),
-    createElement(Text, null, `status ${state.status}   server ${server}   logLevel ${logLevel}   view ${state.view}`)
+    createElement(Text, { bold: true, color: "cyan" }, "Synapse Runtime 控制台"),
+    createElement(
+      Text,
+      null,
+      `状态 ${formatStatus(state.status)}   服务 ${server}   Admin ${state.endpoint ?? "-"}   日志级别 ${logLevel}   视图 ${formatView(state.view)}`
+    )
   );
 }
 
@@ -83,16 +87,16 @@ function renderBody(state: ConsoleState) {
       Box,
       { flexDirection: "column" },
       ...[
-        "/status                         Show runtime status",
-        "/logs                           Show buffered runtime logs",
-        "/config                         Show redacted effective config",
-        "/channels                       Show configured channels",
-        "/reload                         Reload config from disk for viewing",
-        "/channel enable <id>            Set channels.<id>.enabled=true",
-        "/channel disable <id>           Set channels.<id>.enabled=false",
-        "/channel set <id> <key> <value> Update one channel field",
-        "/channel add-qq-official <id> appId=<id> appSecret=<secret>",
-        "/quit                           Stop runtime and exit"
+        "/status                         刷新运行状态",
+        "/logs                           查看最近日志",
+        "/config                         查看脱敏后的运行配置",
+        "/channels                       查看频道状态",
+        "/reload                         通过 Admin API 重载配置",
+        "/channel enable <id>            启用频道",
+        "/channel disable <id>           停用频道",
+        "/channel set <id> <key> <value> 修改本地配置字段（仅 --spawn 模式）",
+        "/channel add-qq-official <id> ... 新增本地 QQ 官方频道（仅 --spawn 模式）",
+        "/quit                           退出控制台"
       ].map((line) => createElement(Text, { key: line }, line))
     );
   }
@@ -106,36 +110,63 @@ function renderBody(state: ConsoleState) {
   }
 
   if (state.view === "channels") {
-    return createElement(ChannelPanel, { config: state.config });
+    return createElement(ChannelPanel, { config: state.config, channels: state.channels });
   }
 
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(ChannelPanel, { config: state.config }),
-    createElement(Box, { marginTop: 1 }, createElement(Text, { bold: true }, "Recent Logs")),
+    createElement(ChannelPanel, { config: state.config, channels: state.channels }),
+    createElement(Box, { marginTop: 1 }, createElement(Text, { bold: true }, "最近日志")),
     createElement(LogPanel, { logs: state.logs.slice(-8), expanded: false })
   );
 }
 
-function ChannelPanel({ config }: { readonly config: RuntimeConfig | undefined }) {
-  const channels = Object.entries(config?.channels ?? {});
+function ChannelPanel({
+  config,
+  channels
+}: {
+  readonly config: RuntimeConfig | undefined;
+  readonly channels: ConsoleState["channels"];
+}) {
+  if (channels !== undefined) {
+    if (channels.length === 0) {
+      return createElement(Text, { color: "gray" }, "暂无频道。");
+    }
 
-  if (channels.length === 0) {
-    return createElement(Text, { color: "gray" }, "No channels configured.");
+    return createElement(
+      Box,
+      { flexDirection: "column" },
+      createElement(Text, { bold: true }, "频道"),
+      ...channels.map((channel) => {
+        const state = channel.status?.state ?? "-";
+        const detail = channel.status?.detail === undefined ? "" : `  ${channel.status.detail}`;
+        return createElement(
+          Text,
+          { key: channel.id, color: channel.enabled ? statusColor(state) : "gray" },
+          `${channel.id.padEnd(18)} ${formatEnabled(channel.enabled).padEnd(6)} ${channel.adapter.padEnd(12)} ${state.padEnd(8)} ${channel.provider ?? "-"}${detail}`
+        );
+      })
+    );
+  }
+
+  const localChannels = Object.entries(config?.channels ?? {});
+
+  if (localChannels.length === 0) {
+    return createElement(Text, { color: "gray" }, "暂无频道。");
   }
 
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(Text, { bold: true }, "Channels"),
-    ...channels.map(([channelId, channel]) => {
+    createElement(Text, { bold: true }, "频道"),
+    ...localChannels.map(([channelId, channel]) => {
       const mode = channel.adapter === "qq-official" ? channel.mode : channel.transport;
       const target = channel.adapter === "qq-official" ? channel.webhookPath ?? "-" : channel.endpoint;
       return createElement(
         Text,
         { key: channelId, color: channel.enabled ? "green" : "gray" },
-        `${channelId.padEnd(18)} ${String(channel.enabled).padEnd(5)} ${channel.adapter.padEnd(12)} ${mode} ${target}`
+        `${channelId.padEnd(18)} ${formatEnabled(channel.enabled).padEnd(6)} ${channel.adapter.padEnd(12)} ${mode} ${target}`
       );
     })
   );
@@ -145,7 +176,7 @@ function LogPanel({ logs, expanded }: { readonly logs: readonly ConsoleLogEntry[
   const visible = expanded ? logs.slice(-20) : logs;
 
   if (visible.length === 0) {
-    return createElement(Text, { color: "gray" }, "No logs yet.");
+    return createElement(Text, { color: "gray" }, "暂无日志。");
   }
 
   return createElement(
@@ -164,7 +195,7 @@ function LogPanel({ logs, expanded }: { readonly logs: readonly ConsoleLogEntry[
 
 function ConfigPanel({ config }: { readonly config: RuntimeConfig | undefined }) {
   if (config === undefined) {
-    return createElement(Text, { color: "gray" }, "Config not loaded.");
+    return createElement(Text, { color: "gray" }, "配置未加载。");
   }
 
   const redacted = redactConfig(config);
@@ -173,10 +204,51 @@ function ConfigPanel({ config }: { readonly config: RuntimeConfig | undefined })
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(Text, { bold: true }, "Config"),
+    createElement(Text, { bold: true }, "运行配置"),
     ...lines.map((line, index) => createElement(Text, { key: index }, line)),
-    createElement(Text, { color: "gray" }, "Showing first 24 lines, secrets redacted.")
+    createElement(Text, { color: "gray" }, "仅显示前 24 行，敏感字段已脱敏。")
   );
+}
+
+function formatStatus(status: ConsoleState["status"]): string {
+  return {
+    idle: "空闲",
+    starting: "连接中",
+    running: "运行中",
+    stopping: "停止中",
+    stopped: "已停止",
+    failed: "失败"
+  }[status];
+}
+
+function formatView(view: ConsoleState["view"]): string {
+  return {
+    overview: "总览",
+    logs: "日志",
+    config: "配置",
+    channels: "频道",
+    help: "帮助"
+  }[view];
+}
+
+function formatEnabled(enabled: boolean): string {
+  return enabled ? "启用" : "停用";
+}
+
+function statusColor(status: string): "gray" | "blue" | "yellow" | "red" | "green" {
+  if (status === "online") {
+    return "green";
+  }
+
+  if (status === "disabled") {
+    return "gray";
+  }
+
+  if (status === "offline") {
+    return "yellow";
+  }
+
+  return "blue";
 }
 
 function formatTime(timestamp: string): string {
