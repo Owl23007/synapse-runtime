@@ -76,6 +76,13 @@ export const ContextPolicySchema = z
   })
   .passthrough();
 
+export const RuntimeContextSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxHistoryChars: z.number().int().positive().default(6000)
+  })
+  .passthrough();
+
 export const ConversationSettingsSchema = z
   .object({
     privateTrigger: ConversationTriggerPolicySchema.default({ mode: "always" }),
@@ -221,6 +228,7 @@ export const RuntimeConfigSchema = z
     runtime: RuntimeSettingsSchema.default({}),
     server: ServerSettingsSchema.default({}),
     admin: AdminSettingsSchema.default({}),
+    context: RuntimeContextSettingsSchema.default({}),
     agent: AgentSettingsSchema.default({}),
     conversation: ConversationSettingsSchema.default({}),
     channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
@@ -255,6 +263,7 @@ export type AdminSettings = z.infer<typeof AdminSettingsSchema>;
 export type TriggerMode = z.infer<typeof TriggerModeSchema>;
 export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
+export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema>;
 export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
 export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
 export type AgentProviderBase = z.infer<typeof AgentProviderBaseSchema>;

@@ -17,6 +17,10 @@ allowedOrigins = ["http://127.0.0.1:3766", "http://localhost:3766"]
 allowedRemoteAddresses = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
 logBufferSize = 300
 
+[context]
+enabled = true
+maxHistoryChars = 6000
+
 [agent]
 default = "qwen"
 systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."

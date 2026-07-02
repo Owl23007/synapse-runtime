@@ -17,6 +17,10 @@ accessToken = "$\{NAPCAT_TOKEN}"
     );
 
     expect(config.runtime.mode).toBe("local");
+    expect(config.context).toMatchObject({
+      enabled: true,
+      maxHistoryChars: 6000
+    });
     expect(config.channels["qq-local"]).toMatchObject({
       adapter: "onebot11",
       provider: "napcat",
@@ -156,6 +160,22 @@ model = "company-chat-prod"
       mode: "webhook",
       enabled: false,
       riskLevel: "low"
+    });
+  });
+
+  it("supports runtime context settings", () => {
+    const config = parseConfigContent(
+      `
+[context]
+enabled = false
+maxHistoryChars = 1200
+`,
+      "runtime.config.toml"
+    );
+
+    expect(config.context).toMatchObject({
+      enabled: false,
+      maxHistoryChars: 1200
     });
   });
 

@@ -165,6 +165,48 @@ describe("ApiChatAgent", () => {
       output: textMessage("hi")
     });
   });
+
+  it("forwards prompt context before the current user input", async () => {
+    const agent = new ApiChatAgent({
+      id: "qwen-agent",
+      systemPrompt: "You are concise.",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          expect(request.messages).toEqual([
+            { role: "system", content: "You are concise." },
+            { role: "system", content: "Use recent session history." },
+            { role: "user", content: "previous question" },
+            { role: "assistant", content: "previous answer" },
+            { role: "user", content: "current question" }
+          ]);
+
+          return { content: "current answer" };
+        }
+      }
+    });
+
+    await expect(
+      agent.run({
+        ...agentRequest("current question"),
+        promptContext: {
+          system: "Use recent session history.",
+          messages: [
+            { role: "user", content: "previous question" },
+            { role: "assistant", content: "previous answer" }
+          ],
+          metadata: {
+            actorId: "guest:qq:napcat:qq-local:user-1",
+            workspaceId: "personal:guest:qq:napcat:qq-local:user-1",
+            sessionId: "qq:napcat:qq-local:private:user-1"
+          }
+        }
+      })
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      output: textMessage("current answer")
+    });
+  });
 });
 
 function agentRequest(text: string): AgentRequest {

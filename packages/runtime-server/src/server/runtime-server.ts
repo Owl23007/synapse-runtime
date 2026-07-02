@@ -348,7 +348,12 @@ export class RuntimeServer {
       conversation,
       agent,
       tools,
-      logger: this.#logger
+      logger: this.#logger,
+      context: {
+        enabled: config.context.enabled,
+        maxHistoryChars: config.context.maxHistoryChars,
+        providerByChannelId: providerByChannelId(config.channels)
+      }
     });
   }
 
@@ -498,6 +503,20 @@ function updateChannelConfig(config: RuntimeConfig, channelId: string, channelCo
       [channelId]: channelConfig
     }
   };
+}
+
+function providerByChannelId(channels: RuntimeConfig["channels"]): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(channels).map(([channelId, channel]) => [channelId, channelProvider(channel)])
+  );
+}
+
+function channelProvider(channel: ChannelConfig): string {
+  if (channel.adapter === "onebot11") {
+    return channel.provider;
+  }
+
+  return "qq-official";
 }
 
 function validateAdminSecurity(admin: AdminSettings): void {

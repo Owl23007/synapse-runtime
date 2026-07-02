@@ -18,6 +18,20 @@ export interface ChannelSource {
   readonly channelId: string;
   readonly conversationId: string;
   readonly conversationKind: string;
+  readonly provider?: string;
+}
+
+export interface PromptContextMessage {
+  readonly role: "user" | "assistant" | "system";
+  readonly content: string;
+  readonly messageId?: string;
+  readonly createdAt?: string;
+}
+
+export interface PromptContext {
+  readonly system?: string;
+  readonly messages: readonly PromptContextMessage[];
+  readonly metadata: Readonly<Record<string, string>>;
 }
 
 export interface AgentRequest {
@@ -27,6 +41,7 @@ export interface AgentRequest {
   readonly source: ChannelSource;
   readonly contextPolicy: ContextPolicy;
   readonly event: SynapseChannelEvent;
+  readonly promptContext?: PromptContext;
 }
 
 export interface ConversationDecision {
@@ -68,7 +83,7 @@ export class ConversationRouter {
       shouldRespond: true,
       reason: "triggered",
       request: {
-        sessionId: `${event.platform}:${event.conversation.id}`,
+        sessionId: `${event.platform}:unknown:${event.channelId}:${event.conversation.kind}:${event.conversation.id}`,
         userId: event.sender.id,
         input: event.message,
         source: {

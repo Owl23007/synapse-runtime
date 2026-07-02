@@ -3,6 +3,25 @@ import type { ChannelAdapter, ChannelRegistry, ChannelTarget } from "@synapse/ru
 import type { AgentRequest, ConversationRouter } from "@synapse/runtime-conversation";
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
+import {
+  buildSessionId,
+  commandResponse,
+  ContextComposer,
+  conversationTypeFromEvent,
+  IdentityResolverLite,
+  InMemoryEventProcessStore,
+  InMemoryTranscriptStore,
+  OutputPolicyResolver,
+  ResponsePolicy,
+  WorkspaceResolverLite,
+  type IdentityResolver,
+  type OutputPolicy,
+  type TranscriptStore,
+  type WorkspaceRef,
+  type WorkspaceResolver
+} from "./context.js";
+
+export * from "./context.js";
 
 export interface RuntimeCoreOptions {
   readonly channels: ChannelRegistry;
@@ -10,6 +29,14 @@ export interface RuntimeCoreOptions {
   readonly agent: Agent;
   readonly tools: ToolRuntime;
   readonly logger?: RuntimeCoreLogger;
+  readonly context?: {
+    readonly enabled?: boolean;
+    readonly providerByChannelId?: Readonly<Record<string, string>>;
+    readonly transcriptStore?: TranscriptStore;
+    readonly identityResolver?: IdentityResolver;
+    readonly workspaceResolver?: WorkspaceResolver;
+    readonly maxHistoryChars?: number;
+  };
 }
 
 export interface RuntimeCoreLogger {
@@ -31,6 +58,15 @@ export class RuntimeCore {
   readonly #agent: Agent;
   readonly #tools: ToolRuntime;
   readonly #logger: RuntimeCoreLogger | undefined;
+  readonly #contextEnabled: boolean;
+  readonly #providerByChannelId: Readonly<Record<string, string>>;
+  readonly #transcriptStore: TranscriptStore;
+  readonly #identityResolver: IdentityResolver;
+  readonly #workspaceResolver: WorkspaceResolver;
+  readonly #contextComposer: ContextComposer;
+  readonly #outputPolicyResolver = new OutputPolicyResolver();
+  readonly #responsePolicy = new ResponsePolicy();
+  readonly #eventProcessStore = new InMemoryEventProcessStore();
   readonly #traces: RuntimeTrace[] = [];
 
   constructor(options: RuntimeCoreOptions) {
@@ -39,6 +75,15 @@ export class RuntimeCore {
     this.#agent = options.agent;
     this.#tools = options.tools;
     this.#logger = options.logger;
+    this.#contextEnabled = options.context?.enabled ?? true;
+    this.#providerByChannelId = options.context?.providerByChannelId ?? {};
+    this.#transcriptStore = options.context?.transcriptStore ?? new InMemoryTranscriptStore();
+    this.#identityResolver = options.context?.identityResolver ?? new IdentityResolverLite();
+    this.#workspaceResolver = options.context?.workspaceResolver ?? new WorkspaceResolverLite();
+    this.#contextComposer = new ContextComposer({
+      transcriptStore: this.#transcriptStore,
+      ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars })
+    });
   }
 
   get traces(): readonly RuntimeTrace[] {
@@ -78,16 +123,124 @@ export class RuntimeCore {
   }
 
   async #runAgent(request: AgentRequest, event: SynapseChannelEvent): Promise<void> {
+    const provider = this.#providerByChannelId[event.channelId] ?? "unknown";
+    const sessionId = buildSessionId(event, provider);
+    const conversationType = conversationTypeFromEvent(event);
+    let enrichedRequest: AgentRequest = { ...request, sessionId };
+    let workspace: WorkspaceRef | undefined;
+    let outputPolicy: OutputPolicy | undefined;
+    let processStateId: string | undefined;
+
     try {
+      const actor = await this.#identityResolver.resolve(event, provider);
+      workspace = await this.#workspaceResolver.resolve(event, actor);
+      outputPolicy = this.#outputPolicyResolver.resolve(workspace);
+      const sourceEventId = event.message?.id ?? event.id;
+      const processState = this.#eventProcessStore.begin({
+        platform: event.platform,
+        provider,
+        channelId: event.channelId,
+        conversationType,
+        conversationId: event.conversation.id,
+        sourceEventId
+      });
+      processStateId = processState.id;
+
+      if (processState.status === "completed") {
+        this.#traces.push({ eventId: event.id, status: "ignored", reason: "duplicate_completed" });
+        return;
+      }
+
+      if (processState.status === "processing" && isFreshProcessState(processState.updatedAt)) {
+        this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
+        return;
+      }
+
+      const commandOutput = commandResponse(event, actor, workspace);
+      const recoveredOutput = processState.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText);
+
+      if ((processState.status === "agent_completed" || processState.status === "send_failed") && recoveredOutput !== undefined) {
+        await this.#sendOutput({
+          event,
+          request: enrichedRequest,
+          runId: `recovered-${event.id}`,
+          output: recoveredOutput,
+          workspace,
+          outputPolicy,
+          processStateId
+        });
+        return;
+      }
+
+      if (processState.status === "send_succeeded") {
+        if (recoveredOutput !== undefined) {
+          const output = outputPolicy === undefined ? recoveredOutput : this.#responsePolicy.apply(recoveredOutput, outputPolicy);
+          const assistant = await this.#appendAssistantTranscript(event, output);
+          this.#eventProcessStore.update(processState.id, {
+            status: "completed",
+            ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
+          });
+          this.#traces.push({ eventId: event.id, status: "succeeded", runId: `recovered-${event.id}` });
+        } else {
+          this.#traces.push({ eventId: event.id, status: "ignored", reason: "send_succeeded_without_output" });
+        }
+        return;
+      }
+
+      if (this.#contextEnabled) {
+        try {
+          const incoming = await this.#transcriptStore.append({
+            sessionId,
+            platform: event.platform,
+            provider,
+            channelId: event.channelId,
+            conversationType,
+            conversationId: event.conversation.id,
+            sourceEventId,
+            role: "user",
+            actorId: actor.identity.id,
+            text: getText(event.message),
+            createdAt: event.receivedAt
+          });
+          this.#eventProcessStore.update(processState.id, { status: "processing", incomingMessageId: incoming.id });
+          const promptContext = request.contextPolicy.includeHistory ? await this.#contextComposer.compose({
+            event,
+            actor,
+            workspace,
+            outputPolicy,
+            sessionId,
+            currentInput: request.input,
+            currentSourceEventId: sourceEventId,
+            maxMessages: conversationType === "group" ? 8 : request.contextPolicy.maxMessages
+          }) : undefined;
+          enrichedRequest = {
+            ...enrichedRequest,
+            userId: actor.identity.id,
+            source: { ...enrichedRequest.source, provider },
+            ...(promptContext === undefined ? {} : { promptContext })
+          };
+        } catch (error) {
+          this.#logger?.warn("Runtime context compose failed; falling back to single-turn request.", {
+            eventId: event.id,
+            error: error instanceof Error ? error.message : "Unknown context error."
+          });
+        }
+      }
+
+      if (commandOutput !== undefined) {
+        await this.#sendOutput({ event, request: enrichedRequest, runId: `command-${event.id}`, output: commandOutput, workspace, outputPolicy, processStateId });
+        return;
+      }
+
       const context: AgentRuntimeContext = { tools: this.#tools };
       this.#logger?.info("Runtime agent run started.", {
         eventId: event.id,
         agentId: this.#agent.id,
-        sessionId: request.sessionId,
-        userId: request.userId,
-        input: summarizeMessage(request.input)
+        sessionId: enrichedRequest.sessionId,
+        userId: enrichedRequest.userId,
+        input: summarizeMessage(enrichedRequest.input)
       });
-      const run = await this.#agent.run(request, context);
+      const run = await this.#agent.run(enrichedRequest, context);
       this.#logger?.info("Runtime agent run finished.", {
         eventId: event.id,
         runId: run.id,
@@ -106,87 +259,11 @@ export class RuntimeCore {
       });
 
       if (run.status === "succeeded" && run.output !== undefined) {
-        const channel = this.#channels.get(event.channelId);
-        const target = targetFromEvent(event);
-
-        if (channel === undefined) {
-          this.#traces.push({ eventId: event.id, status: "failed", reason: `Channel "${event.channelId}" is not registered.` });
-          this.#logger?.error("Runtime send failed because channel is not registered.", {
-            eventId: event.id,
-            runId: run.id,
-            channelId: event.channelId
-          });
-          return;
+        if (processStateId !== undefined) {
+          this.#eventProcessStore.update(processStateId, { status: "agent_completed", agentOutputText: getText(run.output) });
         }
-
-        this.#logger?.info("Runtime checking send permission.", {
-          eventId: event.id,
-          runId: run.id,
-          action: channelSendAction(target),
-          target
-        });
-        const permission = await this.#tools.decidePermission({
-          action: channelSendAction(target),
-          resource: `${event.platform}:${event.channelId}:${event.conversation.id}`,
-          subject: request.userId,
-          metadata: {
-            eventId: event.id,
-            runId: run.id,
-            conversationKind: event.conversation.kind
-          }
-        });
-        this.#logger?.info("Runtime send permission decided.", {
-          eventId: event.id,
-          runId: run.id,
-          action: permission.action,
-          resource: permission.resource,
-          decision: permission.decision,
-          reason: permission.reason
-        });
-
-        if (permission.decision !== "allow") {
-          this.#traces.push({
-            eventId: event.id,
-            status: "blocked",
-            reason: permission.reason ?? `Permission decision was "${permission.decision}".`,
-            runId: run.id
-          });
-          this.#logger?.warn("Runtime blocked channel reply.", {
-            eventId: event.id,
-            runId: run.id,
-            decision: permission.decision,
-            reason: permission.reason ?? `Permission decision was "${permission.decision}".`
-          });
-          return;
-        }
-
-        this.#logger?.info("Runtime sending channel reply.", {
-          eventId: event.id,
-          runId: run.id,
-          channelId: channel.id,
-          target,
-          output: summarizeMessage(run.output)
-        });
-        const result = await channel.sendMessage(target, withReplyContext(run.output, event));
-
-        if (!result.ok) {
-          this.#traces.push({ eventId: event.id, status: "failed", reason: result.error ?? "Channel send failed.", runId: run.id });
-          this.#logger?.error("Runtime channel reply failed.", {
-            eventId: event.id,
-            runId: run.id,
-            channelId: channel.id,
-            target,
-            error: result.error ?? "Channel send failed."
-          });
-          return;
-        }
-        this.#logger?.info("Runtime channel reply sent.", {
-          eventId: event.id,
-          runId: run.id,
-          channelId: channel.id,
-          target,
-          messageId: result.messageId
-        });
+        await this.#sendOutput({ event, request: enrichedRequest, runId: run.id, output: run.output, workspace, outputPolicy, processStateId });
+        return;
       }
 
       this.#traces.push({ eventId: event.id, status: run.status === "succeeded" ? "succeeded" : "failed", runId: run.id });
@@ -207,6 +284,114 @@ export class RuntimeCore {
         error: error instanceof Error ? error.message : "Unknown runtime error."
       });
     }
+  }
+
+  async #sendOutput(input: {
+    readonly event: SynapseChannelEvent;
+    readonly request: AgentRequest;
+    readonly runId: string;
+    readonly output: SynapseMessage;
+    readonly workspace: WorkspaceRef | undefined;
+    readonly outputPolicy: OutputPolicy | undefined;
+    readonly processStateId: string | undefined;
+  }): Promise<void> {
+    const channel = this.#channels.get(input.event.channelId);
+    const target = targetFromEvent(input.event);
+
+    if (channel === undefined) {
+      this.#traces.push({ eventId: input.event.id, status: "failed", reason: `Channel "${input.event.channelId}" is not registered.` });
+      this.#logger?.error("Runtime send failed because channel is not registered.", {
+        eventId: input.event.id,
+        runId: input.runId,
+        channelId: input.event.channelId
+      });
+      return;
+    }
+
+    if (input.processStateId !== undefined) {
+      this.#eventProcessStore.update(input.processStateId, { agentOutputText: getText(input.output) });
+    }
+
+    const permission = await this.#tools.decidePermission({
+      action: channelSendAction(target),
+      resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
+      subject: input.request.userId,
+      metadata: {
+        eventId: input.event.id,
+        runId: input.runId,
+        conversationKind: input.event.conversation.kind
+      }
+    });
+
+    if (permission.decision !== "allow") {
+      this.#traces.push({
+        eventId: input.event.id,
+        status: "blocked",
+        reason: permission.reason ?? `Permission decision was "${permission.decision}".`,
+        runId: input.runId
+      });
+      return;
+    }
+
+    const output = input.outputPolicy === undefined ? input.output : this.#responsePolicy.apply(input.output, input.outputPolicy);
+    const result = await channel.sendMessage(target, withReplyContext(output, input.event));
+
+    if (!result.ok) {
+      if (input.processStateId !== undefined) {
+        this.#eventProcessStore.update(input.processStateId, {
+          status: "send_failed",
+          errorJson: JSON.stringify({ error: result.error ?? "Channel send failed." })
+        });
+      }
+      this.#traces.push({ eventId: input.event.id, status: "failed", reason: result.error ?? "Channel send failed.", runId: input.runId });
+      return;
+    }
+
+    if (input.processStateId !== undefined) {
+      this.#eventProcessStore.update(input.processStateId, {
+        status: "send_succeeded",
+        sendResultJson: JSON.stringify(result)
+      });
+    }
+
+    try {
+      const assistant = await this.#appendAssistantTranscript(input.event, output);
+
+      if (input.processStateId !== undefined) {
+        this.#eventProcessStore.update(input.processStateId, {
+          status: "completed",
+          ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
+        });
+      }
+    } catch (error) {
+      this.#logger?.warn("Runtime assistant transcript append failed after successful send.", {
+        eventId: input.event.id,
+        runId: input.runId,
+        error: error instanceof Error ? error.message : "Unknown transcript error."
+      });
+    }
+
+    this.#traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
+  }
+
+  async #appendAssistantTranscript(event: SynapseChannelEvent, output: SynapseMessage) {
+    if (!this.#contextEnabled) {
+      return undefined;
+    }
+
+    const provider = this.#providerByChannelId[event.channelId] ?? "unknown";
+    return this.#transcriptStore.append({
+      sessionId: buildSessionId(event, provider),
+      platform: event.platform,
+      provider,
+      channelId: event.channelId,
+      conversationType: conversationTypeFromEvent(event),
+      conversationId: event.conversation.id,
+      sourceEventId: `${event.message?.id ?? event.id}:assistant`,
+      role: "assistant",
+      text: getText(output),
+      createdAt: new Date().toISOString()
+    });
   }
 }
 
@@ -276,4 +461,32 @@ function summarizeMessage(message: SynapseMessage): Readonly<Record<string, unkn
 function previewText(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length <= 160 ? normalized : `${normalized.slice(0, 157)}...`;
+}
+
+function getText(message: SynapseMessage | undefined): string {
+  if (message === undefined) {
+    return "";
+  }
+
+  return message.segments
+    .filter((segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text")
+    .map((segment) => segment.text)
+    .join("");
+}
+
+function textMessage(text: string): SynapseMessage {
+  return {
+    type: "text",
+    segments: [{ type: "text", text }]
+  };
+}
+
+function isFreshProcessState(updatedAt: string): boolean {
+  const updatedAtMs = Date.parse(updatedAt);
+
+  if (Number.isNaN(updatedAtMs)) {
+    return false;
+  }
+
+  return Date.now() - updatedAtMs < 5 * 60 * 1000;
 }

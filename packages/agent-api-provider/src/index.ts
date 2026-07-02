@@ -243,9 +243,15 @@ export class ApiChatAgent implements Agent {
     const userText = getTextContent(request.input);
 
     try {
+      const contextMessages = request.promptContext?.messages.map((message) => ({
+        role: message.role,
+        content: message.content
+      })) ?? [];
       const result = await this.#provider.complete({
         messages: [
           ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
+          ...(request.promptContext?.system === undefined ? [] : [{ role: "system" as const, content: request.promptContext.system }]),
+          ...contextMessages,
           { role: "user", content: userText }
         ]
       });
