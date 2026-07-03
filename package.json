@@ -5,6 +5,9 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r build",
+    "docs:build": "vitepress build docs",
+    "docs:dev": "vitepress dev docs",
+    "docs:preview": "vitepress preview docs",
     "start": "node packages/runtime-server/dist/cli.js --config examples/runtime.config.toml --env-file .env",
     "tui": "node packages/runtime-server/dist/cli.js console",
     "tui:spawn": "node packages/runtime-server/dist/cli.js console --config examples/runtime.config.toml --env-file .env --spawn",
@@ -14,6 +17,7 @@
   "devDependencies": {
     "@types/node": "^20.14.10",
     "typescript": "^5.5.4",
+    "vitepress": "^1.6.4",
     "vitest": "^2.0.5"
   }
 }

@@ -3,6 +3,9 @@ dist/
 coverage/
 .synapse/
 .pnpm*/
+docs/.vitepress/.temp/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 .env
 .env.*
