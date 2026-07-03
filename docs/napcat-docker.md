@@ -59,7 +59,7 @@ endpoint = "ws://192.168.1.10:3001"
 
 在项目根目录 `.env` 中设置：
 
-```env
+```dotenv
 NAPCAT_TOKEN=your-token
 ```
 
