@@ -1,9 +1,10 @@
+import { join } from "node:path";
 import { InMemoryChannelRegistry, type ChannelAdapter } from "@synapse/runtime-channel";
 import { QqOfficialChannelAdapter } from "@synapse/runtime-channel-qq-official";
 import { loadConfigFile, redactConfig, type AdminSettings, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
-import { RuntimeCore } from "@synapse/runtime-core";
+import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { bodyParser, createApp, type Nova, type NovaRequest, type NovaResponse } from "nova-http";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
@@ -29,6 +30,7 @@ export class RuntimeServer {
   readonly #qqOfficialRoutes = new Map<string, QqOfficialRoute>();
   readonly #registeredWebhookPaths = new Set<string>();
   #runtime: RuntimeCore;
+  #contextStore: SqliteRuntimeContextStore | undefined;
   readonly #startedAt = new Date().toISOString();
 
   constructor(options: RuntimeServerOptions) {
@@ -103,6 +105,7 @@ export class RuntimeServer {
       await this.#adminApp.close();
     }
     await Promise.all(this.#channels.list().map((channel) => channel.disconnect()));
+    this.#closeContextStore();
     this.#logger.info("Synapse Runtime server stopped.");
   }
 
@@ -318,6 +321,7 @@ export class RuntimeServer {
 
   async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
     await this.#disconnectAllChannels();
+    this.#closeContextStore();
     this.#config = nextConfig;
     this.#runtime = this.#createRuntime(nextConfig);
     this.#qqOfficialRoutes.clear();
@@ -342,6 +346,10 @@ export class RuntimeServer {
     const agent = createAgentFromConfig(config, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
     const conversation = new ConversationRouter(config.conversation);
     const tools = new ToolRuntime(new StaticPermissionEngine(config.permissions));
+    const contextStore = config.context.enabled
+      ? new SqliteRuntimeContextStore({ databasePath: join(config.runtime.dataDir, "runtime-context.sqlite") })
+      : undefined;
+    this.#contextStore = contextStore;
 
     return new RuntimeCore({
       channels: this.#channels,
@@ -349,12 +357,24 @@ export class RuntimeServer {
       agent,
       tools,
       logger: this.#logger,
+      memory: {
+        enableDurableMemory: durableMemoryEnabled(config)
+      },
       context: {
         enabled: config.context.enabled,
         maxHistoryChars: config.context.maxHistoryChars,
-        providerByChannelId: providerByChannelId(config.channels)
+        providerByChannelId: providerByChannelId(config.channels),
+        ...(contextStore === undefined ? {} : {
+          transcriptStore: contextStore,
+          eventProcessStore: contextStore
+        })
       }
     });
+  }
+
+  #closeContextStore(): void {
+    this.#contextStore?.close();
+    this.#contextStore = undefined;
   }
 
   async #applyChannelPatch(
@@ -517,6 +537,16 @@ function channelProvider(channel: ChannelConfig): string {
   }
 
   return "qq-official";
+}
+
+function durableMemoryEnabled(config: RuntimeConfig): boolean {
+  const memory = (config as { readonly memory?: unknown }).memory;
+
+  if (typeof memory !== "object" || memory === null || !("enableDurableMemory" in memory)) {
+    return false;
+  }
+
+  return (memory as { readonly enableDurableMemory?: unknown }).enableDurableMemory === true;
 }
 
 function validateAdminSecurity(admin: AdminSettings): void {

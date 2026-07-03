@@ -4,10 +4,13 @@ import type { AgentRequest, ConversationRouter } from "@synapse/runtime-conversa
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import {
+  anonymousActor,
   buildSessionId,
+  buildSourceEventId,
   commandResponse,
   ContextComposer,
   conversationTypeFromEvent,
+  defaultWorkspace,
   IdentityResolverLite,
   InMemoryEventProcessStore,
   InMemoryTranscriptStore,
@@ -15,10 +18,12 @@ import {
   ResponsePolicy,
   WorkspaceResolverLite,
   type IdentityResolver,
+  type EventProcessStore,
   type OutputPolicy,
   type TranscriptStore,
   type WorkspaceRef,
-  type WorkspaceResolver
+  type WorkspaceResolver,
+  type WorkspaceStore
 } from "./context.js";
 
 export * from "./context.js";
@@ -29,12 +34,17 @@ export interface RuntimeCoreOptions {
   readonly agent: Agent;
   readonly tools: ToolRuntime;
   readonly logger?: RuntimeCoreLogger;
+  readonly memory?: {
+    readonly enableDurableMemory?: boolean;
+  };
   readonly context?: {
     readonly enabled?: boolean;
     readonly providerByChannelId?: Readonly<Record<string, string>>;
     readonly transcriptStore?: TranscriptStore;
+    readonly eventProcessStore?: EventProcessStore;
     readonly identityResolver?: IdentityResolver;
     readonly workspaceResolver?: WorkspaceResolver;
+    readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;
   };
 }
@@ -66,7 +76,8 @@ export class RuntimeCore {
   readonly #contextComposer: ContextComposer;
   readonly #outputPolicyResolver = new OutputPolicyResolver();
   readonly #responsePolicy = new ResponsePolicy();
-  readonly #eventProcessStore = new InMemoryEventProcessStore();
+  readonly #eventProcessStore: EventProcessStore;
+  readonly #enableDurableMemory: boolean;
   readonly #traces: RuntimeTrace[] = [];
 
   constructor(options: RuntimeCoreOptions) {
@@ -76,10 +87,15 @@ export class RuntimeCore {
     this.#tools = options.tools;
     this.#logger = options.logger;
     this.#contextEnabled = options.context?.enabled ?? true;
+    this.#enableDurableMemory = options.memory?.enableDurableMemory ?? false;
     this.#providerByChannelId = options.context?.providerByChannelId ?? {};
     this.#transcriptStore = options.context?.transcriptStore ?? new InMemoryTranscriptStore();
+    this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
     this.#identityResolver = options.context?.identityResolver ?? new IdentityResolverLite();
-    this.#workspaceResolver = options.context?.workspaceResolver ?? new WorkspaceResolverLite();
+    const workspaceStore = options.context?.workspaceStore ?? workspaceStoreFromUnknown(options.context?.transcriptStore);
+    this.#workspaceResolver = options.context?.workspaceResolver ?? new WorkspaceResolverLite({
+      ...(workspaceStore === undefined ? {} : { workspaceStore })
+    });
     this.#contextComposer = new ContextComposer({
       transcriptStore: this.#transcriptStore,
       ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars })
@@ -132,34 +148,68 @@ export class RuntimeCore {
     let processStateId: string | undefined;
 
     try {
-      const actor = await this.#identityResolver.resolve(event, provider);
-      workspace = await this.#workspaceResolver.resolve(event, actor);
-      outputPolicy = this.#outputPolicyResolver.resolve(workspace);
-      const sourceEventId = event.message?.id ?? event.id;
-      const processState = this.#eventProcessStore.begin({
-        platform: event.platform,
-        provider,
-        channelId: event.channelId,
-        conversationType,
-        conversationId: event.conversation.id,
-        sourceEventId
-      });
-      processStateId = processState.id;
+      let actor = anonymousActor(event, provider);
+      try {
+        actor = await this.#identityResolver.resolve(event, provider);
+      } catch (error) {
+        this.#logger?.warn("Runtime identity resolve failed; falling back to guest actor.", {
+          eventId: event.id,
+          error: error instanceof Error ? error.message : "Unknown identity error."
+        });
+      }
 
-      if (processState.status === "completed") {
+      try {
+        workspace = await this.#workspaceResolver.resolve(event, actor);
+      } catch (error) {
+        workspace = defaultWorkspace(event, actor);
+        this.#logger?.warn("Runtime workspace resolve failed; falling back to default workspace.", {
+          eventId: event.id,
+          workspaceId: workspace.id,
+          error: error instanceof Error ? error.message : "Unknown workspace error."
+        });
+      }
+
+      outputPolicy = this.#outputPolicyResolver.resolve(workspace);
+      enrichedRequest = {
+        ...enrichedRequest,
+        userId: actor.identity.id,
+        source: { ...enrichedRequest.source, provider }
+      };
+      const sourceEventId = buildSourceEventId(event, provider);
+      let processState;
+
+      try {
+        processState = await this.#eventProcessStore.begin({
+          platform: event.platform,
+          provider,
+          channelId: event.channelId,
+          conversationType,
+          conversationId: event.conversation.id,
+          sourceEventId
+        });
+        processStateId = processState.id;
+      } catch (error) {
+        this.#logger?.warn("Runtime idempotency begin failed; continuing without recovery state.", {
+          eventId: event.id,
+          sourceEventId,
+          error: error instanceof Error ? error.message : "Unknown idempotency error."
+        });
+      }
+
+      if (processState?.status === "completed") {
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "duplicate_completed" });
         return;
       }
 
-      if (processState.status === "processing" && isFreshProcessState(processState.updatedAt)) {
+      if (processState?.status === "processing" && isFreshProcessState(processState.updatedAt)) {
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
         return;
       }
 
-      const commandOutput = commandResponse(event, actor, workspace);
-      const recoveredOutput = processState.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText);
+      const commandOutput = commandResponse(event, actor, workspace, { enableDurableMemory: this.#enableDurableMemory });
+      const recoveredOutput = processState?.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText);
 
-      if ((processState.status === "agent_completed" || processState.status === "send_failed") && recoveredOutput !== undefined) {
+      if ((processState?.status === "agent_completed" || processState?.status === "send_failed") && recoveredOutput !== undefined) {
         await this.#sendOutput({
           event,
           request: enrichedRequest,
@@ -172,11 +222,12 @@ export class RuntimeCore {
         return;
       }
 
-      if (processState.status === "send_succeeded") {
+      if (processState?.status === "send_succeeded") {
+        const sendSucceededState = processState;
         if (recoveredOutput !== undefined) {
-          const output = outputPolicy === undefined ? recoveredOutput : this.#responsePolicy.apply(recoveredOutput, outputPolicy);
+          const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, `recovered-${event.id}`);
           const assistant = await this.#appendAssistantTranscript(event, output);
-          this.#eventProcessStore.update(processState.id, {
+          await this.#eventProcessStore.update(sendSucceededState.id, {
             status: "completed",
             ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
           });
@@ -202,7 +253,9 @@ export class RuntimeCore {
             text: getText(event.message),
             createdAt: event.receivedAt
           });
-          this.#eventProcessStore.update(processState.id, { status: "processing", incomingMessageId: incoming.id });
+          if (processStateId !== undefined) {
+            await this.#eventProcessStore.update(processStateId, { status: "processing", incomingMessageId: incoming.id });
+          }
           const promptContext = request.contextPolicy.includeHistory ? await this.#contextComposer.compose({
             event,
             actor,
@@ -215,8 +268,6 @@ export class RuntimeCore {
           }) : undefined;
           enrichedRequest = {
             ...enrichedRequest,
-            userId: actor.identity.id,
-            source: { ...enrichedRequest.source, provider },
             ...(promptContext === undefined ? {} : { promptContext })
           };
         } catch (error) {
@@ -260,7 +311,7 @@ export class RuntimeCore {
 
       if (run.status === "succeeded" && run.output !== undefined) {
         if (processStateId !== undefined) {
-          this.#eventProcessStore.update(processStateId, { status: "agent_completed", agentOutputText: getText(run.output) });
+          await this.#eventProcessStore.update(processStateId, { status: "agent_completed", agentOutputText: getText(run.output) });
         }
         await this.#sendOutput({ event, request: enrichedRequest, runId: run.id, output: run.output, workspace, outputPolicy, processStateId });
         return;
@@ -309,7 +360,7 @@ export class RuntimeCore {
     }
 
     if (input.processStateId !== undefined) {
-      this.#eventProcessStore.update(input.processStateId, { agentOutputText: getText(input.output) });
+      await this.#eventProcessStore.update(input.processStateId, { agentOutputText: getText(input.output) });
     }
 
     const permission = await this.#tools.decidePermission({
@@ -333,12 +384,12 @@ export class RuntimeCore {
       return;
     }
 
-    const output = input.outputPolicy === undefined ? input.output : this.#responsePolicy.apply(input.output, input.outputPolicy);
+    const output = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
     const result = await channel.sendMessage(target, withReplyContext(output, input.event));
 
     if (!result.ok) {
       if (input.processStateId !== undefined) {
-        this.#eventProcessStore.update(input.processStateId, {
+        await this.#eventProcessStore.update(input.processStateId, {
           status: "send_failed",
           errorJson: JSON.stringify({ error: result.error ?? "Channel send failed." })
         });
@@ -348,7 +399,7 @@ export class RuntimeCore {
     }
 
     if (input.processStateId !== undefined) {
-      this.#eventProcessStore.update(input.processStateId, {
+      await this.#eventProcessStore.update(input.processStateId, {
         status: "send_succeeded",
         sendResultJson: JSON.stringify(result)
       });
@@ -358,7 +409,7 @@ export class RuntimeCore {
       const assistant = await this.#appendAssistantTranscript(input.event, output);
 
       if (input.processStateId !== undefined) {
-        this.#eventProcessStore.update(input.processStateId, {
+        await this.#eventProcessStore.update(input.processStateId, {
           status: "completed",
           ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
         });
@@ -374,6 +425,28 @@ export class RuntimeCore {
     this.#traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
   }
 
+  #applyResponsePolicy(
+    message: SynapseMessage,
+    policy: OutputPolicy | undefined,
+    eventId: string,
+    runId: string
+  ): SynapseMessage {
+    if (policy === undefined) {
+      return message;
+    }
+
+    try {
+      return this.#responsePolicy.apply(message, policy);
+    } catch (error) {
+      this.#logger?.warn("Runtime response policy failed; using conservative truncation.", {
+        eventId,
+        runId,
+        error: error instanceof Error ? error.message : "Unknown response policy error."
+      });
+      return conservativeResponse(message, policy);
+    }
+  }
+
   async #appendAssistantTranscript(event: SynapseChannelEvent, output: SynapseMessage) {
     if (!this.#contextEnabled) {
       return undefined;
@@ -387,7 +460,7 @@ export class RuntimeCore {
       channelId: event.channelId,
       conversationType: conversationTypeFromEvent(event),
       conversationId: event.conversation.id,
-      sourceEventId: `${event.message?.id ?? event.id}:assistant`,
+      sourceEventId: `${buildSourceEventId(event, provider)}:assistant`,
       role: "assistant",
       text: getText(output),
       createdAt: new Date().toISOString()
@@ -481,6 +554,13 @@ function textMessage(text: string): SynapseMessage {
   };
 }
 
+function conservativeResponse(message: SynapseMessage, policy: OutputPolicy): SynapseMessage {
+  return {
+    ...message,
+    segments: [{ type: "text", text: getText(message).slice(0, policy.maxChars) }]
+  };
+}
+
 function isFreshProcessState(updatedAt: string): boolean {
   const updatedAtMs = Date.parse(updatedAt);
 
@@ -489,4 +569,13 @@ function isFreshProcessState(updatedAt: string): boolean {
   }
 
   return Date.now() - updatedAtMs < 5 * 60 * 1000;
+}
+
+function workspaceStoreFromUnknown(value: unknown): WorkspaceStore | undefined {
+  if (typeof value !== "object" || value === null || !("resolveWorkspace" in value)) {
+    return undefined;
+  }
+
+  const candidate = value as { readonly resolveWorkspace?: unknown };
+  return typeof candidate.resolveWorkspace === "function" ? value as WorkspaceStore : undefined;
 }

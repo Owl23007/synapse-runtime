@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrivateKey, sign } from "node:crypto";
@@ -7,10 +7,14 @@ import { parseConfigObject } from "@synapse/runtime-config";
 import { RuntimeServer, loadEnvFile, type RuntimeFetch } from "./index.js";
 
 const servers: RuntimeServer[] = [];
+const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.map((server) => server.stop()));
   servers.length = 0;
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("RuntimeServer", () => {
@@ -31,7 +35,7 @@ describe("RuntimeServer", () => {
 
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { enabled: false },
       agent: {
@@ -154,7 +158,7 @@ describe("RuntimeServer", () => {
 
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { enabled: false },
       agent: {
@@ -230,7 +234,7 @@ describe("RuntimeServer", () => {
   });
 
   it("accepts the QQ official signature demo payload", async () => {
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { enabled: false },
       channels: {
@@ -261,7 +265,7 @@ describe("RuntimeServer", () => {
   });
 
   it("serves local admin health, status, config, channels and logs", async () => {
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { host: "127.0.0.1", port: 0, logBufferSize: 100 },
       channels: {
@@ -334,7 +338,7 @@ describe("RuntimeServer", () => {
   });
 
   it("enables and disables channels through the admin API", async () => {
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { host: "127.0.0.1", port: 0 },
       channels: {
@@ -407,9 +411,11 @@ describe("RuntimeServer", () => {
 
   it("reloads config from disk and rebuilds configured channels", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-reload-"));
+    tempDirs.push(dir);
     const configPath = join(dir, "runtime.config.toml");
-    writeFileSync(configPath, runtimeConfigToml({ enabled: false }), "utf8");
-    const config = parseConfigObject({
+    const dataDir = join(dir, "data");
+    writeFileSync(configPath, runtimeConfigToml({ enabled: false, dataDir }), "utf8");
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { host: "127.0.0.1", port: 0 },
       channels: {
@@ -438,7 +444,7 @@ describe("RuntimeServer", () => {
       })
     })).resolves.toBe(404);
 
-    writeFileSync(configPath, runtimeConfigToml({ enabled: true }), "utf8");
+    writeFileSync(configPath, runtimeConfigToml({ enabled: true, dataDir }), "utf8");
 
     await expect(fetchJson(`${adminBaseUrl}/admin/reload`, { method: "POST" })).resolves.toMatchObject({
       ok: true,
@@ -463,17 +469,18 @@ describe("RuntimeServer", () => {
   });
 
   it("rejects remote admin API without an admin token", async () => {
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { host: "0.0.0.0", port: 0 }
     });
     const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
 
     await expect(server.start()).rejects.toThrow(/Remote admin API requires admin\.token/);
   });
 
   it("requires admin bearer token when token is configured", async () => {
-    const config = parseConfigObject({
+    const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
       admin: { host: "127.0.0.1", port: 0, token: "admin-token" }
     });
@@ -590,6 +597,20 @@ function signedQqBody(appSecret: string, value: unknown): SignedQqBody {
   return new SignedQqBody(appSecret, value);
 }
 
+function parseTestConfig(config: Readonly<Record<string, unknown>>) {
+  const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-data-"));
+  tempDirs.push(dir);
+  const runtime = isRecord(config.runtime) ? config.runtime : {};
+
+  return parseConfigObject({
+    ...config,
+    runtime: {
+      dataDir: dir,
+      ...runtime
+    }
+  });
+}
+
 function signQqBody(appSecret: string, timestamp: string, body: string): string {
   const seed = createQqOfficialSeed(appSecret);
   const privateKey = createPrivateKey({
@@ -621,10 +642,17 @@ function jsonResponse(body: unknown) {
   };
 }
 
-function runtimeConfigToml(options: { readonly enabled: boolean }): string {
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function runtimeConfigToml(options: { readonly enabled: boolean; readonly dataDir: string }): string {
+  const dataDir = options.dataDir.replace(/\\/g, "/");
+
   return `
 [runtime]
 mode = "local"
+dataDir = "${dataDir}"
 
 [server]
 host = "127.0.0.1"

@@ -21,6 +21,9 @@ accessToken = "$\{NAPCAT_TOKEN}"
       enabled: true,
       maxHistoryChars: 6000
     });
+    expect(config.memory).toMatchObject({
+      enableDurableMemory: false
+    });
     expect(config.channels["qq-local"]).toMatchObject({
       adapter: "onebot11",
       provider: "napcat",
@@ -176,6 +179,20 @@ maxHistoryChars = 1200
     expect(config.context).toMatchObject({
       enabled: false,
       maxHistoryChars: 1200
+    });
+  });
+
+  it("supports memory settings", () => {
+    const config = parseConfigContent(
+      `
+[memory]
+enableDurableMemory = true
+`,
+      "runtime.config.toml"
+    );
+
+    expect(config.memory).toMatchObject({
+      enableDurableMemory: true
     });
   });
 

@@ -83,6 +83,12 @@ export const RuntimeContextSettingsSchema = z
   })
   .passthrough();
 
+export const MemorySettingsSchema = z
+  .object({
+    enableDurableMemory: z.boolean().default(false)
+  })
+  .passthrough();
+
 export const ConversationSettingsSchema = z
   .object({
     privateTrigger: ConversationTriggerPolicySchema.default({ mode: "always" }),
@@ -229,6 +235,7 @@ export const RuntimeConfigSchema = z
     server: ServerSettingsSchema.default({}),
     admin: AdminSettingsSchema.default({}),
     context: RuntimeContextSettingsSchema.default({}),
+    memory: MemorySettingsSchema.default({}),
     agent: AgentSettingsSchema.default({}),
     conversation: ConversationSettingsSchema.default({}),
     channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
@@ -264,6 +271,7 @@ export type TriggerMode = z.infer<typeof TriggerModeSchema>;
 export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
 export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema>;
+export type MemorySettings = z.infer<typeof MemorySettingsSchema>;
 export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
 export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
 export type AgentProviderBase = z.infer<typeof AgentProviderBaseSchema>;
