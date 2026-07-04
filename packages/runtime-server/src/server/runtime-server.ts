@@ -363,6 +363,13 @@ export class RuntimeServer {
       context: {
         enabled: config.context.enabled,
         maxHistoryChars: config.context.maxHistoryChars,
+        timezone: config.context.timezone,
+        privateHistoryTtlMinutes: config.context.privateHistoryTtlMinutes,
+        groupHistoryTtlMinutes: config.context.groupHistoryTtlMinutes,
+        channelHistoryTtlMinutes: config.context.channelHistoryTtlMinutes,
+        privateMaxMessages: config.context.privateMaxMessages,
+        groupMaxMessages: config.context.groupMaxMessages,
+        channelMaxMessages: config.context.channelMaxMessages,
         providerByChannelId: providerByChannelId(config.channels),
         ...(contextStore === undefined ? {} : {
           transcriptStore: contextStore,

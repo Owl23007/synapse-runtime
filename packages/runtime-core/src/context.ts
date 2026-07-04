@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import type { PromptContext, PromptContextMessage } from "@synapse/runtime-conversation";
+import type { ConversationTrigger, PromptContext, PromptContextMessage } from "@synapse/runtime-conversation";
 import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
 
-export type ConversationType = "private" | "group" | "cli" | "system";
+export type ConversationType = "private" | "group" | "channel" | "cli" | "system";
 export type WorkspaceType = "personal" | "group" | "system";
 
 export interface PlatformIdentity {
@@ -49,6 +49,7 @@ export interface TranscriptMessage {
   readonly actorId?: string;
   readonly text: string;
   readonly createdAt: string;
+  readonly externalMessageId?: string;
   readonly deletedAt?: string;
 }
 
@@ -64,11 +65,22 @@ export interface TranscriptAppendInput {
   readonly actorId?: string;
   readonly text: string;
   readonly createdAt?: string;
+  readonly externalMessageId?: string;
 }
 
 export interface TranscriptStore {
   append(input: TranscriptAppendInput): Promise<TranscriptMessage>;
   listRecent(sessionId: string, options?: { readonly limit?: number }): Promise<readonly TranscriptMessage[]>;
+  findByExternalMessageId?(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined>;
+}
+
+export interface TranscriptExternalMessageLookup {
+  readonly platform: string;
+  readonly provider: string;
+  readonly channelId: string;
+  readonly conversationType: ConversationType;
+  readonly conversationId: string;
+  readonly externalMessageId: string;
 }
 
 export class InMemoryTranscriptStore implements TranscriptStore {
@@ -103,6 +115,23 @@ export class InMemoryTranscriptStore implements TranscriptStore {
     return this.#messages
       .filter((message) => message.sessionId === sessionId && message.deletedAt === undefined)
       .slice(-limit);
+  }
+
+  async findByExternalMessageId(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined> {
+    const externalMessageId = normalizeMessageId(input.externalMessageId);
+    if (externalMessageId === undefined) {
+      return undefined;
+    }
+
+    return this.#messages.find((message) =>
+      message.platform === input.platform &&
+      message.provider === input.provider &&
+      message.channelId === input.channelId &&
+      message.conversationType === input.conversationType &&
+      message.conversationId === input.conversationId &&
+      message.role === "assistant" &&
+      normalizeMessageId(message.externalMessageId) === externalMessageId
+    );
   }
 }
 
@@ -231,15 +260,18 @@ export class ResponsePolicy {
 export interface ContextComposerOptions {
   readonly transcriptStore: TranscriptStore;
   readonly maxHistoryChars?: number;
+  readonly timezone?: string;
 }
 
 export class ContextComposer {
   readonly #transcriptStore: TranscriptStore;
   readonly #maxHistoryChars: number;
+  readonly #timezone: string;
 
   constructor(options: ContextComposerOptions) {
     this.#transcriptStore = options.transcriptStore;
     this.#maxHistoryChars = options.maxHistoryChars ?? 6000;
+    this.#timezone = options.timezone ?? "UTC";
   }
 
   async compose(input: {
@@ -251,14 +283,19 @@ export class ContextComposer {
     readonly currentInput: SynapseMessage;
     readonly currentSourceEventId?: string;
     readonly maxMessages: number;
+    readonly historyTtlMinutes?: number;
+    readonly trigger?: ConversationTrigger;
   }): Promise<PromptContext> {
+    const eventMs = Date.parse(input.event.receivedAt);
+    const referenceMs = Number.isNaN(eventMs) ? Date.now() : eventMs;
     const recent = await this.#transcriptStore.listRecent(input.sessionId, { limit: input.maxMessages });
     const messages = trimHistory(
       recent
         .filter((message) => message.sourceEventId !== input.currentSourceEventId)
+        .filter((message) => isWithinHistoryTtl(message.createdAt, referenceMs, input.historyTtlMinutes))
         .map((message): PromptContextMessage => ({
           role: message.role,
-          content: message.text,
+          content: `[${message.createdAt}] ${message.text}`,
           messageId: message.id,
           createdAt: message.createdAt
         })),
@@ -272,7 +309,15 @@ export class ContextComposer {
         actorId: input.actor.identity.id,
         workspaceId: input.workspace.id,
         workspaceType: input.workspace.type,
-        sessionId: input.sessionId
+        sessionId: input.sessionId,
+        currentTimeIso: new Date().toISOString(),
+        eventReceivedAt: input.event.receivedAt,
+        timezone: this.#timezone,
+        ...(input.trigger === undefined ? {} : {
+          triggerKind: input.trigger.kind,
+          triggerReason: input.trigger.reason,
+          triggerConfidence: input.trigger.confidence
+        })
       }
     };
   }
@@ -357,6 +402,7 @@ interface ConversationMessageRow {
   readonly text: string;
   readonly created_at: string;
   readonly deleted_at: string | null;
+  readonly external_message_id: string | null;
 }
 
 interface EventProcessStateRow {
@@ -427,8 +473,9 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
           actor_id,
           text,
           created_at,
-          deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          deleted_at,
+          external_message_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
       `).run(
         message.id,
         message.sessionId,
@@ -441,7 +488,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         message.role,
         message.actorId ?? null,
         message.text,
-        message.createdAt
+        message.createdAt,
+        message.externalMessageId ?? null
       );
       return message;
     });
@@ -461,6 +509,37 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
     `).all(sessionId, limit) as ConversationMessageRow[];
 
     return rows.reverse().map(transcriptMessageFromRow);
+  }
+
+  async findByExternalMessageId(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined> {
+    const externalMessageId = normalizeMessageId(input.externalMessageId);
+    if (externalMessageId === undefined) {
+      return undefined;
+    }
+
+    const row = this.#db.prepare(`
+      SELECT *
+      FROM conversation_messages
+      WHERE platform = ?
+        AND provider = ?
+        AND channel_id = ?
+        AND conversation_type = ?
+        AND conversation_id = ?
+        AND role = 'assistant'
+        AND external_message_id = ?
+        AND deleted_at IS NULL
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+    `).get(
+      input.platform,
+      input.provider,
+      input.channelId,
+      input.conversationType,
+      input.conversationId,
+      externalMessageId
+    ) as ConversationMessageRow | undefined;
+
+    return row === undefined ? undefined : transcriptMessageFromRow(row);
   }
 
   async begin(input: EventProcessBeginInput): Promise<EventProcessState> {
@@ -673,7 +752,7 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         provider TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         conversation_type TEXT NOT NULL
-          CHECK(conversation_type IN ('private', 'group', 'cli', 'system')),
+          CHECK(conversation_type IN ('private', 'group', 'channel', 'cli', 'system')),
         conversation_id TEXT NOT NULL,
         source_event_id TEXT,
         role TEXT NOT NULL
@@ -681,7 +760,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         actor_id TEXT,
         text TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        deleted_at TEXT
+        deleted_at TEXT,
+        external_message_id TEXT
       );
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_source_event
@@ -704,7 +784,7 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         provider TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         conversation_type TEXT NOT NULL
-          CHECK(conversation_type IN ('private', 'group', 'cli', 'system')),
+          CHECK(conversation_type IN ('private', 'group', 'channel', 'cli', 'system')),
         conversation_id TEXT NOT NULL,
         source_event_id TEXT NOT NULL,
         status TEXT NOT NULL
@@ -758,7 +838,7 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         provider TEXT,
         channel_id TEXT,
         conversation_type TEXT
-          CHECK(conversation_type IS NULL OR conversation_type IN ('private', 'group', 'cli', 'system')),
+          CHECK(conversation_type IS NULL OR conversation_type IN ('private', 'group', 'channel', 'cli', 'system')),
         conversation_id TEXT,
         created_at TEXT NOT NULL,
         deleted_at TEXT,
@@ -830,14 +910,32 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
       CREATE INDEX IF NOT EXISTS idx_memory_visibility
       ON memory_records(visibility, identity_id, workspace_id, deleted_at);
     `);
+    this.#ensureColumn("conversation_messages", "external_message_id", "TEXT");
+    this.#db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_conv_external_message
+      ON conversation_messages(
+        platform,
+        provider,
+        channel_id,
+        conversation_type,
+        conversation_id,
+        external_message_id
+      )
+      WHERE external_message_id IS NOT NULL AND role = 'assistant' AND deleted_at IS NULL;
+    `);
+  }
+
+  #ensureColumn(table: string, column: string, definition: string): void {
+    const rows = this.#db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ readonly name: string }>;
+    if (rows.some((row) => row.name === column)) {
+      return;
+    }
+
+    this.#db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
   }
 }
 
 export function conversationTypeFromEvent(event: SynapseChannelEvent): ConversationType {
-  if (event.conversation.kind === "channel") {
-    return "group";
-  }
-
   return event.conversation.kind;
 }
 
@@ -994,6 +1092,15 @@ function normalizeStableId(id: string | undefined): string | undefined {
   return normalized === undefined || normalized.length === 0 ? undefined : normalized;
 }
 
+export function normalizeMessageId(id: unknown): string | undefined {
+  if (typeof id !== "string" && typeof id !== "number" && typeof id !== "bigint") {
+    return undefined;
+  }
+
+  const normalized = String(id).trim();
+  return normalized.length === 0 ? undefined : normalized;
+}
+
 function looksGeneratedFromWallClock(id: string): boolean {
   return /:\d{13}$/.test(id);
 }
@@ -1010,7 +1117,7 @@ function buildContextSystemPrompt(workspace: WorkspaceRef, policy: OutputPolicy)
       ? "Group chat: answer briefly, avoid flooding, and ask whether to expand when the answer is long."
       : "Private chat: answer normally and use recent session history when relevant.";
 
-  return `${constraints}\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.`;
+  return `${constraints}\nCurrent input is the primary task. Historical messages are timestamped background only; do not continue an old topic unless the current input clearly asks for it.\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.`;
 }
 
 function trimHistory(messages: readonly PromptContextMessage[], maxChars: number): readonly PromptContextMessage[] {
@@ -1023,6 +1130,19 @@ function trimHistory(messages: readonly PromptContextMessage[], maxChars: number
   }
 
   return result;
+}
+
+function isWithinHistoryTtl(createdAt: string, referenceMs: number, ttlMinutes: number | undefined): boolean {
+  if (ttlMinutes === undefined) {
+    return true;
+  }
+
+  const createdAtMs = Date.parse(createdAt);
+  if (Number.isNaN(createdAtMs)) {
+    return false;
+  }
+
+  return referenceMs - createdAtMs <= ttlMinutes * 60_000;
 }
 
 function transcriptMessageFromRow(row: ConversationMessageRow): TranscriptMessage {
@@ -1039,6 +1159,7 @@ function transcriptMessageFromRow(row: ConversationMessageRow): TranscriptMessag
     ...(row.actor_id === null ? {} : { actorId: row.actor_id }),
     text: row.text,
     createdAt: row.created_at,
+    ...(row.external_message_id === null ? {} : { externalMessageId: row.external_message_id }),
     ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at })
   };
 }

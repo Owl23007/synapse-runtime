@@ -15,7 +15,7 @@ import {
 } from "@synapse/runtime-channel";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
-import { textMessage, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
+import { textMessage, type MessageSegment, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import {
   buildSourceEventId,
@@ -618,6 +618,209 @@ describe("RuntimeCore", () => {
     expect(channel.sent).toEqual([]);
   });
 
+  it("does not trigger or persist group messages that mention someone else or everyone", async () => {
+    const channel = new MockChannelAdapter();
+    const transcriptStore = new RecordingTranscriptStore();
+    let runCount = 0;
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "mention", botUserIds: ["bot-1"] },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "mention-agent",
+        async run(request): Promise<AgentRun> {
+          runCount += 1;
+          return {
+            id: `run-${request.event.id}`,
+            agentId: "mention-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("ok")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" })),
+      context: { transcriptStore }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(groupMessageWithSegments("event-other", [
+      { type: "mention", target: "user", userId: "user-2" },
+      { type: "text", text: " hi" }
+    ]));
+    await channel.emit(groupMessageWithSegments("event-all", [
+      { type: "mention", target: "all" },
+      { type: "text", text: " hi" }
+    ]));
+
+    expect(runCount).toBe(0);
+    expect(transcriptStore.appends).toEqual([]);
+    expect(runtime.traces).toEqual([
+      { eventId: "event-other", status: "ignored", reason: "mentioned_other_user" },
+      { eventId: "event-all", status: "ignored", reason: "mention_all" }
+    ]);
+  });
+
+  it("triggers group mention only when the mentioned user is the bot", async () => {
+    const channel = new MockChannelAdapter();
+    const observedReasons: string[] = [];
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "mention", botUserIds: ["bot-1"] },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "mention-bot-agent",
+        async run(request): Promise<AgentRun> {
+          observedReasons.push(request.trigger?.reason ?? "missing");
+          return {
+            id: "run-1",
+            agentId: "mention-bot-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("ok")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" }))
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(groupMessageWithSegments("event-bot", [
+      { type: "mention", target: "user", userId: "bot-1" },
+      { type: "text", text: " hi" }
+    ]));
+
+    expect(observedReasons).toEqual(["mentioned_bot"]);
+    expect(channel.sent).toHaveLength(1);
+  });
+
+  it("triggers reply_to_bot by matching normalized external message ids", async () => {
+    const channel = new MockChannelAdapter();
+    const transcriptStore = new RecordingTranscriptStore();
+    await transcriptStore.append({
+      sessionId: "qq:unknown:qq-local:group:group-1",
+      platform: "qq",
+      provider: "unknown",
+      channelId: "qq-local",
+      conversationType: "group",
+      conversationId: "group-1",
+      sourceEventId: "assistant-1",
+      role: "assistant",
+      text: "previous bot reply",
+      externalMessageId: "42",
+      createdAt: new Date(0).toISOString()
+    });
+    const observedReasons: string[] = [];
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "mention", botUserIds: ["bot-1"] },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "reply-agent",
+        async run(request): Promise<AgentRun> {
+          observedReasons.push(request.trigger?.reason ?? "missing");
+          return {
+            id: "run-1",
+            agentId: "reply-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("ok")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" })),
+      context: { transcriptStore }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit({
+      ...groupMessage("event-reply", "continue"),
+      message: { ...textMessage("continue"), replyTo: { messageId: "42" } },
+      adapterCapabilities: { replyToBot: "yes", incomingReplyTarget: true }
+    });
+
+    expect(observedReasons).toEqual(["reply_to_bot"]);
+    expect(channel.sent).toHaveLength(1);
+  });
+
+  it("filters prompt history by conversation TTL", async () => {
+    const channel = new MockChannelAdapter();
+    const transcriptStore = new RecordingTranscriptStore();
+    await transcriptStore.append({
+      sessionId: "qq:unknown:qq-local:private:user-1",
+      platform: "qq",
+      provider: "unknown",
+      channelId: "qq-local",
+      conversationType: "private",
+      conversationId: "user-1",
+      sourceEventId: "old-message",
+      role: "user",
+      actorId: "guest:qq:unknown:qq-local:user-1",
+      text: "old topic",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    });
+    const observedHistory: string[][] = [];
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "mention" },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "ttl-agent",
+        async run(request): Promise<AgentRun> {
+          observedHistory.push(request.promptContext?.messages.map((message) => message.content) ?? []);
+          return {
+            id: "run-1",
+            agentId: "ttl-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("ok")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" })),
+      context: { transcriptStore, privateHistoryTtlMinutes: 30 }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit({ ...privateMessage("event-ttl", "hi"), receivedAt: "2026-07-05T00:00:00.000Z" });
+
+    expect(observedHistory).toEqual([[]]);
+  });
+
+  it("marks command triggers as single-turn by default", () => {
+    const router = new ConversationRouter({
+      groupTrigger: { mode: "mention_or_keyword", commandPrefixes: ["/"], allowCommandWithoutMention: true },
+      privateTrigger: { mode: "always", commandPrefixes: ["/"] },
+      contextPolicy: { includeHistory: true, maxMessages: 20 }
+    });
+
+    const decision = router.route(privateMessage("event-command", "/whoami"));
+
+    expect(decision.reason).toBe("command_prefix");
+    expect(decision.request?.contextPolicy.includeHistory).toBe(false);
+    expect(decision.request?.trigger).toEqual({
+      kind: "command",
+      confidence: "explicit",
+      reason: "command_prefix"
+    });
+  });
+
   it("falls back to a guest actor when identity resolution fails", async () => {
     const channel = new MockChannelAdapter();
     const observedUserIds: string[] = [];
@@ -854,7 +1057,9 @@ describe("RuntimeCore", () => {
 
     expect(runCount).toBe(2);
     expect(channel.sent).toHaveLength(2);
-    expect(observedHistory).toEqual([[], ["first", "reply-event-1"]]);
+    expect(observedHistory[0]).toEqual([]);
+    expect(observedHistory[1]?.[0]).toBe("[1970-01-01T00:00:00.000Z] first");
+    expect(observedHistory[1]?.[1]).toMatch(/^\[\d{4}-\d{2}-\d{2}T.*Z\] reply-event-1$/);
   });
 
   it("applies concise response policy in group workspaces", async () => {
@@ -972,6 +1177,16 @@ function groupMessage(id: string, text: string): SynapseChannelEvent {
     message: textMessage(text),
     raw: {},
     receivedAt: new Date(0).toISOString()
+  };
+}
+
+function groupMessageWithSegments(id: string, segments: readonly MessageSegment[]): SynapseChannelEvent {
+  return {
+    ...groupMessage(id, ""),
+    message: {
+      type: "mixed",
+      segments
+    }
   };
 }
 

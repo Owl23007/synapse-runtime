@@ -14,6 +14,7 @@ import {
   IdentityResolverLite,
   InMemoryEventProcessStore,
   InMemoryTranscriptStore,
+  normalizeMessageId,
   OutputPolicyResolver,
   ResponsePolicy,
   WorkspaceResolverLite,
@@ -46,6 +47,13 @@ export interface RuntimeCoreOptions {
     readonly workspaceResolver?: WorkspaceResolver;
     readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;
+    readonly timezone?: string;
+    readonly privateHistoryTtlMinutes?: number;
+    readonly groupHistoryTtlMinutes?: number;
+    readonly channelHistoryTtlMinutes?: number;
+    readonly privateMaxMessages?: number;
+    readonly groupMaxMessages?: number;
+    readonly channelMaxMessages?: number;
   };
 }
 
@@ -78,6 +86,14 @@ export class RuntimeCore {
   readonly #responsePolicy = new ResponsePolicy();
   readonly #eventProcessStore: EventProcessStore;
   readonly #enableDurableMemory: boolean;
+  readonly #contextHistory: {
+    readonly privateHistoryTtlMinutes: number;
+    readonly groupHistoryTtlMinutes: number;
+    readonly channelHistoryTtlMinutes: number;
+    readonly privateMaxMessages: number;
+    readonly groupMaxMessages: number;
+    readonly channelMaxMessages: number;
+  };
   readonly #traces: RuntimeTrace[] = [];
 
   constructor(options: RuntimeCoreOptions) {
@@ -88,6 +104,14 @@ export class RuntimeCore {
     this.#logger = options.logger;
     this.#contextEnabled = options.context?.enabled ?? true;
     this.#enableDurableMemory = options.memory?.enableDurableMemory ?? false;
+    this.#contextHistory = {
+      privateHistoryTtlMinutes: options.context?.privateHistoryTtlMinutes ?? 720,
+      groupHistoryTtlMinutes: options.context?.groupHistoryTtlMinutes ?? 30,
+      channelHistoryTtlMinutes: options.context?.channelHistoryTtlMinutes ?? 30,
+      privateMaxMessages: options.context?.privateMaxMessages ?? 20,
+      groupMaxMessages: options.context?.groupMaxMessages ?? 6,
+      channelMaxMessages: options.context?.channelMaxMessages ?? 8
+    };
     this.#providerByChannelId = options.context?.providerByChannelId ?? {};
     this.#transcriptStore = options.context?.transcriptStore ?? new InMemoryTranscriptStore();
     this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
@@ -98,7 +122,8 @@ export class RuntimeCore {
     });
     this.#contextComposer = new ContextComposer({
       transcriptStore: this.#transcriptStore,
-      ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars })
+      ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars }),
+      ...(options.context?.timezone === undefined ? {} : { timezone: options.context.timezone })
     });
   }
 
@@ -117,25 +142,28 @@ export class RuntimeCore {
   }
 
   async handleChannelEvent(event: SynapseChannelEvent): Promise<void> {
-    this.#logger?.info("Runtime received channel event.", summarizeEvent(event));
-    const decision = this.#conversation.route(event);
+    const enrichedEvent = await this.#enrichTriggerHints(event);
+    this.#logger?.info("Runtime received channel event.", summarizeEvent(enrichedEvent));
+    const decision = this.#conversation.route(enrichedEvent);
 
     if (!decision.shouldRespond || decision.request === undefined) {
-      this.#traces.push({ eventId: event.id, status: "ignored", reason: decision.reason });
+      this.#traces.push({ eventId: enrichedEvent.id, status: "ignored", reason: decision.reason });
       this.#logger?.info("Runtime ignored channel event.", {
-        ...summarizeEvent(event),
-        reason: decision.reason
+        ...summarizeEvent(enrichedEvent),
+        reason: decision.reason,
+        trigger: decision.trigger
       });
       return;
     }
 
     this.#logger?.info("Runtime accepted channel event.", {
-      ...summarizeEvent(event),
+      ...summarizeEvent(enrichedEvent),
       sessionId: decision.request.sessionId,
       userId: decision.request.userId,
-      reason: decision.reason
+      reason: decision.reason,
+      trigger: decision.trigger
     });
-    await this.#runAgent(decision.request, event);
+    await this.#runAgent(decision.request, enrichedEvent);
   }
 
   async #runAgent(request: AgentRequest, event: SynapseChannelEvent): Promise<void> {
@@ -226,7 +254,7 @@ export class RuntimeCore {
         const sendSucceededState = processState;
         if (recoveredOutput !== undefined) {
           const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, `recovered-${event.id}`);
-          const assistant = await this.#appendAssistantTranscript(event, output);
+          const assistant = await this.#appendAssistantTranscript(event, output, parseSendResult(processState.sendResultJson)?.messageId);
           await this.#eventProcessStore.update(sendSucceededState.id, {
             status: "completed",
             ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
@@ -256,16 +284,19 @@ export class RuntimeCore {
           if (processStateId !== undefined) {
             await this.#eventProcessStore.update(processStateId, { status: "processing", incomingMessageId: incoming.id });
           }
+          const historyTtlMinutes = historyTtlForConversation(conversationType, this.#contextHistory);
           const promptContext = request.contextPolicy.includeHistory ? await this.#contextComposer.compose({
-            event,
-            actor,
-            workspace,
-            outputPolicy,
-            sessionId,
-            currentInput: request.input,
-            currentSourceEventId: sourceEventId,
-            maxMessages: conversationType === "group" ? 8 : request.contextPolicy.maxMessages
-          }) : undefined;
+              event,
+              actor,
+              workspace,
+              outputPolicy,
+              sessionId,
+              currentInput: request.input,
+              currentSourceEventId: sourceEventId,
+              maxMessages: maxMessagesForConversation(conversationType, request.contextPolicy.maxMessages, this.#contextHistory),
+              ...(historyTtlMinutes === undefined ? {} : { historyTtlMinutes }),
+              ...(request.trigger === undefined ? {} : { trigger: request.trigger })
+            }) : undefined;
           enrichedRequest = {
             ...enrichedRequest,
             ...(promptContext === undefined ? {} : { promptContext })
@@ -406,7 +437,7 @@ export class RuntimeCore {
     }
 
     try {
-      const assistant = await this.#appendAssistantTranscript(input.event, output);
+      const assistant = await this.#appendAssistantTranscript(input.event, output, result.messageId);
 
       if (input.processStateId !== undefined) {
         await this.#eventProcessStore.update(input.processStateId, {
@@ -447,12 +478,13 @@ export class RuntimeCore {
     }
   }
 
-  async #appendAssistantTranscript(event: SynapseChannelEvent, output: SynapseMessage) {
+  async #appendAssistantTranscript(event: SynapseChannelEvent, output: SynapseMessage, externalMessageId?: string) {
     if (!this.#contextEnabled) {
       return undefined;
     }
 
     const provider = this.#providerByChannelId[event.channelId] ?? "unknown";
+    const normalizedExternalMessageId = normalizeMessageId(externalMessageId);
     return this.#transcriptStore.append({
       sessionId: buildSessionId(event, provider),
       platform: event.platform,
@@ -463,8 +495,35 @@ export class RuntimeCore {
       sourceEventId: `${buildSourceEventId(event, provider)}:assistant`,
       role: "assistant",
       text: getText(output),
+      ...(normalizedExternalMessageId === undefined ? {} : { externalMessageId: normalizedExternalMessageId }),
       createdAt: new Date().toISOString()
     });
+  }
+
+  async #enrichTriggerHints(event: SynapseChannelEvent): Promise<SynapseChannelEvent> {
+    const replyTargetMessageId = normalizeMessageId(event.message?.replyTo?.messageId ?? event.triggerHint?.replyTargetMessageId);
+    if (replyTargetMessageId === undefined || this.#transcriptStore.findByExternalMessageId === undefined) {
+      return event;
+    }
+
+    const provider = this.#providerByChannelId[event.channelId] ?? "unknown";
+    const matched = await this.#transcriptStore.findByExternalMessageId({
+      platform: event.platform,
+      provider,
+      channelId: event.channelId,
+      conversationType: conversationTypeFromEvent(event),
+      conversationId: event.conversation.id,
+      externalMessageId: replyTargetMessageId
+    });
+
+    return {
+      ...event,
+      triggerHint: {
+        ...event.triggerHint,
+        replyTargetMessageId,
+        repliedToBot: matched !== undefined
+      }
+    };
   }
 }
 
@@ -559,6 +618,67 @@ function conservativeResponse(message: SynapseMessage, policy: OutputPolicy): Sy
     ...message,
     segments: [{ type: "text", text: getText(message).slice(0, policy.maxChars) }]
   };
+}
+
+function maxMessagesForConversation(
+  conversationType: ReturnType<typeof conversationTypeFromEvent>,
+  fallback: number,
+  options: {
+    readonly privateMaxMessages: number;
+    readonly groupMaxMessages: number;
+    readonly channelMaxMessages: number;
+  }
+): number {
+  if (conversationType === "private") {
+    return options.privateMaxMessages;
+  }
+
+  if (conversationType === "group") {
+    return options.groupMaxMessages;
+  }
+
+  if (conversationType === "channel") {
+    return options.channelMaxMessages;
+  }
+
+  return fallback;
+}
+
+function historyTtlForConversation(
+  conversationType: ReturnType<typeof conversationTypeFromEvent>,
+  options: {
+    readonly privateHistoryTtlMinutes: number;
+    readonly groupHistoryTtlMinutes: number;
+    readonly channelHistoryTtlMinutes: number;
+  }
+): number | undefined {
+  if (conversationType === "private") {
+    return options.privateHistoryTtlMinutes;
+  }
+
+  if (conversationType === "group") {
+    return options.groupHistoryTtlMinutes;
+  }
+
+  if (conversationType === "channel") {
+    return options.channelHistoryTtlMinutes;
+  }
+
+  return undefined;
+}
+
+function parseSendResult(value: string | undefined): { readonly messageId?: string } | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as { readonly messageId?: unknown };
+    const messageId = normalizeMessageId(parsed.messageId);
+    return messageId === undefined ? {} : { messageId };
+  } catch {
+    return undefined;
+  }
 }
 
 function isFreshProcessState(updatedAt: string): boolean {
