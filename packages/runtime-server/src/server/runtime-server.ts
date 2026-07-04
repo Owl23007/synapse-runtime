@@ -12,7 +12,7 @@ import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
-import { bodyParser, createApp, type Nova, type NovaRequest, type NovaResponse } from "nova-http";
+import { bodyParser, createApp, type Handler, type Nova, type NovaRequest, type NovaResponse } from "nova-http";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import { createChannelAdapter } from "../composition/channel-factory.js";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
@@ -28,6 +28,7 @@ import { handleQqOfficialWebhook, type QqOfficialRoute } from "./qq-official-web
 import { summarizeChannelConfig } from "./summaries.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
+const NOVA_HEADERS_SENT_KEY = "_headersSent";
 
 export class RuntimeServer {
   #config: RuntimeConfig;
@@ -85,18 +86,20 @@ export class RuntimeServer {
     });
     this.#attachChannels();
 
-    for (const channel of this.#channels.list()) {
-      this.#logger.info("Connecting channel.", {
-        channelId: channel.id,
-        channelType: channel.type,
-        provider: channel.provider
-      });
-      await channel.connect();
-      this.#logger.info("Channel connected.", {
-        channelId: channel.id,
-        status: await channel.getStatus()
-      });
-    }
+    await Promise.all(
+      this.#channels.list().map(async (channel) => {
+        this.#logger.info("Connecting channel.", {
+          channelId: channel.id,
+          channelType: channel.type,
+          provider: channel.provider
+        });
+        await channel.connect();
+        this.#logger.info("Channel connected.", {
+          channelId: channel.id,
+          status: await channel.getStatus()
+        });
+      })
+    );
 
     await this.#app.listen(this.#config.server.port, this.#config.server.host);
     const adminResult = await this.#startAdminApp();
@@ -148,74 +151,83 @@ export class RuntimeServer {
     this.#adminApp.get("/admin/health", (_request: NovaRequest, response: NovaResponse) => {
       sendJson(response, 200, { ok: true });
     });
-    this.#adminApp.get("/admin/status", async (_request: NovaRequest, response: NovaResponse) => {
-      sendJson(response, 200, {
-        ok: true,
-        protocolVersion: 1,
-        runtime: {
-          mode: this.#config.runtime.mode,
-          logLevel: this.#config.runtime.logLevel,
-          startedAt: this.#startedAt
-        },
-        server: {
-          host: this.#config.server.host,
-          port: this.#config.server.port
-        },
-        admin: {
-          host: this.#config.admin.host,
-          port: this.#config.admin.port
-        },
-        channels: await this.#getAdminChannelSummaries()
-      });
-    });
+    this.#adminApp.get(
+      "/admin/status",
+      this.#asyncRoute(async (_request: NovaRequest, response: NovaResponse) => {
+        sendJson(response, 200, {
+          ok: true,
+          protocolVersion: 1,
+          runtime: {
+            mode: this.#config.runtime.mode,
+            logLevel: this.#config.runtime.logLevel,
+            startedAt: this.#startedAt
+          },
+          server: {
+            host: this.#config.server.host,
+            port: this.#config.server.port
+          },
+          admin: {
+            host: this.#config.admin.host,
+            port: this.#config.admin.port
+          },
+          channels: await this.#getAdminChannelSummaries()
+        });
+      })
+    );
     this.#adminApp.get("/admin/config", (_request: NovaRequest, response: NovaResponse) => {
       sendJson(response, 200, {
         ok: true,
         config: redactConfig(this.#config)
       });
     });
-    this.#adminApp.get("/admin/channels", async (_request: NovaRequest, response: NovaResponse) => {
-      sendJson(response, 200, {
-        ok: true,
-        channels: await this.#getAdminChannelSummaries()
-      });
-    });
-    this.#adminApp.patch("/admin/channels/:id", async (request: NovaRequest, response: NovaResponse) => {
-      const channelId = request.params.id;
-
-      if (channelId === undefined) {
-        sendJson(response, 400, { ok: false, error: "missing_channel_id" });
-        return;
-      }
-
-      const channelConfig = this.#config.channels[channelId];
-
-      if (channelConfig === undefined) {
-        sendJson(response, 404, { ok: false, error: "channel_not_found" });
-        return;
-      }
-
-      const patch = readJsonBody(request);
-      if (!isChannelAdminPatch(patch)) {
-        sendJson(response, 400, { ok: false, error: "invalid_channel_patch" });
-        return;
-      }
-
-      try {
-        await this.#applyChannelPatch(channelId, channelConfig, patch);
-        const nextChannelConfig = this.#config.channels[channelId] ?? channelConfig;
+    this.#adminApp.get(
+      "/admin/channels",
+      this.#asyncRoute(async (_request: NovaRequest, response: NovaResponse) => {
         sendJson(response, 200, {
           ok: true,
-          channel: await this.#getAdminChannelSummary(channelId, nextChannelConfig)
+          channels: await this.#getAdminChannelSummaries()
         });
-      } catch (error) {
-        this.#logger.error("Admin channel patch failed.", {
-          channelId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        sendJson(response, 500, { ok: false, error: "channel_patch_failed" });
-      }
-    });
+      })
+    );
+    this.#adminApp.patch(
+      "/admin/channels/:id",
+      this.#asyncRoute(async (request: NovaRequest, response: NovaResponse) => {
+        const channelId = request.params.id;
+
+        if (channelId === undefined) {
+          sendJson(response, 400, { ok: false, error: "missing_channel_id" });
+          return;
+        }
+
+        const channelConfig = this.#config.channels[channelId];
+
+        if (channelConfig === undefined) {
+          sendJson(response, 404, { ok: false, error: "channel_not_found" });
+          return;
+        }
+
+        const patch = readJsonBody(request);
+        if (!isChannelAdminPatch(patch)) {
+          sendJson(response, 400, { ok: false, error: "invalid_channel_patch" });
+          return;
+        }
+
+        try {
+          await this.#applyChannelPatch(channelId, channelConfig, patch);
+          const nextChannelConfig = this.#config.channels[channelId] ?? channelConfig;
+          sendJson(response, 200, {
+            ok: true,
+            channel: await this.#getAdminChannelSummary(channelId, nextChannelConfig)
+          });
+        } catch (error) {
+          this.#logger.error("Admin channel patch failed.", {
+            channelId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          sendJson(response, 500, { ok: false, error: "channel_patch_failed" });
+        }
+      })
+    );
     this.#adminApp.get("/admin/logs", (request: NovaRequest, response: NovaResponse) => {
       const limit = parsePositiveInt(request.query.get("limit")) ?? 100;
       sendJson(response, 200, {
@@ -226,26 +238,29 @@ export class RuntimeServer {
     this.#adminApp.get("/admin/events/stream", (_request: NovaRequest, response: NovaResponse) =>
       streamLogEvents(response, this.#logBuffer)
     );
-    this.#adminApp.post("/admin/reload", async (_request: NovaRequest, response: NovaResponse) => {
-      if (this.#configPath === undefined) {
-        sendJson(response, 400, { ok: false, error: "reload_config_path_not_available" });
-        return;
-      }
+    this.#adminApp.post(
+      "/admin/reload",
+      this.#asyncRoute(async (_request: NovaRequest, response: NovaResponse) => {
+        if (this.#configPath === undefined) {
+          sendJson(response, 400, { ok: false, error: "reload_config_path_not_available" });
+          return;
+        }
 
-      try {
-        await this.#reloadConfig();
-        sendJson(response, 200, {
-          ok: true,
-          config: redactConfig(this.#config),
-          channels: await this.#getAdminChannelSummaries()
-        });
-      } catch (error) {
-        this.#logger.error("Admin reload failed.", {
-          error: error instanceof Error ? error.message : String(error)
-        });
-        sendJson(response, 500, { ok: false, error: "reload_failed" });
-      }
-    });
+        try {
+          await this.#reloadConfig();
+          sendJson(response, 200, {
+            ok: true,
+            config: redactConfig(this.#config),
+            channels: await this.#getAdminChannelSummaries()
+          });
+        } catch (error) {
+          this.#logger.error("Admin reload failed.", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          sendJson(response, 500, { ok: false, error: "reload_failed" });
+        }
+      })
+    );
     this.#adminApp.post("/admin/shutdown", (_request: NovaRequest, response: NovaResponse) => {
       sendJson(response, 202, { ok: true });
 
@@ -258,6 +273,20 @@ export class RuntimeServer {
         });
       }, 0);
     });
+  }
+
+  #asyncRoute(handler: Handler): Handler {
+    return (request, response) => {
+      void Promise.resolve(handler(request, response)).catch((error) => {
+        this.#logger.error("HTTP route handler failed.", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        if (!response.headersSent) {
+          sendJson(response, 500, { ok: false, error: "internal_error" });
+        }
+      });
+    };
   }
 
   async #startAdminApp(): Promise<RuntimeServerStartResult["admin"] | undefined> {
@@ -348,9 +377,7 @@ export class RuntimeServer {
     this.#qqOfficialRoutes.clear();
     this.#attachChannels();
 
-    for (const channel of this.#channels.list()) {
-      await channel.connect();
-    }
+    await Promise.all(this.#channels.list().map((channel) => channel.connect()));
   }
 
   async #disconnectAllChannels(): Promise<void> {
@@ -494,31 +521,34 @@ export class RuntimeServer {
     }
 
     this.#registeredWebhookPaths.add(path);
-    this.#app.post(path, async (request: NovaRequest, response: NovaResponse) => {
-      const activeRoute = this.#qqOfficialRoutes.get(path);
+    this.#app.post(
+      path,
+      this.#asyncRoute(async (request: NovaRequest, response: NovaResponse) => {
+        const activeRoute = this.#qqOfficialRoutes.get(path);
 
-      if (activeRoute === undefined) {
-        sendJson(response, 404, { ok: false, error: "channel_route_disabled" });
-        return;
-      }
+        if (activeRoute === undefined) {
+          sendJson(response, 404, { ok: false, error: "channel_route_disabled" });
+          return;
+        }
 
-      try {
-        await handleQqOfficialWebhook({
-          route: activeRoute,
-          request,
-          response,
-          awaitDispatch: this.#awaitDispatch,
-          logger: this.#logger
-        });
-      } catch (error) {
-        this.#logger.error("Unhandled QQ official webhook error.", {
-          channelId,
-          path,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        sendJson(response, 500, { ok: false, error: "internal_error" });
-      }
-    });
+        try {
+          await handleQqOfficialWebhook({
+            route: activeRoute,
+            request,
+            response,
+            awaitDispatch: this.#awaitDispatch,
+            logger: this.#logger
+          });
+        } catch (error) {
+          this.#logger.error("Unhandled QQ official webhook error.", {
+            channelId,
+            path,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          sendJson(response, 500, { ok: false, error: "internal_error" });
+        }
+      })
+    );
     this.#logger.info("Registered QQ official webhook route.", { channelId, path });
   }
 
@@ -605,8 +635,8 @@ function parsePositiveInt(value: string | null): number | undefined {
 
 function streamLogEvents(response: NovaResponse, logBuffer: RuntimeLogBuffer): Promise<void> {
   const socket = response.socket;
-  const responseState = response as unknown as { _headersSent: boolean };
-  responseState._headersSent = true;
+  const responseState = response as unknown as Record<typeof NOVA_HEADERS_SENT_KEY, boolean>;
+  responseState[NOVA_HEADERS_SENT_KEY] = true;
 
   socket.write(
     [

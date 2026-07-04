@@ -403,31 +403,68 @@ export class RuntimeConsoleController {
 }
 
 function parseChannelSummaries(values: readonly unknown[]): RuntimeConsoleChannelSummary[] {
-  return values.filter(isRecord).map((value) => ({
-    id: typeof value.id === "string" ? value.id : "-",
-    adapter: typeof value.adapter === "string" ? value.adapter : "-",
-    enabled: value.enabled === true,
-    ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
-    ...(isRecord(value.status)
-      ? {
-          status: {
-            ...(typeof value.status.state === "string" ? { state: value.status.state } : {}),
-            ...(typeof value.status.detail === "string" ? { detail: value.status.detail } : {}),
-            ...(typeof value.status.checkedAt === "string" ? { checkedAt: value.status.checkedAt } : {})
-          }
-        }
-      : {})
-  }));
+  return values.filter(isRecord).map((value) => {
+    const summary: {
+      id: string;
+      adapter: string;
+      enabled: boolean;
+      provider?: string;
+      status?: {
+        state?: string;
+        detail?: string;
+        checkedAt?: string;
+      };
+    } = {
+      id: typeof value.id === "string" ? value.id : "-",
+      adapter: typeof value.adapter === "string" ? value.adapter : "-",
+      enabled: value.enabled === true
+    };
+
+    if (typeof value.provider === "string") {
+      summary.provider = value.provider;
+    }
+
+    if (isRecord(value.status)) {
+      summary.status = {};
+
+      if (typeof value.status.state === "string") {
+        summary.status.state = value.status.state;
+      }
+
+      if (typeof value.status.detail === "string") {
+        summary.status.detail = value.status.detail;
+      }
+
+      if (typeof value.status.checkedAt === "string") {
+        summary.status.checkedAt = value.status.checkedAt;
+      }
+    }
+
+    return summary;
+  });
 }
 
 function parseLogEntries(values: readonly unknown[]): ConsoleLogEntry[] {
-  return values.filter(isRecord).map((value, index) => ({
-    id: typeof value.id === "number" ? value.id : index + 1,
-    timestamp: typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString(),
-    level: parseLogLevel(value.level),
-    message: typeof value.message === "string" ? value.message : JSON.stringify(value),
-    ...(isRecord(value.metadata) ? { metadata: value.metadata } : {})
-  }));
+  return values.filter(isRecord).map((value, index) => {
+    const entry: {
+      id: number;
+      timestamp: string;
+      level: ConsoleLogEntry["level"];
+      message: string;
+      metadata?: Readonly<Record<string, unknown>>;
+    } = {
+      id: typeof value.id === "number" ? value.id : index + 1,
+      timestamp: typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString(),
+      level: parseLogLevel(value.level),
+      message: typeof value.message === "string" ? value.message : JSON.stringify(value)
+    };
+
+    if (isRecord(value.metadata)) {
+      entry.metadata = value.metadata;
+    }
+
+    return entry;
+  });
 }
 
 function parseLogLevel(value: unknown): "debug" | "info" | "warn" | "error" {

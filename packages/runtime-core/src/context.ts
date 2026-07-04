@@ -206,7 +206,7 @@ export class WorkspaceResolverLite implements WorkspaceResolver {
 
   async resolve(event: SynapseChannelEvent, actor: RuntimeActor): Promise<WorkspaceRef> {
     const conversationType = conversationTypeFromEvent(event);
-    const defaultWorkspace = defaultWorkspaceForEvent(event, actor);
+    const fallbackWorkspace = defaultWorkspaceForEvent(event, actor);
 
     return (
       this.#workspaceStore?.resolveWorkspace({
@@ -216,8 +216,8 @@ export class WorkspaceResolverLite implements WorkspaceResolver {
         conversationType,
         conversationId: event.conversation.id,
         identityId: actor.identity.id,
-        defaultWorkspace
-      }) ?? defaultWorkspace
+        defaultWorkspace: fallbackWorkspace
+      }) ?? fallbackWorkspace
     );
   }
 }

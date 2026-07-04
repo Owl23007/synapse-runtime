@@ -23,11 +23,12 @@ export function RuntimeConsoleApp({ controller }: { readonly controller: Runtime
     if (key.return) {
       const command = draft;
       setDraft("");
-      void controller.execute(command).then((result) => {
+      void (async () => {
+        const result = await controller.execute(command);
         if (result === "exit") {
           exit();
         }
-      });
+      })();
       return;
     }
 

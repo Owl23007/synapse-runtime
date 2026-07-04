@@ -82,8 +82,9 @@ export async function handleQqOfficialWebhook(options: HandleQqOfficialWebhookOp
     return;
   }
 
-  dispatch
-    .then((events) => {
+  void (async () => {
+    try {
+      const events = await dispatch;
       logger.info("QQ official webhook dispatch completed.", {
         route: route.path,
         eventCount: events.length,
@@ -95,14 +96,14 @@ export async function handleQqOfficialWebhook(options: HandleQqOfficialWebhookOp
           messageId: event.message?.id
         }))
       });
-    })
-    .catch((error) => {
+    } catch (error) {
       logger.error("QQ official dispatch failed.", {
         route: route.path,
         payload: summarizeQqOfficialPayload(payload),
         error: error instanceof Error ? error.message : String(error)
       });
-    });
+    }
+  })();
   logger.info("Acked QQ official webhook before async dispatch completed.", {
     route: route.path,
     payload: summarizeQqOfficialPayload(payload)

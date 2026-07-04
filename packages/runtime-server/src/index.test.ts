@@ -556,20 +556,32 @@ async function fetchStatus(url: string, init?: FetchJsonInit): Promise<number> {
 }
 
 async function readStreamUntil(reader: ReadableStreamDefaultReader<Uint8Array>, pattern: string): Promise<string> {
-  const decoder = new TextDecoder();
-  let text = "";
+  return readStreamUntilWithin(reader, pattern, 5, "");
+}
 
-  for (let index = 0; index < 5 && !text.includes(pattern); index += 1) {
-    const chunk = await reader.read();
-
-    if (chunk.done) {
-      break;
-    }
-
-    text += decoder.decode(chunk.value, { stream: true });
+async function readStreamUntilWithin(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  pattern: string,
+  remainingReads: number,
+  text: string
+): Promise<string> {
+  if (remainingReads <= 0 || text.includes(pattern)) {
+    return text;
   }
 
-  return text;
+  const decoder = new TextDecoder();
+  const chunk = await reader.read();
+
+  if (chunk.done) {
+    return text;
+  }
+
+  return readStreamUntilWithin(
+    reader,
+    pattern,
+    remainingReads - 1,
+    text + decoder.decode(chunk.value, { stream: true })
+  );
 }
 
 class SignedQqBody {
