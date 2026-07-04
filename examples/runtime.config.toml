@@ -20,6 +20,13 @@ logBufferSize = 300
 [context]
 enabled = true
 maxHistoryChars = 6000
+timezone = "Asia/Shanghai"
+privateHistoryTtlMinutes = 720
+groupHistoryTtlMinutes = 30
+channelHistoryTtlMinutes = 30
+privateMaxMessages = 20
+groupMaxMessages = 6
+channelMaxMessages = 8
 
 [agent]
 default = "qwen"
@@ -55,9 +62,14 @@ temperature = 0.3
 
 [conversation.privateTrigger]
 mode = "always"
+commandPrefixes = ["/"]
 
 [conversation.groupTrigger]
-mode = "mention"
+mode = "mention_or_keyword"
+keywords = ["Synapse"]
+botUserIds = []
+commandPrefixes = ["/"]
+allowCommandWithoutMention = true
 
 [conversation.contextPolicy]
 includeHistory = true

@@ -36,6 +36,13 @@
 | --- | --- | --- |
 | `enabled` | boolean | `true` |
 | `maxHistoryChars` | positive integer | `6000` |
+| `timezone` | string | `UTC` |
+| `privateHistoryTtlMinutes` | positive integer | `720` |
+| `groupHistoryTtlMinutes` | positive integer | `30` |
+| `channelHistoryTtlMinutes` | positive integer | `30` |
+| `privateMaxMessages` | positive integer | `20` |
+| `groupMaxMessages` | positive integer | `6` |
+| `channelMaxMessages` | positive integer | `8` |
 
 ## `memory`
 
@@ -79,6 +86,10 @@ Trigger policy 字段：
 - `mode`：`always`、`mention`、`keyword`、`mention_or_keyword`、`never`
 - `keywords`：string array
 - `botUserIds`：string array
+- `commandPrefixes`：string array
+- `allowCommandWithoutMention`：boolean，群聊 command 是否可以在没有 @bot 时独立触发
+
+触发原因会在 `ConversationDecision.reason`、`AgentRequest.trigger` 和 runtime trace 中输出。常见值包括 `mentioned_bot`、`mentioned_other_user`、`mention_all`、`unknown_mention_ignored`、`platform_at_event`、`reply_to_bot`、`command_prefix`、`keyword`。
 
 ## `channels`
 
