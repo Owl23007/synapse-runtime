@@ -7,8 +7,10 @@
 | Field | Type | Default |
 | --- | --- | --- |
 | `mode` | `local | attached | hosted` | `local` |
-| `dataDir` | string | `.synapse` |
+| `dataDir` | string | `~/.synapse/runtime` |
 | `logLevel` | `trace | debug | info | warn | error | fatal` | `info` |
+
+`dataDir` 支持 `~` 展开。显式相对路径会按配置文件所在目录解析。
 
 ## `server`
 

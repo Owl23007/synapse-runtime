@@ -1,4 +1,8 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
+
+export const DEFAULT_RUNTIME_DATA_DIR = join(homedir(), ".synapse", "runtime");
 
 export const PermissionPolicySchema = z.enum([
   "allow",
@@ -30,7 +34,7 @@ export const DEFAULT_PERMISSIONS = {
 export const RuntimeSettingsSchema = z
   .object({
     mode: RuntimeModeSchema.default("local"),
-    dataDir: z.string().min(1).default(".synapse"),
+    dataDir: z.string().min(1).default(DEFAULT_RUNTIME_DATA_DIR),
     logLevel: LogLevelSchema.default("info")
   })
   .passthrough();

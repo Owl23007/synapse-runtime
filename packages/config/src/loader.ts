@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { parse as parseYaml } from "yaml";
 import { ZodError } from "zod";
@@ -11,6 +12,7 @@ import { RuntimeConfigSchema, type RuntimeConfig } from "./schema.js";
 export interface LoadConfigOptions {
   readonly env?: EnvSource;
   readonly allowUndefinedEnv?: boolean;
+  readonly baseDir?: string;
 }
 
 export async function loadConfigFile(
@@ -38,7 +40,10 @@ export function parseConfigContent(
   options: LoadConfigOptions = {}
 ): RuntimeConfig {
   const raw = parseRawConfig(content, sourcePath);
-  return parseConfigObject(raw, options);
+  return parseConfigObject(raw, {
+    ...options,
+    baseDir: options.baseDir ?? dirname(resolve(sourcePath))
+  });
 }
 
 export function parseConfigObject(
@@ -54,7 +59,8 @@ export function parseConfigObject(
     };
     const expanded = expandEnv(value, expandOptions);
 
-    return RuntimeConfigSchema.parse(expanded);
+    const config = RuntimeConfigSchema.parse(expanded);
+    return normalizeConfigPaths(config, options);
   } catch (error) {
     if (error instanceof ConfigError) {
       throw error;
@@ -66,6 +72,42 @@ export function parseConfigObject(
 
     throw error;
   }
+}
+
+function normalizeConfigPaths(config: RuntimeConfig, options: LoadConfigOptions): RuntimeConfig {
+  return {
+    ...config,
+    runtime: {
+      ...config.runtime,
+      dataDir: normalizeConfigPath(config.runtime.dataDir, options.baseDir)
+    }
+  };
+}
+
+function normalizeConfigPath(pathValue: string, baseDir: string | undefined): string {
+  const expanded = expandHomeDir(pathValue);
+
+  if (isAbsolute(expanded)) {
+    return expanded;
+  }
+
+  if (baseDir === undefined) {
+    return expanded;
+  }
+
+  return resolve(baseDir, expanded);
+}
+
+function expandHomeDir(pathValue: string): string {
+  if (pathValue === "~") {
+    return homedir();
+  }
+
+  if (pathValue.startsWith("~/") || pathValue.startsWith("~\\")) {
+    return join(homedir(), pathValue.slice(2));
+  }
+
+  return pathValue;
 }
 
 function parseRawConfig(content: string, sourcePath: string): unknown {

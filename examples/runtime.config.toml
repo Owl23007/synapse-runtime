@@ -1,6 +1,6 @@
 [runtime]
 mode = "local"
-dataDir = ".synapse"
+dataDir = "~/.synapse/runtime"
 logLevel = "info"
 
 [server]

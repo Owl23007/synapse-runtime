@@ -1,9 +1,51 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ConfigError } from "./errors.js";
-import { parseConfigContent, parseConfigObject } from "./loader.js";
+import { loadConfigFile, parseConfigContent, parseConfigObject } from "./loader.js";
 import { redactConfig } from "./redact.js";
+import { DEFAULT_RUNTIME_DATA_DIR } from "./schema.js";
 
 describe("runtime config", () => {
+  it("defaults runtime dataDir to the user profile", () => {
+    const config = parseConfigContent("", "runtime.config.toml");
+
+    expect(config.runtime.dataDir).toBe(DEFAULT_RUNTIME_DATA_DIR);
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "runtime"));
+  });
+
+  it("expands home-relative runtime dataDir values", () => {
+    const config = parseConfigContent(
+      `
+[runtime]
+dataDir = "~/.synapse/custom-runtime"
+`,
+      "runtime.config.toml"
+    );
+
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "custom-runtime"));
+  });
+
+  it("resolves relative runtime dataDir values from the config file directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-config-"));
+    const configDir = join(dir, "config");
+    const configPath = join(configDir, "runtime.config.toml");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      `
+[runtime]
+dataDir = ".synapse"
+`,
+      "utf8"
+    );
+
+    const config = await loadConfigFile(configPath);
+
+    expect(config.runtime.dataDir).toBe(resolve(configDir, ".synapse"));
+  });
+
   it("loads toml, expands env placeholders and applies defaults", () => {
     const config = parseConfigContent(
       `
