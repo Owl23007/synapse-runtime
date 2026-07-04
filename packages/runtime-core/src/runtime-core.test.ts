@@ -360,6 +360,58 @@ describe("RuntimeCore", () => {
     ]);
   });
 
+  it("injects timezone-local time into the prompt context without changing ISO event time", async () => {
+    const channel = new MockChannelAdapter();
+    const observed: Array<{
+      system: string | undefined;
+      eventReceivedAt: string | undefined;
+      eventReceivedAtLocal: string | undefined;
+      timezone: string | undefined;
+    }> = [];
+    const agent: Agent = {
+      id: "time-agent",
+      async run(request): Promise<AgentRun> {
+        observed.push({
+          system: request.promptContext?.system,
+          eventReceivedAt: request.promptContext?.metadata.eventReceivedAt,
+          eventReceivedAtLocal: request.promptContext?.metadata.eventReceivedAtLocal,
+          timezone: request.promptContext?.metadata.timezone
+        });
+        return {
+          id: "run-1",
+          agentId: "time-agent",
+          sessionId: request.sessionId,
+          status: "succeeded",
+          input: request.input,
+          steps: [],
+          output: textMessage("ok")
+        };
+      }
+    };
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "always" },
+        privateTrigger: { mode: "always" }
+      }),
+      agent,
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" })),
+      context: { timezone: "Asia/Shanghai" }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(privateMessage("event-time", "what time is it"));
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.timezone).toBe("Asia/Shanghai");
+    expect(observed[0]?.eventReceivedAt).toBe("1970-01-01T00:00:00.000Z");
+    expect(observed[0]?.eventReceivedAtLocal).toContain("GMT+08:00");
+    expect(observed[0]?.eventReceivedAtLocal).toMatch(/1970.*08:00:00/);
+    expect(observed[0]?.system).toContain("timezone=Asia/Shanghai");
+    expect(observed[0]?.system).toContain("eventReceivedIso=1970-01-01T00:00:00.000Z");
+    expect(observed[0]?.system).toContain("When the user asks about the current time or date, answer using currentLocal and timezone.");
+  });
+
   it("does not call the agent again for completed duplicate source events", async () => {
     const channel = new MockChannelAdapter();
     let runCount = 0;

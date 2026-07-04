@@ -302,16 +302,28 @@ export class ContextComposer {
       this.#maxHistoryChars
     );
 
+    const currentTimeIso = new Date().toISOString();
+    const currentTimeLocal = formatZonedTimestamp(currentTimeIso, this.#timezone);
+    const eventReceivedAtLocal = formatZonedTimestamp(input.event.receivedAt, this.#timezone);
+
     return {
-      system: buildContextSystemPrompt(input.workspace, input.outputPolicy),
+      system: buildContextSystemPrompt(input.workspace, input.outputPolicy, {
+        currentTimeIso,
+        currentTimeLocal,
+        eventReceivedAt: input.event.receivedAt,
+        eventReceivedAtLocal,
+        timezone: this.#timezone
+      }),
       messages,
       metadata: {
         actorId: input.actor.identity.id,
         workspaceId: input.workspace.id,
         workspaceType: input.workspace.type,
         sessionId: input.sessionId,
-        currentTimeIso: new Date().toISOString(),
+        currentTimeIso,
+        currentTimeLocal,
         eventReceivedAt: input.event.receivedAt,
+        eventReceivedAtLocal,
         timezone: this.#timezone,
         ...(input.trigger === undefined ? {} : {
           triggerKind: input.trigger.kind,
@@ -1111,13 +1123,54 @@ function roundedIsoTimestamp(timestamp: string): string {
   return new Date(Math.floor(ms / 60_000) * 60_000).toISOString();
 }
 
-function buildContextSystemPrompt(workspace: WorkspaceRef, policy: OutputPolicy): string {
+function buildContextSystemPrompt(
+  workspace: WorkspaceRef,
+  policy: OutputPolicy,
+  timeContext: {
+    readonly currentTimeIso: string;
+    readonly currentTimeLocal: string;
+    readonly eventReceivedAt: string;
+    readonly eventReceivedAtLocal: string;
+    readonly timezone: string;
+  }
+): string {
   const constraints =
     workspace.type === "group"
       ? "Group chat: answer briefly, avoid flooding, and ask whether to expand when the answer is long."
       : "Private chat: answer normally and use recent session history when relevant.";
 
-  return `${constraints}\nCurrent input is the primary task. Historical messages are timestamped background only; do not continue an old topic unless the current input clearly asks for it.\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.`;
+  return `${constraints}\nCurrent input is the primary task. Historical messages are timestamped background only; do not continue an old topic unless the current input clearly asks for it.\nTime context: timezone=${timeContext.timezone}, currentLocal=${timeContext.currentTimeLocal}, currentIso=${timeContext.currentTimeIso}, eventReceivedLocal=${timeContext.eventReceivedAtLocal}, eventReceivedIso=${timeContext.eventReceivedAt}. When the user asks about the current time or date, answer using currentLocal and timezone.\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.`;
+}
+
+function formatZonedTimestamp(timestamp: string, timezone: string): string {
+  const date = new Date(timestamp);
+  const effectiveDate = Number.isNaN(date.getTime()) ? new Date() : date;
+
+  try {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+      timeZoneName: "longOffset"
+    }).format(effectiveDate);
+  } catch {
+    return new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+      timeZoneName: "longOffset"
+    }).format(effectiveDate);
+  }
 }
 
 function trimHistory(messages: readonly PromptContextMessage[], maxChars: number): readonly PromptContextMessage[] {
