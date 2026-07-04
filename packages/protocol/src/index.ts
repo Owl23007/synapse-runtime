@@ -18,7 +18,8 @@ export type MessageType = "text" | "image" | "file" | "audio" | "video" | "mixed
 
 export type MessageSegment =
   | { readonly type: "text"; readonly text: string }
-  | { readonly type: "mention"; readonly userId?: string; readonly label?: string }
+  | { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string }
+  | { readonly type: "reply"; readonly messageId?: string; readonly eventId?: string; readonly sequence?: number }
   | {
       readonly type: "image";
       readonly url?: string;
@@ -66,8 +67,29 @@ export interface SynapseChannelEvent {
   readonly conversation: ConversationRef;
   readonly sender: SenderRef;
   readonly message?: SynapseMessage;
+  readonly triggerHint?: ChannelTriggerHint;
+  readonly adapterCapabilities?: AdapterCapabilities;
   readonly raw?: unknown;
   readonly receivedAt: string;
+}
+
+export interface ChannelTriggerHint {
+  readonly platformMentionedBot?: boolean;
+  readonly repliedToBot?: boolean;
+  readonly platformEventType?: string;
+  readonly selfUserId?: string;
+  readonly replyTargetMessageId?: string;
+}
+
+export interface AdapterCapabilities {
+  readonly mentionUser?: boolean;
+  readonly mentionAll?: boolean;
+  readonly selfIdFromEvent?: boolean;
+  readonly outgoingMessageId?: boolean;
+  readonly incomingReplyTarget?: boolean;
+  readonly platformMentionedBotHint?: boolean;
+  readonly replyToBot?: "yes" | "no" | "conditional";
+  readonly passiveReplyWindowSeconds?: number;
 }
 
 export function textMessage(text: string, id?: string): SynapseMessage {

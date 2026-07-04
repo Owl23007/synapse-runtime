@@ -65,7 +65,9 @@ export const ConversationTriggerPolicySchema = z
   .object({
     mode: TriggerModeSchema.default("always"),
     keywords: z.array(z.string().min(1)).default([]),
-    botUserIds: z.array(z.string().min(1)).default([])
+    botUserIds: z.array(z.string().min(1)).default([]),
+    commandPrefixes: z.array(z.string().min(1)).default([]),
+    allowCommandWithoutMention: z.boolean().default(true)
   })
   .passthrough();
 
@@ -79,7 +81,14 @@ export const ContextPolicySchema = z
 export const RuntimeContextSettingsSchema = z
   .object({
     enabled: z.boolean().default(true),
-    maxHistoryChars: z.number().int().positive().default(6000)
+    maxHistoryChars: z.number().int().positive().default(6000),
+    timezone: z.string().min(1).default("UTC"),
+    privateHistoryTtlMinutes: z.number().int().positive().default(720),
+    groupHistoryTtlMinutes: z.number().int().positive().default(30),
+    channelHistoryTtlMinutes: z.number().int().positive().default(30),
+    privateMaxMessages: z.number().int().positive().default(20),
+    groupMaxMessages: z.number().int().positive().default(6),
+    channelMaxMessages: z.number().int().positive().default(8)
   })
   .passthrough();
 
