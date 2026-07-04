@@ -2,12 +2,15 @@
   "name": "synapse-runtime",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm -r build",
     "docs:build": "vitepress build docs",
     "docs:dev": "vitepress dev docs",
     "docs:preview": "vitepress preview docs",
+    "fmt": "oxfmt --write .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
     "start": "node packages/runtime-server/dist/cli.js --config examples/runtime.config.toml --env-file .env",
     "tui": "node packages/runtime-server/dist/cli.js console",
     "tui:spawn": "node packages/runtime-server/dist/cli.js console --config examples/runtime.config.toml --env-file .env --spawn",
@@ -16,8 +19,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
+    "oxfmt": "^0.57.0",
+    "oxlint": "^1.72.0",
     "typescript": "^5.5.4",
     "vitepress": "^1.6.4",
     "vitest": "^2.0.5"
-  }
+  },
+  "packageManager": "pnpm@9.15.0"
 }
