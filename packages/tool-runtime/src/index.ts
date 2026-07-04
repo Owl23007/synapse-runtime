@@ -59,11 +59,7 @@ export class ToolRuntime {
     return this.#permissionEngine.decide(request);
   }
 
-  async call<TOutput = unknown>(
-    name: string,
-    input: unknown,
-    context: ToolContext
-  ): Promise<ToolCallResult<TOutput>> {
+  async call<TOutput = unknown>(name: string, input: unknown, context: ToolContext): Promise<ToolCallResult<TOutput>> {
     const tool = this.#tools.get(name);
 
     if (tool === undefined) {

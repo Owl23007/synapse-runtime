@@ -87,14 +87,20 @@ function conversationFromPayload(
   return undefined;
 }
 
-function mentionSegmentsFromPayload(
-  eventType: string,
-  payload: QqOfficialMessagePayload
-): SynapseMessage["segments"] {
+function mentionSegmentsFromPayload(eventType: string, payload: QqOfficialMessagePayload): SynapseMessage["segments"] {
   const mentions = Array.isArray(payload.mentions) ? payload.mentions : [];
   const segments = mentions
     .map((mention) => mentionSegmentFromUnknown(mention))
-    .filter((segment): segment is { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string } => segment !== undefined);
+    .filter(
+      (
+        segment
+      ): segment is {
+        readonly type: "mention";
+        readonly target?: "user" | "all" | "unknown";
+        readonly userId?: string;
+        readonly label?: string;
+      } => segment !== undefined
+    );
 
   if (segments.length > 0) {
     return segments;
@@ -107,11 +113,18 @@ function mentionSegmentsFromPayload(
   return [];
 }
 
-function mentionSegmentFromUnknown(
-  mention: unknown
-): { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string } | undefined {
+function mentionSegmentFromUnknown(mention: unknown):
+  | {
+      readonly type: "mention";
+      readonly target?: "user" | "all" | "unknown";
+      readonly userId?: string;
+      readonly label?: string;
+    }
+  | undefined {
   if (typeof mention === "string" && mention.length > 0) {
-    return mention === "all" ? { type: "mention", target: "all" } : { type: "mention", target: "user", userId: mention };
+    return mention === "all"
+      ? { type: "mention", target: "all" }
+      : { type: "mention", target: "user", userId: mention };
   }
 
   if (!isRecord(mention)) {
@@ -139,9 +152,11 @@ function mentionSegmentFromUnknown(
 }
 
 function replyTargetMessageIdFromPayload(payload: QqOfficialMessagePayload): string | undefined {
-  return messageIdFromUnknown(payload.message_reference) ??
+  return (
+    messageIdFromUnknown(payload.message_reference) ??
     messageIdFromUnknown(payload.referenced_message) ??
-    messageIdFromUnknown(payload.reply);
+    messageIdFromUnknown(payload.reply)
+  );
 }
 
 function messageIdFromUnknown(value: unknown): string | undefined {
@@ -153,10 +168,12 @@ function messageIdFromUnknown(value: unknown): string | undefined {
     return undefined;
   }
 
-  return stringFromUnknown(value.message_id) ??
+  return (
+    stringFromUnknown(value.message_id) ??
     stringFromUnknown(value.msg_id) ??
     stringFromUnknown(value.id) ??
-    stringFromUnknown(value.messageId);
+    stringFromUnknown(value.messageId)
+  );
 }
 
 function adapterCapabilitiesForEvent(

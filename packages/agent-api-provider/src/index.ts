@@ -208,10 +208,12 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   }
 }
 
-function resolveProviderPreset(base: OpenAiCompatibleProviderBaseName | undefined): {
-  readonly baseUrl: string;
-  readonly model: string;
-} | undefined {
+function resolveProviderPreset(base: OpenAiCompatibleProviderBaseName | undefined):
+  | {
+      readonly baseUrl: string;
+      readonly model: string;
+    }
+  | undefined {
   if (base === undefined) {
     return undefined;
   }
@@ -243,14 +245,17 @@ export class ApiChatAgent implements Agent {
     const userText = getTextContent(request.input);
 
     try {
-      const contextMessages = request.promptContext?.messages.map((message) => ({
-        role: message.role,
-        content: message.content
-      })) ?? [];
+      const contextMessages =
+        request.promptContext?.messages.map((message) => ({
+          role: message.role,
+          content: message.content
+        })) ?? [];
       const result = await this.#provider.complete({
         messages: [
           ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
-          ...(request.promptContext?.system === undefined ? [] : [{ role: "system" as const, content: request.promptContext.system }]),
+          ...(request.promptContext?.system === undefined
+            ? []
+            : [{ role: "system" as const, content: request.promptContext.system }]),
           ...contextMessages,
           { role: "user", content: userText }
         ]

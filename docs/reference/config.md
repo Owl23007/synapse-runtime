@@ -4,61 +4,61 @@
 
 ## `runtime`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `mode` | `local | attached | hosted` | `local` |
-| `dataDir` | string | `~/.synapse/runtime` |
-| `logLevel` | `trace | debug | info | warn | error | fatal` | `info` |
+| Field      | Type   | Default              |
+| ---------- | ------ | -------------------- | ------- | ------- | ----- | ------ | ------ |
+| `mode`     | `local | attached             | hosted` | `local` |
+| `dataDir`  | string | `~/.synapse/runtime` |
+| `logLevel` | `trace | debug                | info    | warn    | error | fatal` | `info` |
 
 `dataDir` 支持 `~` 展开。显式相对路径会按配置文件所在目录解析。
 
 ## `server`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `host` | string | `0.0.0.0` |
-| `port` | number | `3000` |
-| `publicBaseUrl` | URL string | optional |
+| Field           | Type       | Default   |
+| --------------- | ---------- | --------- |
+| `host`          | string     | `0.0.0.0` |
+| `port`          | number     | `3000`    |
+| `publicBaseUrl` | URL string | optional  |
 
 ## `admin`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `enabled` | boolean | `true` |
-| `host` | string | `127.0.0.1` |
-| `port` | number | `3766` |
-| `token` | string | optional |
-| `allowedOrigins` | string[] | local origins |
+| Field                    | Type     | Default            |
+| ------------------------ | -------- | ------------------ |
+| `enabled`                | boolean  | `true`             |
+| `host`                   | string   | `127.0.0.1`        |
+| `port`                   | number   | `3766`             |
+| `token`                  | string   | optional           |
+| `allowedOrigins`         | string[] | local origins      |
 | `allowedRemoteAddresses` | string[] | loopback addresses |
-| `logBufferSize` | number | `300` |
+| `logBufferSize`          | number   | `300`              |
 
 ## `context`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `enabled` | boolean | `true` |
-| `maxHistoryChars` | positive integer | `6000` |
-| `timezone` | string | `UTC` |
-| `privateHistoryTtlMinutes` | positive integer | `720` |
-| `groupHistoryTtlMinutes` | positive integer | `30` |
-| `channelHistoryTtlMinutes` | positive integer | `30` |
-| `privateMaxMessages` | positive integer | `20` |
-| `groupMaxMessages` | positive integer | `6` |
-| `channelMaxMessages` | positive integer | `8` |
+| Field                      | Type             | Default |
+| -------------------------- | ---------------- | ------- |
+| `enabled`                  | boolean          | `true`  |
+| `maxHistoryChars`          | positive integer | `6000`  |
+| `timezone`                 | string           | `UTC`   |
+| `privateHistoryTtlMinutes` | positive integer | `720`   |
+| `groupHistoryTtlMinutes`   | positive integer | `30`    |
+| `channelHistoryTtlMinutes` | positive integer | `30`    |
+| `privateMaxMessages`       | positive integer | `20`    |
+| `groupMaxMessages`         | positive integer | `6`     |
+| `channelMaxMessages`       | positive integer | `8`     |
 
 ## `memory`
 
-| Field | Type | Default |
-| --- | --- | --- |
+| Field                 | Type    | Default |
+| --------------------- | ------- | ------- |
 | `enableDurableMemory` | boolean | `false` |
 
 ## `agent`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `default` | provider id | optional |
-| `systemPrompt` | string | optional |
-| `providers` | record | `{}` |
+| Field          | Type        | Default  |
+| -------------- | ----------- | -------- |
+| `default`      | provider id | optional |
+| `systemPrompt` | string      | optional |
+| `providers`    | record      | `{}`     |
 
 Provider types：
 
@@ -76,12 +76,12 @@ Provider types：
 
 ## `conversation`
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `privateTrigger` | trigger policy | `{ mode = "always" }` |
-| `groupTrigger` | trigger policy | `{ mode = "mention" }` |
-| `contextPolicy.includeHistory` | boolean | `true` |
-| `contextPolicy.maxMessages` | positive integer | `20` |
+| Field                          | Type             | Default                |
+| ------------------------------ | ---------------- | ---------------------- |
+| `privateTrigger`               | trigger policy   | `{ mode = "always" }`  |
+| `groupTrigger`                 | trigger policy   | `{ mode = "mention" }` |
+| `contextPolicy.includeHistory` | boolean          | `true`                 |
+| `contextPolicy.maxMessages`    | positive integer | `20`                   |
 
 Trigger policy 字段：
 
@@ -99,29 +99,29 @@ Channel id 必须以字母或数字开头，并且只能包含字母、数字、
 
 ### OneBot11
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `adapter` | `onebot11` | required |
-| `provider` | string | `napcat` |
-| `transport` | `websocket | http | http-websocket` | `websocket` |
-| `endpoint` | string | required |
-| `accessToken` | string | optional |
-| `enabled` | boolean | `true` |
-| `riskLevel` | `low | medium | high` | `high` |
+| Field         | Type       | Default  |
+| ------------- | ---------- | -------- | --------------- | ----------- |
+| `adapter`     | `onebot11` | required |
+| `provider`    | string     | `napcat` |
+| `transport`   | `websocket | http     | http-websocket` | `websocket` |
+| `endpoint`    | string     | required |
+| `accessToken` | string     | optional |
+| `enabled`     | boolean    | `true`   |
+| `riskLevel`   | `low       | medium   | high`           | `high`      |
 
 ### QQ Official
 
-| Field | Type | Default |
-| --- | --- | --- |
-| `adapter` | `qq-official` | required |
-| `appId` | string | required |
-| `appSecret` | string | required |
-| `mode` | `webhook | websocket` | `webhook` |
-| `apiBaseUrl` | URL string | optional |
-| `tokenEndpoint` | URL string | optional |
-| `webhookPath` | string | optional |
-| `enabled` | boolean | `false` |
-| `riskLevel` | `low | medium | high` | `low` |
+| Field           | Type          | Default    |
+| --------------- | ------------- | ---------- | --------- | ----- |
+| `adapter`       | `qq-official` | required   |
+| `appId`         | string        | required   |
+| `appSecret`     | string        | required   |
+| `mode`          | `webhook      | websocket` | `webhook` |
+| `apiBaseUrl`    | URL string    | optional   |
+| `tokenEndpoint` | URL string    | optional   |
+| `webhookPath`   | string        | optional   |
+| `enabled`       | boolean       | `false`    |
+| `riskLevel`     | `low          | medium     | high`     | `low` |
 
 ## `permissions`
 

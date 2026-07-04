@@ -109,7 +109,10 @@ export class InMemoryTranscriptStore implements TranscriptStore {
     return message;
   }
 
-  async listRecent(sessionId: string, options: { readonly limit?: number } = {}): Promise<readonly TranscriptMessage[]> {
+  async listRecent(
+    sessionId: string,
+    options: { readonly limit?: number } = {}
+  ): Promise<readonly TranscriptMessage[]> {
     const limit = options.limit ?? 20;
 
     return this.#messages
@@ -123,14 +126,15 @@ export class InMemoryTranscriptStore implements TranscriptStore {
       return undefined;
     }
 
-    return this.#messages.find((message) =>
-      message.platform === input.platform &&
-      message.provider === input.provider &&
-      message.channelId === input.channelId &&
-      message.conversationType === input.conversationType &&
-      message.conversationId === input.conversationId &&
-      message.role === "assistant" &&
-      normalizeMessageId(message.externalMessageId) === externalMessageId
+    return this.#messages.find(
+      (message) =>
+        message.platform === input.platform &&
+        message.provider === input.provider &&
+        message.channelId === input.channelId &&
+        message.conversationType === input.conversationType &&
+        message.conversationId === input.conversationId &&
+        message.role === "assistant" &&
+        normalizeMessageId(message.externalMessageId) === externalMessageId
     );
   }
 }
@@ -204,28 +208,38 @@ export class WorkspaceResolverLite implements WorkspaceResolver {
     const conversationType = conversationTypeFromEvent(event);
     const defaultWorkspace = defaultWorkspaceForEvent(event, actor);
 
-    return this.#workspaceStore?.resolveWorkspace({
-      platform: event.platform,
-      provider: actor.platformIdentity.provider,
-      channelId: event.channelId,
-      conversationType,
-      conversationId: event.conversation.id,
-      identityId: actor.identity.id,
-      defaultWorkspace
-    }) ?? defaultWorkspace;
+    return (
+      this.#workspaceStore?.resolveWorkspace({
+        platform: event.platform,
+        provider: actor.platformIdentity.provider,
+        channelId: event.channelId,
+        conversationType,
+        conversationId: event.conversation.id,
+        identityId: actor.identity.id,
+        defaultWorkspace
+      }) ?? defaultWorkspace
+    );
   }
 }
 
 function defaultWorkspaceForEvent(event: SynapseChannelEvent, actor: RuntimeActor): WorkspaceRef {
-    if (event.conversation.kind === "group") {
-      return { id: `group:${event.platform}:${event.channelId}:${event.conversation.id}`, type: "group", name: event.conversation.title ?? event.conversation.id };
-    }
+  if (event.conversation.kind === "group") {
+    return {
+      id: `group:${event.platform}:${event.channelId}:${event.conversation.id}`,
+      type: "group",
+      name: event.conversation.title ?? event.conversation.id
+    };
+  }
 
-    if (event.conversation.kind === "system") {
-      return { id: "system:runtime-admin", type: "system", name: "runtime-admin" };
-    }
+  if (event.conversation.kind === "system") {
+    return { id: "system:runtime-admin", type: "system", name: "runtime-admin" };
+  }
 
-    return { id: `personal:${actor.identity.id}`, type: "personal", name: actor.identity.displayName ?? actor.identity.id };
+  return {
+    id: `personal:${actor.identity.id}`,
+    type: "personal",
+    name: actor.identity.displayName ?? actor.identity.id
+  };
 }
 
 export interface OutputPolicy {
@@ -293,12 +307,14 @@ export class ContextComposer {
       recent
         .filter((message) => message.sourceEventId !== input.currentSourceEventId)
         .filter((message) => isWithinHistoryTtl(message.createdAt, referenceMs, input.historyTtlMinutes))
-        .map((message): PromptContextMessage => ({
-          role: message.role,
-          content: `[${message.createdAt}] ${message.text}`,
-          messageId: message.id,
-          createdAt: message.createdAt
-        })),
+        .map(
+          (message): PromptContextMessage => ({
+            role: message.role,
+            content: `[${message.createdAt}] ${message.text}`,
+            messageId: message.id,
+            createdAt: message.createdAt
+          })
+        ),
       this.#maxHistoryChars
     );
 
@@ -325,11 +341,13 @@ export class ContextComposer {
         eventReceivedAt: input.event.receivedAt,
         eventReceivedAtLocal,
         timezone: this.#timezone,
-        ...(input.trigger === undefined ? {} : {
-          triggerKind: input.trigger.kind,
-          triggerReason: input.trigger.reason,
-          triggerConfidence: input.trigger.confidence
-        })
+        ...(input.trigger === undefined
+          ? {}
+          : {
+              triggerKind: input.trigger.kind,
+              triggerReason: input.trigger.reason,
+              triggerConfidence: input.trigger.confidence
+            })
       }
     };
   }
@@ -442,7 +460,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
   async append(input: TranscriptAppendInput): Promise<TranscriptMessage> {
     const transaction = this.#db.transaction(() => {
       if (input.sourceEventId !== undefined) {
-        const existing = this.#db.prepare(`
+        const existing = this.#db
+          .prepare(`
           SELECT *
           FROM conversation_messages
           WHERE platform = ?
@@ -452,14 +471,15 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
             AND conversation_id = ?
             AND source_event_id = ?
           LIMIT 1
-        `).get(
-          input.platform,
-          input.provider,
-          input.channelId,
-          input.conversationType,
-          input.conversationId,
-          input.sourceEventId
-        ) as ConversationMessageRow | undefined;
+        `)
+          .get(
+            input.platform,
+            input.provider,
+            input.channelId,
+            input.conversationType,
+            input.conversationId,
+            input.sourceEventId
+          ) as ConversationMessageRow | undefined;
 
         if (existing !== undefined) {
           return transcriptMessageFromRow(existing);
@@ -471,7 +491,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         createdAt: input.createdAt ?? new Date().toISOString(),
         ...input
       };
-      this.#db.prepare(`
+      this.#db
+        .prepare(`
         INSERT INTO conversation_messages (
           id,
           session_id,
@@ -488,39 +509,45 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
           deleted_at,
           external_message_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-      `).run(
-        message.id,
-        message.sessionId,
-        message.platform,
-        message.provider,
-        message.channelId,
-        message.conversationType,
-        message.conversationId,
-        message.sourceEventId ?? null,
-        message.role,
-        message.actorId ?? null,
-        message.text,
-        message.createdAt,
-        message.externalMessageId ?? null
-      );
+      `)
+        .run(
+          message.id,
+          message.sessionId,
+          message.platform,
+          message.provider,
+          message.channelId,
+          message.conversationType,
+          message.conversationId,
+          message.sourceEventId ?? null,
+          message.role,
+          message.actorId ?? null,
+          message.text,
+          message.createdAt,
+          message.externalMessageId ?? null
+        );
       return message;
     });
 
     return transaction();
   }
 
-  async listRecent(sessionId: string, options: { readonly limit?: number } = {}): Promise<readonly TranscriptMessage[]> {
+  async listRecent(
+    sessionId: string,
+    options: { readonly limit?: number } = {}
+  ): Promise<readonly TranscriptMessage[]> {
     const limit = options.limit ?? 20;
-    const rows = this.#db.prepare(`
+    const rows = this.#db
+      .prepare(`
       SELECT *
       FROM conversation_messages
       WHERE session_id = ?
         AND deleted_at IS NULL
       ORDER BY created_at DESC, rowid DESC
       LIMIT ?
-    `).all(sessionId, limit) as ConversationMessageRow[];
+    `)
+      .all(sessionId, limit) as ConversationMessageRow[];
 
-    return rows.reverse().map(transcriptMessageFromRow);
+    return rows.toReversed().map(transcriptMessageFromRow);
   }
 
   async findByExternalMessageId(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined> {
@@ -529,7 +556,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
       return undefined;
     }
 
-    const row = this.#db.prepare(`
+    const row = this.#db
+      .prepare(`
       SELECT *
       FROM conversation_messages
       WHERE platform = ?
@@ -542,14 +570,15 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         AND deleted_at IS NULL
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
-    `).get(
-      input.platform,
-      input.provider,
-      input.channelId,
-      input.conversationType,
-      input.conversationId,
-      externalMessageId
-    ) as ConversationMessageRow | undefined;
+    `)
+      .get(
+        input.platform,
+        input.provider,
+        input.channelId,
+        input.conversationType,
+        input.conversationId,
+        externalMessageId
+      ) as ConversationMessageRow | undefined;
 
     return row === undefined ? undefined : transcriptMessageFromRow(row);
   }
@@ -558,7 +587,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
     const transaction = this.#db.transaction(() => {
       const id = eventProcessKey(input);
       const now = new Date().toISOString();
-      this.#db.prepare(`
+      this.#db
+        .prepare(`
         INSERT OR IGNORE INTO event_process_state (
           id,
           platform,
@@ -571,17 +601,18 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
           created_at,
           updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?, ?)
-      `).run(
-        id,
-        input.platform,
-        input.provider,
-        input.channelId,
-        input.conversationType,
-        input.conversationId,
-        input.sourceEventId,
-        now,
-        now
-      );
+      `)
+        .run(
+          id,
+          input.platform,
+          input.provider,
+          input.channelId,
+          input.conversationType,
+          input.conversationId,
+          input.sourceEventId,
+          now,
+          now
+        );
 
       return this.#getEventProcessState(id);
     });
@@ -597,7 +628,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         ...patch,
         updatedAt: new Date().toISOString()
       };
-      this.#db.prepare(`
+      this.#db
+        .prepare(`
         UPDATE event_process_state
         SET status = ?,
             incoming_message_id = ?,
@@ -607,16 +639,17 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
             error_json = ?,
             updated_at = ?
         WHERE id = ?
-      `).run(
-        next.status,
-        next.incomingMessageId ?? null,
-        next.assistantMessageId ?? null,
-        next.agentOutputText ?? null,
-        next.sendResultJson ?? null,
-        next.errorJson ?? null,
-        next.updatedAt,
-        id
-      );
+      `)
+        .run(
+          next.status,
+          next.incomingMessageId ?? null,
+          next.assistantMessageId ?? null,
+          next.agentOutputText ?? null,
+          next.sendResultJson ?? null,
+          next.errorJson ?? null,
+          next.updatedAt,
+          id
+        );
 
       return next;
     });
@@ -633,19 +666,16 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
       }
 
       const now = new Date().toISOString();
-      this.#db.prepare(`
+      this.#db
+        .prepare(`
         INSERT OR IGNORE INTO workspaces (id, type, name, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        input.defaultWorkspace.id,
-        input.defaultWorkspace.type,
-        input.defaultWorkspace.name,
-        now,
-        now
-      );
+      `)
+        .run(input.defaultWorkspace.id, input.defaultWorkspace.type, input.defaultWorkspace.name, now, now);
 
       if (input.defaultWorkspace.type === "personal") {
-        this.#db.prepare(`
+        this.#db
+          .prepare(`
           INSERT OR IGNORE INTO workspace_bindings (
             id,
             workspace_id,
@@ -653,14 +683,11 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
             identity_id,
             created_at
           ) VALUES (?, ?, 'identity', ?, ?)
-        `).run(
-          `wbind-${randomUUID()}`,
-          input.defaultWorkspace.id,
-          input.identityId,
-          now
-        );
+        `)
+          .run(`wbind-${randomUUID()}`, input.defaultWorkspace.id, input.identityId, now);
       } else {
-        this.#db.prepare(`
+        this.#db
+          .prepare(`
           INSERT OR IGNORE INTO workspace_bindings (
             id,
             workspace_id,
@@ -672,16 +699,17 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
             conversation_id,
             created_at
           ) VALUES (?, ?, 'conversation', ?, ?, ?, ?, ?, ?)
-        `).run(
-          `wbind-${randomUUID()}`,
-          input.defaultWorkspace.id,
-          input.platform,
-          input.provider,
-          input.channelId,
-          input.conversationType,
-          input.conversationId,
-          now
-        );
+        `)
+          .run(
+            `wbind-${randomUUID()}`,
+            input.defaultWorkspace.id,
+            input.platform,
+            input.provider,
+            input.channelId,
+            input.conversationType,
+            input.conversationId,
+            now
+          );
       }
 
       return input.defaultWorkspace;
@@ -696,7 +724,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
 
   #findBoundWorkspace(input: WorkspaceResolveInput): WorkspaceRef | undefined {
     if (input.defaultWorkspace.type === "personal") {
-      return this.#db.prepare(`
+      return this.#db
+        .prepare(`
         SELECT workspaces.id, workspaces.type, workspaces.name
         FROM workspace_bindings
         JOIN workspaces ON workspaces.id = workspace_bindings.workspace_id
@@ -706,10 +735,12 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
           AND workspaces.deleted_at IS NULL
         ORDER BY workspace_bindings.created_at DESC
         LIMIT 1
-      `).get(input.identityId) as WorkspaceRef | undefined;
+      `)
+        .get(input.identityId) as WorkspaceRef | undefined;
     }
 
-    return this.#db.prepare(`
+    return this.#db
+      .prepare(`
       SELECT workspaces.id, workspaces.type, workspaces.name
       FROM workspace_bindings
       JOIN workspaces ON workspaces.id = workspace_bindings.workspace_id
@@ -723,17 +754,15 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
         AND workspaces.deleted_at IS NULL
       ORDER BY workspace_bindings.created_at DESC
       LIMIT 1
-    `).get(
-      input.platform,
-      input.provider,
-      input.channelId,
-      input.conversationType,
-      input.conversationId
-    ) as WorkspaceRef | undefined;
+    `)
+      .get(input.platform, input.provider, input.channelId, input.conversationType, input.conversationId) as
+      | WorkspaceRef
+      | undefined;
   }
 
   #getEventProcessState(id: string): EventProcessState {
-    const row = this.#db.prepare(`
+    const row = this.#db
+      .prepare(`
       SELECT
         id,
         status,
@@ -746,7 +775,8 @@ export class SqliteRuntimeContextStore implements TranscriptStore, EventProcessS
       FROM event_process_state
       WHERE id = ?
       LIMIT 1
-    `).get(id) as EventProcessStateRow | undefined;
+    `)
+      .get(id) as EventProcessStateRow | undefined;
 
     if (row === undefined) {
       throw new Error(`Event process state "${id}" does not exist.`);
@@ -969,16 +999,18 @@ export function buildSourceEventId(event: SynapseChannelEvent, provider: string)
   const roundedReceivedAt = roundedIsoTimestamp(event.receivedAt);
   const text = event.message === undefined ? "" : getTextContent(event.message);
   const digest = createHash("sha256")
-    .update([
-      event.platform,
-      provider,
-      event.channelId,
-      conversationTypeFromEvent(event),
-      event.conversation.id,
-      event.sender.id,
-      text,
-      roundedReceivedAt
-    ].join("\u001f"))
+    .update(
+      [
+        event.platform,
+        provider,
+        event.channelId,
+        conversationTypeFromEvent(event),
+        event.conversation.id,
+        event.sender.id,
+        text,
+        roundedReceivedAt
+      ].join("\u001f")
+    )
     .digest("hex")
     .slice(0, 32);
 
@@ -1041,7 +1073,12 @@ export function commandResponse(
   if (text === "/workspace info") {
     return {
       type: "text",
-      segments: [{ type: "text", text: `workspaceId=${workspace.id}\nworkspaceType=${workspace.type}\nworkspaceName=${workspace.name}` }]
+      segments: [
+        {
+          type: "text",
+          text: `workspaceId=${workspace.id}\nworkspaceType=${workspace.type}\nworkspaceName=${workspace.name}`
+        }
+      ]
     };
   }
 
@@ -1060,14 +1097,16 @@ export function commandResponse(
 }
 
 function isMemoryCommand(text: string): boolean {
-  return text === "/memory" ||
+  return (
+    text === "/memory" ||
     text.startsWith("/memory ") ||
     text === "/memory remember" ||
     text.startsWith("/memory remember ") ||
     text === "/memory list" ||
     text.startsWith("/memory list ") ||
     text === "/memory delete" ||
-    text.startsWith("/memory delete ");
+    text.startsWith("/memory delete ")
+  );
 }
 
 function transcriptSourceKey(input: TranscriptAppendInput): string {

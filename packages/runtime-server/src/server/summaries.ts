@@ -36,7 +36,7 @@ export function summarizeQqOfficialPayload(payload: unknown): Readonly<Record<st
     op: payload.op,
     t: payload.t,
     id: payload.id,
-    dataKeys: data === undefined ? undefined : Object.keys(data).sort(),
+    dataKeys: data === undefined ? undefined : Object.keys(data).toSorted(),
     messageId: data?.msg_id ?? data?.id,
     eventId: data?.event_id,
     groupOpenid: data?.group_openid,

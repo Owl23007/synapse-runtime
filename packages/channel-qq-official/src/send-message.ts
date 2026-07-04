@@ -34,7 +34,9 @@ export function createQqOfficialSendBody(
 
 export function renderTextMessage(message: SynapseMessage): string {
   const text = message.segments
-    .filter((segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text")
+    .filter(
+      (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
+    )
     .map((segment) => segment.text)
     .join("");
 

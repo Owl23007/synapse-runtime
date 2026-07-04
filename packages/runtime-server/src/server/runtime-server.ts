@@ -1,7 +1,13 @@
 import { join } from "node:path";
 import { InMemoryChannelRegistry, type ChannelAdapter } from "@synapse/runtime-channel";
 import { QqOfficialChannelAdapter } from "@synapse/runtime-channel-qq-official";
-import { loadConfigFile, redactConfig, type AdminSettings, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
+import {
+  loadConfigFile,
+  redactConfig,
+  type AdminSettings,
+  type ChannelConfig,
+  type RuntimeConfig
+} from "@synapse/runtime-config";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
@@ -10,7 +16,13 @@ import { bodyParser, createApp, type Nova, type NovaRequest, type NovaResponse }
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import { createChannelAdapter } from "../composition/channel-factory.js";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
-import type { RuntimeFetch, RuntimeLogEntry, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
+import type {
+  RuntimeFetch,
+  RuntimeLogEntry,
+  RuntimeServerLogger,
+  RuntimeServerOptions,
+  RuntimeServerStartResult
+} from "../types.js";
 import { getNovaServerAddress, readJsonBody, sendJson } from "./http.js";
 import { handleQqOfficialWebhook, type QqOfficialRoute } from "./qq-official-webhook.js";
 import { summarizeChannelConfig } from "./summaries.js";
@@ -92,8 +104,16 @@ export class RuntimeServer {
     const address = getNovaServerAddress(this.#app);
     const result: RuntimeServerStartResult =
       typeof address === "object" && address !== null
-        ? { host: this.#config.server.host, port: address.port, ...(adminResult === undefined ? {} : { admin: adminResult }) }
-        : { host: this.#config.server.host, port: this.#config.server.port, ...(adminResult === undefined ? {} : { admin: adminResult }) };
+        ? {
+            host: this.#config.server.host,
+            port: address.port,
+            ...(adminResult === undefined ? {} : { admin: adminResult })
+          }
+        : {
+            host: this.#config.server.host,
+            port: this.#config.server.port,
+            ...(adminResult === undefined ? {} : { admin: adminResult })
+          };
     this.#logger.info("Synapse Runtime server started.", { ...result });
     return result;
   }
@@ -297,9 +317,10 @@ export class RuntimeServer {
       adapter: channelConfig.adapter,
       enabled: channelConfig.enabled,
       provider: channelConfig.adapter === "onebot11" ? channelConfig.provider : "qq-official",
-      status: adapter === undefined
-        ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }
-        : await adapter.getStatus()
+      status:
+        adapter === undefined
+          ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }
+          : await adapter.getStatus()
     };
   }
 
@@ -371,10 +392,12 @@ export class RuntimeServer {
         groupMaxMessages: config.context.groupMaxMessages,
         channelMaxMessages: config.context.channelMaxMessages,
         providerByChannelId: providerByChannelId(config.channels),
-        ...(contextStore === undefined ? {} : {
-          transcriptStore: contextStore,
-          eventProcessStore: contextStore
-        })
+        ...(contextStore === undefined
+          ? {}
+          : {
+              transcriptStore: contextStore,
+              eventProcessStore: contextStore
+            })
       }
     });
   }
@@ -384,11 +407,7 @@ export class RuntimeServer {
     this.#contextStore = undefined;
   }
 
-  async #applyChannelPatch(
-    channelId: string,
-    channelConfig: ChannelConfig,
-    patch: ChannelAdminPatch
-  ): Promise<void> {
+  async #applyChannelPatch(channelId: string, channelConfig: ChannelConfig, patch: ChannelAdminPatch): Promise<void> {
     if (patch.enabled === undefined || patch.enabled === channelConfig.enabled) {
       return;
     }
@@ -407,7 +426,9 @@ export class RuntimeServer {
       return;
     }
 
-    const channel = createChannelAdapter(channelId, channelConfig, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
+    const channel = createChannelAdapter(channelId, channelConfig, {
+      ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
+    });
     this.#runtime.attachChannel(channel);
     this.#registerWebhookRoute(channelId, channelConfig, channel);
     await channel.connect();
@@ -448,7 +469,9 @@ export class RuntimeServer {
         channelId,
         config: redactConfig(summarizeChannelConfig(channelConfig))
       });
-      const channel = createChannelAdapter(channelId, channelConfig, { ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }) });
+      const channel = createChannelAdapter(channelId, channelConfig, {
+        ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
+      });
       this.#runtime.attachChannel(channel);
       this.#registerWebhookRoute(channelId, channelConfig, channel);
     }
@@ -585,17 +608,19 @@ function streamLogEvents(response: NovaResponse, logBuffer: RuntimeLogBuffer): P
   const responseState = response as unknown as { _headersSent: boolean };
   responseState._headersSent = true;
 
-  socket.write([
-    "HTTP/1.1 200 OK",
-    "content-type: text/event-stream; charset=utf-8",
-    "cache-control: no-cache, no-transform",
-    "connection: keep-alive",
-    "x-accel-buffering: no",
-    "",
-    ": connected",
-    "",
-    ""
-  ].join("\r\n"));
+  socket.write(
+    [
+      "HTTP/1.1 200 OK",
+      "content-type: text/event-stream; charset=utf-8",
+      "cache-control: no-cache, no-transform",
+      "connection: keep-alive",
+      "x-accel-buffering: no",
+      "",
+      ": connected",
+      "",
+      ""
+    ].join("\r\n")
+  );
 
   for (const entry of logBuffer.entries) {
     writeSseLogEntry(socket, entry);

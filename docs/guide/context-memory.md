@@ -45,11 +45,11 @@ Recent history 查询行为：
 
 `OutputPolicyResolver` 按 workspace type 选择默认策略：
 
-| Workspace | Mode | maxChars | Markdown | Code Block |
-| --- | --- | ---: | --- | --- |
-| personal | normal | 4000 | yes | yes |
-| group | concise | 600 | no | no |
-| system | system | 2000 | yes | yes |
+| Workspace | Mode    | maxChars | Markdown | Code Block |
+| --------- | ------- | -------: | -------- | ---------- |
+| personal  | normal  |     4000 | yes      | yes        |
+| group     | concise |      600 | no       | no         |
+| system    | system  |     2000 | yes      | yes        |
 
 `ResponsePolicy` 是规则处理，不会二次调用 LLM。它可以：
 

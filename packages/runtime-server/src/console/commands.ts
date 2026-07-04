@@ -1,7 +1,7 @@
 export function splitCommand(command: string): string[] {
   const matches = command.match(/"([^"]*)"|'([^']*)'|\S+/g) ?? [];
   return matches.map((match) => {
-    if ((match.startsWith("\"") && match.endsWith("\"")) || (match.startsWith("'") && match.endsWith("'"))) {
+    if ((match.startsWith('"') && match.endsWith('"')) || (match.startsWith("'") && match.endsWith("'"))) {
       return match.slice(1, -1);
     }
 

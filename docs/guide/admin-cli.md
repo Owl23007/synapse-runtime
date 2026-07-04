@@ -40,17 +40,17 @@ synapse-runtime use <profile>
 
 Admin API 挂载在 `/admin`。
 
-| Method | Path | 用途 |
-| --- | --- | --- |
-| GET | `/admin/health` | 健康检查 |
-| GET | `/admin/status` | Runtime、server、admin 和 channel 状态 |
-| GET | `/admin/config` | 脱敏后的 runtime config |
-| GET | `/admin/channels` | Channel 摘要 |
-| PATCH | `/admin/channels/:id` | 启用或禁用已配置 channel |
-| GET | `/admin/logs?limit=100` | 缓冲日志 |
-| GET | `/admin/events/stream` | Server-sent log stream |
-| POST | `/admin/reload` | 从文件重新加载配置 |
-| POST | `/admin/shutdown` | 停止 runtime server |
+| Method | Path                    | 用途                                   |
+| ------ | ----------------------- | -------------------------------------- |
+| GET    | `/admin/health`         | 健康检查                               |
+| GET    | `/admin/status`         | Runtime、server、admin 和 channel 状态 |
+| GET    | `/admin/config`         | 脱敏后的 runtime config                |
+| GET    | `/admin/channels`       | Channel 摘要                           |
+| PATCH  | `/admin/channels/:id`   | 启用或禁用已配置 channel               |
+| GET    | `/admin/logs?limit=100` | 缓冲日志                               |
+| GET    | `/admin/events/stream`  | Server-sent log stream                 |
+| POST   | `/admin/reload`         | 从文件重新加载配置                     |
+| POST   | `/admin/shutdown`       | 停止 runtime server                    |
 
 ## Admin 安全
 

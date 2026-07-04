@@ -47,7 +47,9 @@ export class QqOfficialAccessTokenClient {
     const body = (await response.json()) as TokenResponseBody;
 
     if (!response.ok) {
-      throw new Error(`QQ official token request failed with HTTP ${response.status}: ${safeJson(redactSensitive(body))}`);
+      throw new Error(
+        `QQ official token request failed with HTTP ${response.status}: ${safeJson(redactSensitive(body))}`
+      );
     }
 
     const accessToken = parseRequiredString(body.access_token ?? body.accessToken, "access_token/accessToken", body);

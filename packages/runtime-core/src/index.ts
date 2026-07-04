@@ -116,10 +116,13 @@ export class RuntimeCore {
     this.#transcriptStore = options.context?.transcriptStore ?? new InMemoryTranscriptStore();
     this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
     this.#identityResolver = options.context?.identityResolver ?? new IdentityResolverLite();
-    const workspaceStore = options.context?.workspaceStore ?? workspaceStoreFromUnknown(options.context?.transcriptStore);
-    this.#workspaceResolver = options.context?.workspaceResolver ?? new WorkspaceResolverLite({
-      ...(workspaceStore === undefined ? {} : { workspaceStore })
-    });
+    const workspaceStore =
+      options.context?.workspaceStore ?? workspaceStoreFromUnknown(options.context?.transcriptStore);
+    this.#workspaceResolver =
+      options.context?.workspaceResolver ??
+      new WorkspaceResolverLite({
+        ...(workspaceStore === undefined ? {} : { workspaceStore })
+      });
     this.#contextComposer = new ContextComposer({
       transcriptStore: this.#transcriptStore,
       ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars }),
@@ -234,10 +237,16 @@ export class RuntimeCore {
         return;
       }
 
-      const commandOutput = commandResponse(event, actor, workspace, { enableDurableMemory: this.#enableDurableMemory });
-      const recoveredOutput = processState?.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText);
+      const commandOutput = commandResponse(event, actor, workspace, {
+        enableDurableMemory: this.#enableDurableMemory
+      });
+      const recoveredOutput =
+        processState?.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText);
 
-      if ((processState?.status === "agent_completed" || processState?.status === "send_failed") && recoveredOutput !== undefined) {
+      if (
+        (processState?.status === "agent_completed" || processState?.status === "send_failed") &&
+        recoveredOutput !== undefined
+      ) {
         await this.#sendOutput({
           event,
           request: enrichedRequest,
@@ -254,7 +263,11 @@ export class RuntimeCore {
         const sendSucceededState = processState;
         if (recoveredOutput !== undefined) {
           const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, `recovered-${event.id}`);
-          const assistant = await this.#appendAssistantTranscript(event, output, parseSendResult(processState.sendResultJson)?.messageId);
+          const assistant = await this.#appendAssistantTranscript(
+            event,
+            output,
+            parseSendResult(processState.sendResultJson)?.messageId
+          );
           await this.#eventProcessStore.update(sendSucceededState.id, {
             status: "completed",
             ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
@@ -282,21 +295,30 @@ export class RuntimeCore {
             createdAt: event.receivedAt
           });
           if (processStateId !== undefined) {
-            await this.#eventProcessStore.update(processStateId, { status: "processing", incomingMessageId: incoming.id });
+            await this.#eventProcessStore.update(processStateId, {
+              status: "processing",
+              incomingMessageId: incoming.id
+            });
           }
           const historyTtlMinutes = historyTtlForConversation(conversationType, this.#contextHistory);
-          const promptContext = request.contextPolicy.includeHistory ? await this.#contextComposer.compose({
-              event,
-              actor,
-              workspace,
-              outputPolicy,
-              sessionId,
-              currentInput: request.input,
-              currentSourceEventId: sourceEventId,
-              maxMessages: maxMessagesForConversation(conversationType, request.contextPolicy.maxMessages, this.#contextHistory),
-              ...(historyTtlMinutes === undefined ? {} : { historyTtlMinutes }),
-              ...(request.trigger === undefined ? {} : { trigger: request.trigger })
-            }) : undefined;
+          const promptContext = request.contextPolicy.includeHistory
+            ? await this.#contextComposer.compose({
+                event,
+                actor,
+                workspace,
+                outputPolicy,
+                sessionId,
+                currentInput: request.input,
+                currentSourceEventId: sourceEventId,
+                maxMessages: maxMessagesForConversation(
+                  conversationType,
+                  request.contextPolicy.maxMessages,
+                  this.#contextHistory
+                ),
+                ...(historyTtlMinutes === undefined ? {} : { historyTtlMinutes }),
+                ...(request.trigger === undefined ? {} : { trigger: request.trigger })
+              })
+            : undefined;
           enrichedRequest = {
             ...enrichedRequest,
             ...(promptContext === undefined ? {} : { promptContext })
@@ -310,7 +332,15 @@ export class RuntimeCore {
       }
 
       if (commandOutput !== undefined) {
-        await this.#sendOutput({ event, request: enrichedRequest, runId: `command-${event.id}`, output: commandOutput, workspace, outputPolicy, processStateId });
+        await this.#sendOutput({
+          event,
+          request: enrichedRequest,
+          runId: `command-${event.id}`,
+          output: commandOutput,
+          workspace,
+          outputPolicy,
+          processStateId
+        });
         return;
       }
 
@@ -342,13 +372,28 @@ export class RuntimeCore {
 
       if (run.status === "succeeded" && run.output !== undefined) {
         if (processStateId !== undefined) {
-          await this.#eventProcessStore.update(processStateId, { status: "agent_completed", agentOutputText: getText(run.output) });
+          await this.#eventProcessStore.update(processStateId, {
+            status: "agent_completed",
+            agentOutputText: getText(run.output)
+          });
         }
-        await this.#sendOutput({ event, request: enrichedRequest, runId: run.id, output: run.output, workspace, outputPolicy, processStateId });
+        await this.#sendOutput({
+          event,
+          request: enrichedRequest,
+          runId: run.id,
+          output: run.output,
+          workspace,
+          outputPolicy,
+          processStateId
+        });
         return;
       }
 
-      this.#traces.push({ eventId: event.id, status: run.status === "succeeded" ? "succeeded" : "failed", runId: run.id });
+      this.#traces.push({
+        eventId: event.id,
+        status: run.status === "succeeded" ? "succeeded" : "failed",
+        runId: run.id
+      });
       this.#logger?.info("Runtime event completed.", {
         eventId: event.id,
         runId: run.id,
@@ -381,7 +426,11 @@ export class RuntimeCore {
     const target = targetFromEvent(input.event);
 
     if (channel === undefined) {
-      this.#traces.push({ eventId: input.event.id, status: "failed", reason: `Channel "${input.event.channelId}" is not registered.` });
+      this.#traces.push({
+        eventId: input.event.id,
+        status: "failed",
+        reason: `Channel "${input.event.channelId}" is not registered.`
+      });
       this.#logger?.error("Runtime send failed because channel is not registered.", {
         eventId: input.event.id,
         runId: input.runId,
@@ -425,7 +474,12 @@ export class RuntimeCore {
           errorJson: JSON.stringify({ error: result.error ?? "Channel send failed." })
         });
       }
-      this.#traces.push({ eventId: input.event.id, status: "failed", reason: result.error ?? "Channel send failed.", runId: input.runId });
+      this.#traces.push({
+        eventId: input.event.id,
+        status: "failed",
+        reason: result.error ?? "Channel send failed.",
+        runId: input.runId
+      });
       return;
     }
 
@@ -501,7 +555,9 @@ export class RuntimeCore {
   }
 
   async #enrichTriggerHints(event: SynapseChannelEvent): Promise<SynapseChannelEvent> {
-    const replyTargetMessageId = normalizeMessageId(event.message?.replyTo?.messageId ?? event.triggerHint?.replyTargetMessageId);
+    const replyTargetMessageId = normalizeMessageId(
+      event.message?.replyTo?.messageId ?? event.triggerHint?.replyTargetMessageId
+    );
     if (replyTargetMessageId === undefined || this.#transcriptStore.findByExternalMessageId === undefined) {
       return event;
     }
@@ -576,7 +632,9 @@ function summarizeEvent(event: SynapseChannelEvent): Readonly<Record<string, unk
 
 function summarizeMessage(message: SynapseMessage): Readonly<Record<string, unknown>> {
   const text = message.segments
-    .filter((segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text")
+    .filter(
+      (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
+    )
     .map((segment) => segment.text)
     .join("");
 
@@ -601,7 +659,9 @@ function getText(message: SynapseMessage | undefined): string {
   }
 
   return message.segments
-    .filter((segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text")
+    .filter(
+      (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
+    )
     .map((segment) => segment.text)
     .join("");
 }
@@ -697,5 +757,5 @@ function workspaceStoreFromUnknown(value: unknown): WorkspaceStore | undefined {
   }
 
   const candidate = value as { readonly resolveWorkspace?: unknown };
-  return typeof candidate.resolveWorkspace === "function" ? value as WorkspaceStore : undefined;
+  return typeof candidate.resolveWorkspace === "function" ? (value as WorkspaceStore) : undefined;
 }

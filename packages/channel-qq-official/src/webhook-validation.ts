@@ -1,8 +1,5 @@
 import { createPrivateKey, sign } from "node:crypto";
-import type {
-  QqOfficialWebhookValidationRequest,
-  QqOfficialWebhookValidationResponse
-} from "./types.js";
+import type { QqOfficialWebhookValidationRequest, QqOfficialWebhookValidationResponse } from "./types.js";
 import { repeatToLength } from "./utils.js";
 
 export function createQqOfficialWebhookValidationResponse(
@@ -21,10 +18,7 @@ export function signQqOfficialWebhookValidation(
 ): string {
   const seed = repeatToLength(Buffer.from(appSecret, "utf8"), 32);
   const privateKey = createPrivateKey({
-    key: Buffer.concat([
-      Buffer.from("302e020100300506032b657004220420", "hex"),
-      seed
-    ]),
+    key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]),
     format: "der",
     type: "pkcs8"
   });

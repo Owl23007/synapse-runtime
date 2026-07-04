@@ -132,7 +132,11 @@ const LOG_LEVEL_ORDER = {
   fatal: 60
 } as const satisfies Record<LogLevel, number>;
 
-function log(level: "debug" | "info" | "warn" | "error", message: string, metadata?: Readonly<Record<string, unknown>>): void {
+function log(
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  metadata?: Readonly<Record<string, unknown>>
+): void {
   const line = JSON.stringify({
     timestamp: new Date().toISOString(),
     level,

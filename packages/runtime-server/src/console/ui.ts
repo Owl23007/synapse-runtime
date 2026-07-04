@@ -162,7 +162,7 @@ function ChannelPanel({
     createElement(Text, { bold: true }, "频道"),
     ...localChannels.map(([channelId, channel]) => {
       const mode = channel.adapter === "qq-official" ? channel.mode : channel.transport;
-      const target = channel.adapter === "qq-official" ? channel.webhookPath ?? "-" : channel.endpoint;
+      const target = channel.adapter === "qq-official" ? (channel.webhookPath ?? "-") : channel.endpoint;
       return createElement(
         Text,
         { key: channelId, color: channel.enabled ? "green" : "gray" },

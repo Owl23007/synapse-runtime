@@ -27,6 +27,19 @@ dataDir = "~/.synapse/custom-runtime"
     expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "custom-runtime"));
   });
 
+  it("trims runtime dataDir before expanding home-relative values", () => {
+    const config = parseConfigContent(
+      `
+[runtime]
+dataDir = " ~/.synapse/custom-runtime "
+`,
+      "/home/ubuntu/apps/synapse-runtime/examples/runtime.config.toml"
+    );
+
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "custom-runtime"));
+    expect(config.runtime.dataDir).not.toContain("/apps/synapse-runtime/~");
+  });
+
   it("resolves relative runtime dataDir values from the config file directory", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-config-"));
     const configDir = join(dir, "config");

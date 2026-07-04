@@ -12,4 +12,10 @@ docs/.vitepress/dist/
 !.env.example
 !.env.template
 deploy/napcat/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 %SystemDrive%/

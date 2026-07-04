@@ -2,10 +2,7 @@ import type { SynapseChannelEvent } from "@synapse/runtime-protocol";
 import { oneBot11SegmentsToSynapseSegments } from "./message.js";
 import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
-export function normalizeOneBot11Event(
-  channelId: string,
-  payload: unknown
-): SynapseChannelEvent | undefined {
+export function normalizeOneBot11Event(channelId: string, payload: unknown): SynapseChannelEvent | undefined {
   if (!isRecord(payload)) {
     return undefined;
   }
@@ -33,11 +30,14 @@ export function normalizeOneBot11Event(
   const messageId = stringFromUnknown(payload.message_id);
   const selfUserId = stringFromUnknown(payload.self_id);
   const timestamp = numberFromUnknown(payload.time);
-  const senderName = stringFromUnknown(sender?.card)?.trim() || stringFromUnknown(sender?.nickname)?.trim() || undefined;
+  const senderName =
+    stringFromUnknown(sender?.card)?.trim() || stringFromUnknown(sender?.nickname)?.trim() || undefined;
   const senderRole = stringFromUnknown(sender?.role);
   const rawMessage = stringFromUnknown(payload.raw_message);
   const segments = oneBot11SegmentsToSynapseSegments(payload.message, rawMessage);
-  const replySegment = segments.find((segment): segment is Extract<typeof segments[number], { type: "reply" }> => segment.type === "reply");
+  const replySegment = segments.find(
+    (segment): segment is Extract<(typeof segments)[number], { type: "reply" }> => segment.type === "reply"
+  );
   const messageTypeForSynapse = segments.some((segment) => segment.type !== "text") ? "mixed" : "text";
 
   return {
@@ -94,8 +94,6 @@ function conversationFromPayload(
   return {
     id: groupId,
     kind: "group",
-    ...(typeof sender?.card === "string" && sender.card.length > 0
-      ? { title: sender.card }
-      : {})
+    ...(typeof sender?.card === "string" && sender.card.length > 0 ? { title: sender.card } : {})
   };
 }

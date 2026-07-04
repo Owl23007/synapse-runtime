@@ -12,7 +12,19 @@ import {
 } from "./profile-store.js";
 
 interface CliOptions {
-  readonly command: "start" | "serve" | "console" | "status" | "logs" | "channels" | "channel" | "reload" | "shutdown" | "connect" | "profiles" | "use";
+  readonly command:
+    | "start"
+    | "serve"
+    | "console"
+    | "status"
+    | "logs"
+    | "channels"
+    | "channel"
+    | "reload"
+    | "shutdown"
+    | "connect"
+    | "profiles"
+    | "use";
   readonly configPath: string;
   readonly envFile?: string;
   readonly adminHost?: string;
@@ -37,7 +49,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (options.command === "status" || options.command === "logs" || options.command === "channels" || options.command === "channel" || options.command === "reload" || options.command === "shutdown") {
+  if (
+    options.command === "status" ||
+    options.command === "logs" ||
+    options.command === "channels" ||
+    options.command === "channel" ||
+    options.command === "reload" ||
+    options.command === "shutdown"
+  ) {
     await runAdminCommand(options);
     return;
   }
@@ -94,7 +113,21 @@ function parseArgs(args: readonly string[]): CliOptions {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
-    if (index === 0 && (arg === "start" || arg === "serve" || arg === "console" || arg === "status" || arg === "logs" || arg === "channels" || arg === "channel" || arg === "reload" || arg === "shutdown" || arg === "connect" || arg === "profiles" || arg === "use")) {
+    if (
+      index === 0 &&
+      (arg === "start" ||
+        arg === "serve" ||
+        arg === "console" ||
+        arg === "status" ||
+        arg === "logs" ||
+        arg === "channels" ||
+        arg === "channel" ||
+        arg === "reload" ||
+        arg === "shutdown" ||
+        arg === "connect" ||
+        arg === "profiles" ||
+        arg === "use")
+    ) {
       command = arg;
       continue;
     }
@@ -375,9 +408,7 @@ function applyCliOverrides(config: RuntimeConfig, options: CliOptions): RuntimeC
     return config;
   }
 
-  const token = options.adminTokenEnv === undefined
-    ? config.admin.token
-    : process.env[options.adminTokenEnv];
+  const token = options.adminTokenEnv === undefined ? config.admin.token : process.env[options.adminTokenEnv];
 
   if (options.adminTokenEnv !== undefined && token === undefined) {
     throw new Error(`Environment variable "${options.adminTokenEnv}" is not set.`);

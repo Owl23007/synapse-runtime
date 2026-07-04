@@ -15,7 +15,12 @@ import {
 } from "@synapse/runtime-channel";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
-import { textMessage, type MessageSegment, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
+import {
+  textMessage,
+  type MessageSegment,
+  type SynapseChannelEvent,
+  type SynapseMessage
+} from "@synapse/runtime-protocol";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import {
   buildSourceEventId,
@@ -196,7 +201,9 @@ describe("RuntimeCore", () => {
         INSERT INTO workspaces (id, type, name, created_at, updated_at)
         VALUES ('workspace-1', 'personal', 'Workspace 1', ?, ?)
       `).run(new Date(0).toISOString(), new Date(0).toISOString());
-      expect(() => db.prepare(`
+      expect(() =>
+        db
+          .prepare(`
         INSERT INTO workspace_bindings (
           id,
           workspace_id,
@@ -205,7 +212,9 @@ describe("RuntimeCore", () => {
           platform,
           created_at
         ) VALUES ('binding-invalid', 'workspace-1', 'identity', 'identity-1', 'qq', ?)
-      `).run(new Date(0).toISOString())).toThrow();
+      `)
+          .run(new Date(0).toISOString())
+      ).toThrow();
       db.prepare(`
         INSERT INTO workspace_bindings (
           id,
@@ -215,11 +224,15 @@ describe("RuntimeCore", () => {
           created_at
         ) VALUES ('binding-1', 'workspace-1', 'identity', 'identity-1', ?)
       `).run(new Date(0).toISOString());
-      expect(db.prepare(`
+      expect(
+        db
+          .prepare(`
         SELECT name
         FROM sqlite_master
         WHERE type = 'table' AND name = 'memory_records'
-      `).get()).toEqual({ name: "memory_records" });
+      `)
+          .get()
+      ).toEqual({ name: "memory_records" });
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -228,9 +241,7 @@ describe("RuntimeCore", () => {
 
   it("routes channel events through conversation policy before invoking the agent", async () => {
     const channel = new MockChannelAdapter();
-    const toolRuntime = new ToolRuntime(
-      new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" })
-    );
+    const toolRuntime = new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" }));
     const runs: AgentRun[] = [];
     const agent: Agent = {
       id: "echo-agent",
@@ -409,7 +420,9 @@ describe("RuntimeCore", () => {
     expect(observed[0]?.eventReceivedAtLocal).toMatch(/1970.*08:00:00/);
     expect(observed[0]?.system).toContain("timezone=Asia/Shanghai");
     expect(observed[0]?.system).toContain("eventReceivedIso=1970-01-01T00:00:00.000Z");
-    expect(observed[0]?.system).toContain("When the user asks about the current time or date, answer using currentLocal and timezone.");
+    expect(observed[0]?.system).toContain(
+      "When the user asks about the current time or date, answer using currentLocal and timezone."
+    );
   });
 
   it("does not call the agent again for completed duplicate source events", async () => {
@@ -517,9 +530,7 @@ describe("RuntimeCore", () => {
       expect(runCount).toBe(1);
       expect(firstChannel.sent).toHaveLength(1);
       expect(secondChannel.sent).toHaveLength(0);
-      expect(secondRuntime.traces).toEqual([
-        { eventId: "event-1", status: "ignored", reason: "duplicate_completed" }
-      ]);
+      expect(secondRuntime.traces).toEqual([{ eventId: "event-1", status: "ignored", reason: "duplicate_completed" }]);
       secondStore.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -700,14 +711,18 @@ describe("RuntimeCore", () => {
     });
 
     runtime.attachChannel(channel);
-    await channel.emit(groupMessageWithSegments("event-other", [
-      { type: "mention", target: "user", userId: "user-2" },
-      { type: "text", text: " hi" }
-    ]));
-    await channel.emit(groupMessageWithSegments("event-all", [
-      { type: "mention", target: "all" },
-      { type: "text", text: " hi" }
-    ]));
+    await channel.emit(
+      groupMessageWithSegments("event-other", [
+        { type: "mention", target: "user", userId: "user-2" },
+        { type: "text", text: " hi" }
+      ])
+    );
+    await channel.emit(
+      groupMessageWithSegments("event-all", [
+        { type: "mention", target: "all" },
+        { type: "text", text: " hi" }
+      ])
+    );
 
     expect(runCount).toBe(0);
     expect(transcriptStore.appends).toEqual([]);
@@ -745,10 +760,12 @@ describe("RuntimeCore", () => {
     });
 
     runtime.attachChannel(channel);
-    await channel.emit(groupMessageWithSegments("event-bot", [
-      { type: "mention", target: "user", userId: "bot-1" },
-      { type: "text", text: " hi" }
-    ]));
+    await channel.emit(
+      groupMessageWithSegments("event-bot", [
+        { type: "mention", target: "user", userId: "bot-1" },
+        { type: "text", text: " hi" }
+      ])
+    );
 
     expect(observedReasons).toEqual(["mentioned_bot"]);
     expect(channel.sent).toHaveLength(1);
@@ -1259,7 +1276,9 @@ function privateMessage(id: string, text: string): SynapseChannelEvent {
 function sentText(message: SynapseMessage | undefined): string {
   return (
     message?.segments
-      .filter((segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text")
+      .filter(
+        (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
+      )
       .map((segment) => segment.text)
       .join("") ?? ""
   );

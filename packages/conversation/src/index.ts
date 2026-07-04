@@ -106,8 +106,7 @@ export class ConversationRouter {
       return { shouldRespond: false, reason: "no_message" };
     }
 
-    const policy =
-      event.conversation.kind === "private" ? this.#options.privateTrigger : this.#options.groupTrigger;
+    const policy = event.conversation.kind === "private" ? this.#options.privateTrigger : this.#options.groupTrigger;
     const evaluation = evaluateTrigger(event.message, policy, event);
 
     if (evaluation.trigger === undefined) {
@@ -241,10 +240,7 @@ function triggered(
   };
 }
 
-function contextPolicyForTrigger(
-  policy: ContextPolicy | undefined,
-  trigger: ConversationTrigger
-): ContextPolicy {
+function contextPolicyForTrigger(policy: ContextPolicy | undefined, trigger: ConversationTrigger): ContextPolicy {
   const base = policy ?? { includeHistory: true, maxMessages: 20 };
 
   if (trigger.kind === "command") {
@@ -254,7 +250,10 @@ function contextPolicyForTrigger(
   return base;
 }
 
-function classifyMentions(message: SynapseMessage, botUserIds: readonly string[]): "none" | "bot" | "all" | "unknown" | "other" {
+function classifyMentions(
+  message: SynapseMessage,
+  botUserIds: readonly string[]
+): "none" | "bot" | "all" | "unknown" | "other" {
   let sawOther = false;
 
   for (const segment of message.segments) {

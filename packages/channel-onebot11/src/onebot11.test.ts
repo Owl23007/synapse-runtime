@@ -34,7 +34,10 @@ describe("normalizeOneBot11Event", () => {
       message: {
         id: "123",
         type: "mixed",
-        segments: [{ type: "mention", userId: "10000" }, { type: "text", text: " hello" }]
+        segments: [
+          { type: "mention", userId: "10000" },
+          { type: "text", text: " hello" }
+        ]
       },
       receivedAt: "2026-05-23T16:00:00.000Z"
     });

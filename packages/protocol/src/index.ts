@@ -18,7 +18,12 @@ export type MessageType = "text" | "image" | "file" | "audio" | "video" | "mixed
 
 export type MessageSegment =
   | { readonly type: "text"; readonly text: string }
-  | { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string }
+  | {
+      readonly type: "mention";
+      readonly target?: "user" | "all" | "unknown";
+      readonly userId?: string;
+      readonly label?: string;
+    }
   | { readonly type: "reply"; readonly messageId?: string; readonly eventId?: string; readonly sequence?: number }
   | {
       readonly type: "image";
@@ -52,12 +57,7 @@ export interface MessageReplyRef {
   readonly sequence?: number;
 }
 
-export type ChannelEventType =
-  | "message.created"
-  | "message.deleted"
-  | "member.joined"
-  | "member.left"
-  | "notice";
+export type ChannelEventType = "message.created" | "message.deleted" | "member.joined" | "member.left" | "notice";
 
 export interface SynapseChannelEvent {
   readonly id: string;

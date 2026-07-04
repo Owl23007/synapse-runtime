@@ -259,7 +259,7 @@ describe("RuntimeServer", () => {
           "x-signature-ed25519":
             "865ad13a61752ca65e26bde6676459cd36cf1be609375b37bd62af366e1dc25a8dc789ba7f14e017ada3d554c671a911bfdf075ba54835b23391d509579ed002"
         },
-        body: "{\n  \"op\": 0,\n  \"d\": {},\n  \"t\": \"GATEWAY_EVENT_NAME\"\n}"
+        body: '{\n  "op": 0,\n  "d": {},\n  "t": "GATEWAY_EVENT_NAME"\n}'
       })
     ).resolves.toEqual({ op: 12 });
   });
@@ -433,16 +433,18 @@ describe("RuntimeServer", () => {
     const baseUrl = `http://127.0.0.1:${started.port}`;
     const adminBaseUrl = `http://127.0.0.1:${started.admin?.port}`;
 
-    await expect(fetchStatus(`${baseUrl}/webhooks/qq-official/qq-official`, {
-      method: "POST",
-      body: JSON.stringify({
-        op: 13,
-        d: {
-          plain_token: "plain-token",
-          event_ts: "1700000000"
-        }
+    await expect(
+      fetchStatus(`${baseUrl}/webhooks/qq-official/qq-official`, {
+        method: "POST",
+        body: JSON.stringify({
+          op: 13,
+          d: {
+            plain_token: "plain-token",
+            event_ts: "1700000000"
+          }
+        })
       })
-    })).resolves.toBe(404);
+    ).resolves.toBe(404);
 
     writeFileSync(configPath, runtimeConfigToml({ enabled: true, dataDir }), "utf8");
 
@@ -456,16 +458,18 @@ describe("RuntimeServer", () => {
         }
       ]
     });
-    await expect(fetchJson(`${baseUrl}/webhooks/qq-official/qq-official`, {
-      method: "POST",
-      body: JSON.stringify({
-        op: 13,
-        d: {
-          plain_token: "plain-token",
-          event_ts: "1700000000"
-        }
+    await expect(
+      fetchJson(`${baseUrl}/webhooks/qq-official/qq-official`, {
+        method: "POST",
+        body: JSON.stringify({
+          op: 13,
+          d: {
+            plain_token: "plain-token",
+            event_ts: "1700000000"
+          }
+        })
       })
-    })).resolves.toMatchObject({ plain_token: "plain-token" });
+    ).resolves.toMatchObject({ plain_token: "plain-token" });
   });
 
   it("rejects remote admin API without an admin token", async () => {
@@ -519,12 +523,8 @@ type FetchJsonInit = Omit<RequestInit, "body"> & {
 
 async function fetchJson(url: string, init?: FetchJsonInit): Promise<unknown> {
   const { body: rawBody, ...restInit } = init ?? {};
-  const headers = rawBody instanceof SignedQqBody
-    ? rawBody.headers
-    : {};
-  const body = rawBody instanceof SignedQqBody
-    ? rawBody.content
-    : rawBody;
+  const headers = rawBody instanceof SignedQqBody ? rawBody.headers : {};
+  const body = rawBody instanceof SignedQqBody ? rawBody.content : rawBody;
   const response = await fetch(url, {
     ...restInit,
     ...(body === undefined ? {} : { body }),
@@ -540,12 +540,8 @@ async function fetchJson(url: string, init?: FetchJsonInit): Promise<unknown> {
 
 async function fetchStatus(url: string, init?: FetchJsonInit): Promise<number> {
   const { body: rawBody, ...restInit } = init ?? {};
-  const headers = rawBody instanceof SignedQqBody
-    ? rawBody.headers
-    : {};
-  const body = rawBody instanceof SignedQqBody
-    ? rawBody.content
-    : rawBody;
+  const headers = rawBody instanceof SignedQqBody ? rawBody.headers : {};
+  const body = rawBody instanceof SignedQqBody ? rawBody.content : rawBody;
   const response = await fetch(url, {
     ...restInit,
     ...(body === undefined ? {} : { body }),
@@ -559,10 +555,7 @@ async function fetchStatus(url: string, init?: FetchJsonInit): Promise<number> {
   return response.status;
 }
 
-async function readStreamUntil(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  pattern: string
-): Promise<string> {
+async function readStreamUntil(reader: ReadableStreamDefaultReader<Uint8Array>, pattern: string): Promise<string> {
   const decoder = new TextDecoder();
   let text = "";
 
@@ -619,7 +612,9 @@ function signQqBody(appSecret: string, timestamp: string, body: string): string 
     type: "pkcs8"
   });
 
-  return sign(null, Buffer.concat([Buffer.from(timestamp, "utf8"), Buffer.from(body, "utf8")]), privateKey).toString("hex");
+  return sign(null, Buffer.concat([Buffer.from(timestamp, "utf8"), Buffer.from(body, "utf8")]), privateKey).toString(
+    "hex"
+  );
 }
 
 function createQqOfficialSeed(appSecret: string): Buffer {

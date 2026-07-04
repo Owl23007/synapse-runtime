@@ -9,10 +9,7 @@ import type { AgentProviderConfig, RuntimeConfig } from "@synapse/runtime-config
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 import type { RuntimeFetch } from "../types.js";
 
-export function createAgentFromConfig(
-  config: RuntimeConfig,
-  options: { readonly fetch?: RuntimeFetch } = {}
-): Agent {
+export function createAgentFromConfig(config: RuntimeConfig, options: { readonly fetch?: RuntimeFetch } = {}): Agent {
   const providerId = config.agent.default;
 
   if (providerId === undefined) {

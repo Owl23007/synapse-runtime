@@ -4,13 +4,13 @@
 
 ## 定位差异
 
-| 方案 | 核心定位 | 适合场景 | 不优先解决 |
-|---|---|---|---|
-| Synapse Runtime | 面向 Channel 的常驻 Agent Runtime | QQ/IM/webhook 等事件接入、权限控制、运行时配置、部署运维 | 通用 LLM 应用编排生态 |
-| OpenAI SDK | 官方 API 客户端 | 直接调用 OpenAI API、低层请求控制 | 多厂商统一、channel runtime、权限策略 |
-| LangChain | LLM 应用编排框架 | chain、agent、retriever、tool calling、复杂工作流 | 长驻 channel 服务和平台事件治理 |
-| Vercel AI SDK | Web/前端流式 AI SDK | Next.js/React 服务端函数、流式 UI、chat UI | IM channel 适配、权限和部署 runtime |
-| LlamaIndex | 数据/RAG 框架 | 文档索引、检索增强、知识库问答 | channel 生命周期和消息发送策略 |
+| 方案            | 核心定位                          | 适合场景                                                 | 不优先解决                            |
+| --------------- | --------------------------------- | -------------------------------------------------------- | ------------------------------------- |
+| Synapse Runtime | 面向 Channel 的常驻 Agent Runtime | QQ/IM/webhook 等事件接入、权限控制、运行时配置、部署运维 | 通用 LLM 应用编排生态                 |
+| OpenAI SDK      | 官方 API 客户端                   | 直接调用 OpenAI API、低层请求控制                        | 多厂商统一、channel runtime、权限策略 |
+| LangChain       | LLM 应用编排框架                  | chain、agent、retriever、tool calling、复杂工作流        | 长驻 channel 服务和平台事件治理       |
+| Vercel AI SDK   | Web/前端流式 AI SDK               | Next.js/React 服务端函数、流式 UI、chat UI               | IM channel 适配、权限和部署 runtime   |
+| LlamaIndex      | 数据/RAG 框架                     | 文档索引、检索增强、知识库问答                           | channel 生命周期和消息发送策略        |
 
 ## Synapse Provider 方案
 
@@ -37,19 +37,19 @@ model = "deepseek-chat"
 
 已内置的 `base` preset：
 
-| base | 默认 baseUrl | 默认 model |
-|---|---|---|
-| `openai` | `https://api.openai.com/v1` | `gpt-4.1-mini` |
-| `qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` |
-| `deepseek` | `https://api.deepseek.com` | `deepseek-chat` |
-| `moonshot` | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
-| `zhipu` | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
-| `mistral` | `https://api.mistral.ai/v1` | `mistral-small-latest` |
-| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash` |
-| `groq` | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
-| `xai` | `https://api.x.ai/v1` | `grok-2-latest` |
-| `openrouter` | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` |
-| `siliconflow` | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-7B-Instruct` |
+| base          | 默认 baseUrl                                              | 默认 model                 |
+| ------------- | --------------------------------------------------------- | -------------------------- |
+| `openai`      | `https://api.openai.com/v1`                               | `gpt-4.1-mini`             |
+| `qwen`        | `https://dashscope.aliyuncs.com/compatible-mode/v1`       | `qwen-plus`                |
+| `deepseek`    | `https://api.deepseek.com`                                | `deepseek-chat`            |
+| `moonshot`    | `https://api.moonshot.cn/v1`                              | `moonshot-v1-8k`           |
+| `zhipu`       | `https://open.bigmodel.cn/api/paas/v4`                    | `glm-4-flash`              |
+| `mistral`     | `https://api.mistral.ai/v1`                               | `mistral-small-latest`     |
+| `gemini`      | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`         |
+| `groq`        | `https://api.groq.com/openai/v1`                          | `llama-3.1-8b-instant`     |
+| `xai`         | `https://api.x.ai/v1`                                     | `grok-2-latest`            |
+| `openrouter`  | `https://openrouter.ai/api/v1`                            | `openai/gpt-4o-mini`       |
+| `siliconflow` | `https://api.siliconflow.cn/v1`                           | `Qwen/Qwen2.5-7B-Instruct` |
 
 `model` 不做枚举校验。新增模型时只改配置，不需要改 schema。推荐显式配置 `baseUrl` 和 `model`，`base` 只作为内置厂商的可选快捷预设。私有网关或未内置厂商可以直接声明自己的 `baseUrl`：
 

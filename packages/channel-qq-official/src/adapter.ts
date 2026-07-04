@@ -9,11 +9,7 @@ import type {
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import { QQ_OFFICIAL_API_BASE_URL } from "./constants.js";
 import { normalizeQqOfficialDispatch } from "./normalize.js";
-import {
-  createQqOfficialSendBody,
-  extractMessageId,
-  renderTextMessage
-} from "./send-message.js";
+import { createQqOfficialSendBody, extractMessageId, renderTextMessage } from "./send-message.js";
 import { QqOfficialAccessTokenClient } from "./token-client.js";
 import type { FetchLike, QqOfficialChannelAdapterOptions, QqOfficialDispatchPayload, QqOfficialMode } from "./types.js";
 import { defaultFetch, safeJson } from "./utils.js";

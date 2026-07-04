@@ -5,7 +5,13 @@ import { resolveRuntimeConnection } from "../profile-store.js";
 import { parseAssignments, parseCommandValue, splitCommand, formatError } from "./commands.js";
 import { addChannelConfigFile, updateChannelConfigFile } from "./config-editor.js";
 import { ConsoleLogStore } from "./log-store.js";
-import type { ConsoleLogEntry, ConsoleState, RuntimeConsoleChannelSummary, RuntimeConsoleOptions, StateListener } from "./types.js";
+import type {
+  ConsoleLogEntry,
+  ConsoleState,
+  RuntimeConsoleChannelSummary,
+  RuntimeConsoleOptions,
+  StateListener
+} from "./types.js";
 
 export class RuntimeConsoleController {
   readonly #options: RuntimeConsoleOptions;
@@ -22,9 +28,7 @@ export class RuntimeConsoleController {
       view: "overview",
       configPath: options.configPath,
       logs: this.#logger.entries,
-      notices: [
-        "输入 /help 查看命令。"
-      ]
+      notices: ["输入 /help 查看命令。"]
     };
     this.#logger.subscribe(() => this.#setState({ logs: this.#logger.entries }));
   }
@@ -73,7 +77,10 @@ export class RuntimeConsoleController {
 
     try {
       await this.#server?.stop();
-      this.#setState({ status: "stopped", notices: [this.#server === undefined ? "控制台已断开连接。" : "Runtime 已停止。"] });
+      this.#setState({
+        status: "stopped",
+        notices: [this.#server === undefined ? "控制台已断开连接。" : "Runtime 已停止。"]
+      });
     } catch (error) {
       this.#logger.error("Runtime console failed to stop.", { error: formatError(error) });
       this.#setState({ status: "failed", notices: [formatError(error)] });
@@ -265,7 +272,9 @@ export class RuntimeConsoleController {
     this.#setState({
       status: "running",
       endpoint: connection.endpoint,
-      notices: [`已连接 Admin API：${connection.endpoint}${connection.profile === undefined ? "" : ` (${connection.profile})`}。`]
+      notices: [
+        `已连接 Admin API：${connection.endpoint}${connection.profile === undefined ? "" : ` (${connection.profile})`}。`
+      ]
     });
   }
 
@@ -379,9 +388,8 @@ export class RuntimeConsoleController {
   }
 
   #formatStatus(): string {
-    const address = this.#state.started === undefined
-      ? "not listening"
-      : `${this.#state.started.host}:${this.#state.started.port}`;
+    const address =
+      this.#state.started === undefined ? "not listening" : `${this.#state.started.host}:${this.#state.started.port}`;
     return `状态=${this.#state.status} 服务=${address} 日志=${this.#state.logs.length}`;
   }
 
@@ -400,13 +408,15 @@ function parseChannelSummaries(values: readonly unknown[]): RuntimeConsoleChanne
     adapter: typeof value.adapter === "string" ? value.adapter : "-",
     enabled: value.enabled === true,
     ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
-    ...(isRecord(value.status) ? {
-      status: {
-        ...(typeof value.status.state === "string" ? { state: value.status.state } : {}),
-        ...(typeof value.status.detail === "string" ? { detail: value.status.detail } : {}),
-        ...(typeof value.status.checkedAt === "string" ? { checkedAt: value.status.checkedAt } : {})
-      }
-    } : {})
+    ...(isRecord(value.status)
+      ? {
+          status: {
+            ...(typeof value.status.state === "string" ? { state: value.status.state } : {}),
+            ...(typeof value.status.detail === "string" ? { detail: value.status.detail } : {}),
+            ...(typeof value.status.checkedAt === "string" ? { checkedAt: value.status.checkedAt } : {})
+          }
+        }
+      : {})
   }));
 }
 

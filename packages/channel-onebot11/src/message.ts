@@ -39,7 +39,10 @@ export function createOneBot11SendParams(
   throw new Error("OneBot 11 adapter does not support channel targets.");
 }
 
-export function oneBot11SegmentsToSynapseSegments(value: unknown, fallbackRawMessage?: string): readonly MessageSegment[] {
+export function oneBot11SegmentsToSynapseSegments(
+  value: unknown,
+  fallbackRawMessage?: string
+): readonly MessageSegment[] {
   if (Array.isArray(value)) {
     const segments = value.flatMap((segment) => oneBot11SegmentToSynapseSegments(segment));
     return segments.length > 0 ? mergeAdjacentTextSegments(segments) : fallbackTextSegment(fallbackRawMessage);
@@ -95,7 +98,13 @@ function oneBot11SegmentToSynapseSegments(segment: unknown): readonly MessageSeg
       return [{ type: "mention", target: "all" }];
     }
 
-    return [{ type: "mention", target: userId === undefined ? "unknown" : "user", ...(userId === undefined ? {} : { userId }) }];
+    return [
+      {
+        type: "mention",
+        target: userId === undefined ? "unknown" : "user",
+        ...(userId === undefined ? {} : { userId })
+      }
+    ];
   }
 
   if (type === "reply") {
@@ -136,7 +145,11 @@ function parseCqMessage(message: string): readonly MessageSegment[] {
       if (userId === "all") {
         segments.push({ type: "mention", target: "all" });
       } else {
-        segments.push({ type: "mention", target: userId === undefined ? "unknown" : "user", ...(userId === undefined ? {} : { userId }) });
+        segments.push({
+          type: "mention",
+          target: userId === undefined ? "unknown" : "user",
+          ...(userId === undefined ? {} : { userId })
+        });
       }
     } else if (type === "reply") {
       segments.push({ type: "reply", ...(params.id === undefined ? {} : { messageId: params.id }) });
@@ -200,11 +213,7 @@ function mergeAdjacentTextSegments(segments: readonly MessageSegment[]): readonl
 }
 
 function escapeCqValue(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("[", "&#91;")
-    .replaceAll("]", "&#93;")
-    .replaceAll(",", "&#44;");
+  return value.replaceAll("&", "&amp;").replaceAll("[", "&#91;").replaceAll("]", "&#93;").replaceAll(",", "&#44;");
 }
 
 function unescapeCqValue(value: string): string {

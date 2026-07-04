@@ -159,11 +159,11 @@ P0 数据结构：
 
 ```ts
 interface PlatformIdentity {
-  platform: string
-  provider: string
-  channelId: string
-  platformUserId: string
-  displayName?: string
+  platform: string;
+  provider: string;
+  channelId: string;
+  platformUserId: string;
+  displayName?: string;
 }
 ```
 
@@ -185,11 +185,11 @@ P0 数据结构：
 
 ```ts
 interface SynapseIdentity {
-  id: string
-  type: "guest" | "owner" | "system"
-  trustLevel: "guest" | "owner" | "system"
-  displayName?: string
-  roles: string[]
+  id: string;
+  type: "guest" | "owner" | "system";
+  trustLevel: "guest" | "owner" | "system";
+  displayName?: string;
+  roles: string[];
 }
 ```
 
@@ -201,9 +201,9 @@ interface SynapseIdentity {
 
 ```ts
 interface RuntimeActor {
-  identity: SynapseIdentity
-  platformIdentity: PlatformIdentity
-  isBound: boolean
+  identity: SynapseIdentity;
+  platformIdentity: PlatformIdentity;
+  isBound: boolean;
 }
 ```
 
@@ -694,13 +694,13 @@ ON event_process_state(
 
 ## 10.3 状态含义
 
-| 状态              | 含义                                    |
-| --------------- | ------------------------------------- |
-| received        | 事件已接收，尚未开始 Agent 处理                   |
-| processing      | Agent 正在处理或准备处理                       |
+| 状态            | 含义                                                 |
+| --------------- | ---------------------------------------------------- |
+| received        | 事件已接收，尚未开始 Agent 处理                      |
+| processing      | Agent 正在处理或准备处理                             |
 | agent_completed | Agent 已完成，尚未发送或发送状态未知                 |
 | send_succeeded  | 消息已发送成功，但 assistant transcript 可能尚未写入 |
-| send_failed     | 消息发送失败，可根据策略重试                        |
+| send_failed     | 消息发送失败，可根据策略重试                         |
 | completed       | 发送成功且 assistant transcript 已写入，事件闭环完成 |
 
 ---
@@ -891,13 +891,9 @@ P0 默认不保存：
 
 ```ts
 interface TranscriptStore {
-  appendIncoming(record: ConversationMessageRecord): Promise<void>
-  appendAssistant(record: ConversationMessageRecord): Promise<void>
-  listRecent(input: {
-    sessionId: string
-    limit: number
-    maxChars: number
-  }): Promise<ConversationMessageRecord[]>
+  appendIncoming(record: ConversationMessageRecord): Promise<void>;
+  appendAssistant(record: ConversationMessageRecord): Promise<void>;
+  listRecent(input: { sessionId: string; limit: number; maxChars: number }): Promise<ConversationMessageRecord[]>;
 }
 ```
 
@@ -916,17 +912,17 @@ Workspace 用于承载基础输出策略和上下文边界。
 ## 11.3.2 Workspace 类型
 
 ```ts
-type WorkspaceType = "personal" | "group" | "system"
+type WorkspaceType = "personal" | "group" | "system";
 ```
 
 ---
 
 ## 11.3.3 默认解析规则
 
-| 事件来源      | Workspace                                                      |
+| 事件来源  | Workspace                                                      |
 | --------- | -------------------------------------------------------------- |
-| QQ 私聊     | `personal:${actor.identity.id}`                                |
-| QQ 群聊     | `group:${platform}:${provider}:${channelId}:${conversationId}` |
+| QQ 私聊   | `personal:${actor.identity.id}`                                |
+| QQ 群聊   | `group:${platform}:${provider}:${channelId}:${conversationId}` |
 | CLI       | `personal:${actor.identity.id}`                                |
 | Admin/TUI | `system:runtime-admin`                                         |
 
@@ -1006,12 +1002,12 @@ tool manifest 裁剪
 
 ```ts
 interface ContextComposeInput {
-  event: SynapseChannelEvent
-  purpose: "agent" | "command"
-  actor: RuntimeActor
-  workspace: WorkspaceContext
-  sessionId: string
-  includeHistory: boolean
+  event: SynapseChannelEvent;
+  purpose: "agent" | "command";
+  actor: RuntimeActor;
+  workspace: WorkspaceContext;
+  sessionId: string;
+  includeHistory: boolean;
 }
 ```
 
@@ -1021,27 +1017,27 @@ interface ContextComposeInput {
 
 ```ts
 interface RuntimeInvocationContext {
-  invocationId: string
-  event: SynapseChannelEvent
-  actor: RuntimeActor
-  workspace: WorkspaceContext
-  outputPolicy: OutputPolicy
-  prompt: PromptContext
+  invocationId: string;
+  event: SynapseChannelEvent;
+  actor: RuntimeActor;
+  workspace: WorkspaceContext;
+  outputPolicy: OutputPolicy;
+  prompt: PromptContext;
 }
 
 interface PromptContext {
-  systemInstructions: string[]
-  developerInstructions: string[]
+  systemInstructions: string[];
+  developerInstructions: string[];
   messages: Array<{
-    role: "system" | "user" | "assistant"
-    content: string
-  }>
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
   metadata: {
-    actorId: string
-    workspaceId: string
-    sessionId: string
-    source: string
-  }
+    actorId: string;
+    workspaceId: string;
+    sessionId: string;
+    source: string;
+  };
 }
 ```
 
@@ -1923,8 +1919,8 @@ Agent 接口建议演进为：
 
 ```ts
 interface AgentInvocation {
-  request: AgentRequest
-  context: RuntimeInvocationContext
+  request: AgentRequest;
+  context: RuntimeInvocationContext;
 }
 ```
 
@@ -1935,12 +1931,12 @@ class LegacyAgentAdapter implements Agent {
   constructor(
     public readonly id: string,
     private readonly legacy: {
-      run(request: AgentRequest, ctx: AgentRuntimeContext): Promise<AgentRun>
+      run(request: AgentRequest, ctx: AgentRuntimeContext): Promise<AgentRun>;
     }
   ) {}
 
   run(invocation: AgentInvocation, runtime: AgentRuntimeContext) {
-    return this.legacy.run(invocation.request, runtime)
+    return this.legacy.run(invocation.request, runtime);
   }
 }
 ```
@@ -2127,130 +2123,130 @@ deleted memory 不进入 prompt。
 
 ## 19.1 Identity
 
-| 编号        | 验收用例                                                     |
-| --------- | -------------------------------------------------------- |
-| AC-ID-001 | 给定同一 QQ 用户连续发送消息，IdentityResolver 返回相同 guest identity    |
-| AC-ID-002 | 给定未绑定用户，系统仍能正常进入 Agent 回复链路                              |
-| AC-ID-003 | 给定 `/whoami`，系统返回当前 platform identity 与 synapse identity |
-| AC-ID-004 | IdentityResolver 失败时，Runtime 可降级为匿名单轮处理或拒绝高风险操作          |
+| 编号      | 验收用例                                                               |
+| --------- | ---------------------------------------------------------------------- |
+| AC-ID-001 | 给定同一 QQ 用户连续发送消息，IdentityResolver 返回相同 guest identity |
+| AC-ID-002 | 给定未绑定用户，系统仍能正常进入 Agent 回复链路                        |
+| AC-ID-003 | 给定 `/whoami`，系统返回当前 platform identity 与 synapse identity     |
+| AC-ID-004 | IdentityResolver 失败时，Runtime 可降级为匿名单轮处理或拒绝高风险操作  |
 
 ---
 
 ## 19.2 Transcript
 
-| 编号        | 验收用例                                              |
-| --------- | ------------------------------------------------- |
-| AC-TS-001 | 私聊用户发送消息并触发回复后，incoming 与 assistant reply 都被落盘    |
+| 编号      | 验收用例                                                           |
+| --------- | ------------------------------------------------------------------ |
+| AC-TS-001 | 私聊用户发送消息并触发回复后，incoming 与 assistant reply 都被落盘 |
 | AC-TS-002 | 同一 session 第二次提问时，ContextComposer 能读取第一次消息        |
-| AC-TS-003 | 群聊未 @ bot 的消息默认不写入 transcript                     |
-| AC-TS-004 | `deleted_at` 不为空的消息不会进入 prompt                    |
-| AC-TS-005 | `listRecent` 本地 SQLite P95 < 50ms                 |
-| AC-TS-006 | 给定相同 `source_event_id` 重复投递，TranscriptStore 不重复写入 |
-| AC-TS-007 | 给定相同 `source_event_id` 重复投递，Runtime 不重复调用 Agent   |
-| AC-TS-008 | `sendMessage` 失败时，不写 assistant transcript         |
+| AC-TS-003 | 群聊未 @ bot 的消息默认不写入 transcript                           |
+| AC-TS-004 | `deleted_at` 不为空的消息不会进入 prompt                           |
+| AC-TS-005 | `listRecent` 本地 SQLite P95 < 50ms                                |
+| AC-TS-006 | 给定相同 `source_event_id` 重复投递，TranscriptStore 不重复写入    |
+| AC-TS-007 | 给定相同 `source_event_id` 重复投递，Runtime 不重复调用 Agent      |
+| AC-TS-008 | `sendMessage` 失败时，不写 assistant transcript                    |
 
 ---
 
 ## 19.3 幂等
 
-| 编号           | 验收用例                                                                 |
-| ------------ | -------------------------------------------------------------------- |
-| AC-IDEMP-001 | 同一 `sourceEventId` 首次处理到 `send_failed` 后，重复投递允许重试发送                  |
-| AC-IDEMP-002 | 同一 `sourceEventId` 已 `completed` 后，重复投递不会再次调用 Agent 或发送消息            |
-| AC-IDEMP-003 | 首次处理在 `processing` 状态崩溃，重启后可恢复或安全跳过，并记录 audit                        |
-| AC-IDEMP-004 | `agent_completed` 状态下重复投递，不重新调用 Agent，复用已保存输出继续发送                    |
+| 编号         | 验收用例                                                                               |
+| ------------ | -------------------------------------------------------------------------------------- |
+| AC-IDEMP-001 | 同一 `sourceEventId` 首次处理到 `send_failed` 后，重复投递允许重试发送                 |
+| AC-IDEMP-002 | 同一 `sourceEventId` 已 `completed` 后，重复投递不会再次调用 Agent 或发送消息          |
+| AC-IDEMP-003 | 首次处理在 `processing` 状态崩溃，重启后可恢复或安全跳过，并记录 audit                 |
+| AC-IDEMP-004 | `agent_completed` 状态下重复投递，不重新调用 Agent，复用已保存输出继续发送             |
 | AC-IDEMP-005 | `send_succeeded` 但 assistant transcript 缺失时，重复投递只补写 transcript，不重复发送 |
 
 ---
 
 ## 19.4 Workspace
 
-| 编号        | 验收用例                                 |
-| --------- | ------------------------------------ |
-| AC-WS-001 | 私聊消息解析到 personal workspace           |
-| AC-WS-002 | 群聊消息解析到 group workspace              |
-| AC-WS-003 | group workspace 默认使用 concise 输出策略    |
-| AC-WS-004 | personal workspace 默认使用 normal 输出策略  |
-| AC-WS-005 | P0 不自动跨 workspace 检索记忆               |
-| AC-WS-006 | `/workspace info` 返回当前 workspace 信息  |
+| 编号      | 验收用例                                      |
+| --------- | --------------------------------------------- |
+| AC-WS-001 | 私聊消息解析到 personal workspace             |
+| AC-WS-002 | 群聊消息解析到 group workspace                |
+| AC-WS-003 | group workspace 默认使用 concise 输出策略     |
+| AC-WS-004 | personal workspace 默认使用 normal 输出策略   |
+| AC-WS-005 | P0 不自动跨 workspace 检索记忆                |
+| AC-WS-006 | `/workspace info` 返回当前 workspace 信息     |
 | AC-WS-007 | `/workspace use project:*` 返回当前版本不支持 |
 
 ---
 
 ## 19.5 ContextComposer
 
-| 编号        | 验收用例                                                    |
-| --------- | ------------------------------------------------------- |
-| AC-CC-001 | 私聊第二轮 prompt 中包含上一轮 user/assistant history              |
-| AC-CC-002 | 群聊 prompt 中最多包含最近 8 条相关 session history                 |
-| AC-CC-003 | ContextComposer 失败时，Runtime 降级为当前单轮回复                   |
-| AC-CC-004 | PromptContext metadata 包含 actorId、workspaceId、sessionId |
-| AC-CC-005 | 群聊 Prompt 中包含简短输出约束                                     |
-| AC-CC-006 | recent history 超过 `maxHistoryChars` 时，从最旧消息开始裁剪         |
-| AC-CC-007 | 当前用户输入即使很长，也不会被 recent history 挤掉                       |
-| AC-CC-008 | `context.enabled = false` 时，Runtime 回退旧单轮链路             |
+| 编号      | 验收用例                                                     |
+| --------- | ------------------------------------------------------------ |
+| AC-CC-001 | 私聊第二轮 prompt 中包含上一轮 user/assistant history        |
+| AC-CC-002 | 群聊 prompt 中最多包含最近 8 条相关 session history          |
+| AC-CC-003 | ContextComposer 失败时，Runtime 降级为当前单轮回复           |
+| AC-CC-004 | PromptContext metadata 包含 actorId、workspaceId、sessionId  |
+| AC-CC-005 | 群聊 Prompt 中包含简短输出约束                               |
+| AC-CC-006 | recent history 超过 `maxHistoryChars` 时，从最旧消息开始裁剪 |
+| AC-CC-007 | 当前用户输入即使很长，也不会被 recent history 挤掉           |
+| AC-CC-008 | `context.enabled = false` 时，Runtime 回退旧单轮链路         |
 
 ---
 
 ## 19.6 ResponsePolicy
 
-| 编号        | 验收用例                                                     |
-| --------- | -------------------------------------------------------- |
-| AC-RP-001 | 群聊输出超过 maxChars 时被规则截断                                   |
-| AC-RP-002 | 群聊输出默认不包含大段 code block                                   |
-| AC-RP-003 | 私聊允许较长回答                                                 |
-| AC-RP-004 | ResponsePolicy 处理失败时，保守发送截断版                             |
+| 编号      | 验收用例                                                                       |
+| --------- | ------------------------------------------------------------------------------ |
+| AC-RP-001 | 群聊输出超过 maxChars 时被规则截断                                             |
+| AC-RP-002 | 群聊输出默认不包含大段 code block                                              |
+| AC-RP-003 | 私聊允许较长回答                                                               |
+| AC-RP-004 | ResponsePolicy 处理失败时，保守发送截断版                                      |
 | AC-RP-005 | 群聊长回答末尾提示“内容较长，需要我展开再说。”                                 |
-| AC-RP-006 | 群聊长回答不触发二次 LLM，只做规则截断                                    |
-| AC-RP-007 | 群聊长回答截断后追加提示语                                            |
-| AC-RP-008 | 群聊中超长 code block 被移除或截断                                  |
-| AC-RP-009 | ResponsePolicy 失败时，使用保守截断版                               |
-| AC-RP-010 | 群聊截断后，包含提示语的最终文本仍不超过 `maxChars`                          |
+| AC-RP-006 | 群聊长回答不触发二次 LLM，只做规则截断                                         |
+| AC-RP-007 | 群聊长回答截断后追加提示语                                                     |
+| AC-RP-008 | 群聊中超长 code block 被移除或截断                                             |
+| AC-RP-009 | ResponsePolicy 失败时，使用保守截断版                                          |
+| AC-RP-010 | 群聊截断后，包含提示语的最终文本仍不超过 `maxChars`                            |
 | AC-RP-011 | `allowMarkdown = false` 时，群聊输出不包含 Markdown 标题、粗体、链接或表格结构 |
-| AC-RP-012 | `allowCodeBlock = false` 时，群聊输出不包含 fenced code block     |
-| AC-RP-013 | 群聊长代码块被替换为简短说明，且最终输出不超过 `maxChars`                       |
+| AC-RP-012 | `allowCodeBlock = false` 时，群聊输出不包含 fenced code block                  |
+| AC-RP-013 | 群聊长代码块被替换为简短说明，且最终输出不超过 `maxChars`                      |
 
 ---
 
 ## 19.7 数据库
 
-| 编号        | 验收用例                                                |
-| --------- | --------------------------------------------------- |
+| 编号      | 验收用例                                                          |
+| --------- | ----------------------------------------------------------------- |
 | AC-DB-001 | `workspace_bindings` 不允许写入与 `binding_type` 不匹配的字段组合 |
-| AC-DB-002 | 同一个 identity 不能重复绑定到同一个 workspace                   |
-| AC-DB-003 | 同一个 channel conversation 不能重复绑定到同一个 workspace       |
-| AC-DB-004 | recent history 查询必须过滤 `deleted_at IS NULL`          |
+| AC-DB-002 | 同一个 identity 不能重复绑定到同一个 workspace                    |
+| AC-DB-003 | 同一个 channel conversation 不能重复绑定到同一个 workspace        |
+| AC-DB-004 | recent history 查询必须过滤 `deleted_at IS NULL`                  |
 
 ---
 
 ## 19.8 安全
 
-| 编号         | 验收用例                                                                               |
-| ---------- | ---------------------------------------------------------------------------------- |
-| AC-SEC-001 | 群聊 prompt snapshot 中不得出现 private memory 内容                                         |
+| 编号       | 验收用例                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| AC-SEC-001 | 群聊 prompt snapshot 中不得出现 private memory 内容                                        |
 | AC-SEC-002 | `allowPrivateMemoryInGroup = false` 时，任何 identity/private memory 都不进入 group prompt |
-| AC-SEC-003 | 群聊未触发消息不写 transcript                                                               |
-| AC-SEC-004 | `secret` memory 永不进入 prompt                                                        |
+| AC-SEC-003 | 群聊未触发消息不写 transcript                                                              |
+| AC-SEC-004 | `secret` memory 永不进入 prompt                                                            |
 | AC-SEC-005 | `deleted_at` 不为空的 transcript / memory 永不进入 prompt                                  |
-| AC-SEC-006 | 群聊 prompt 不包含 private transcript，也不包含 private memory                               |
-| AC-SEC-007 | 群聊 ContextComposer 只读取当前 group session recent history                              |
-| AC-SEC-008 | 私聊 ContextComposer 只读取当前 private session recent history，不自动读取其他平台 session          |
+| AC-SEC-006 | 群聊 prompt 不包含 private transcript，也不包含 private memory                             |
+| AC-SEC-007 | 群聊 ContextComposer 只读取当前 group session recent history                               |
+| AC-SEC-008 | 私聊 ContextComposer 只读取当前 private session recent history，不自动读取其他平台 session |
 
 ---
 
 ## 19.9 Durable Memory，可选
 
-| 编号         | 验收用例                                                           |
-| ---------- | -------------------------------------------------------------- |
-| AC-CFG-002 | `enableDurableMemory = false` 时，`/memory remember` 返回明确不可用提示   |
+| 编号       | 验收用例                                                                        |
+| ---------- | ------------------------------------------------------------------------------- |
+| AC-CFG-002 | `enableDurableMemory = false` 时，`/memory remember` 返回明确不可用提示         |
 | AC-MEM-001 | 用户私聊执行 `/memory remember 我喜欢简短回答` 后，写入 identity/private memory |
-| AC-MEM-002 | 群聊执行 `/memory remember 本群默认短答` 后，写入 group workspace memory     |
-| AC-MEM-003 | private memory 不会进入群聊 prompt                                   |
-| AC-MEM-004 | `deleted_at` 不为空的 memory 不会进入 prompt                           |
-| AC-MEM-005 | `secret` memory 永不进入 prompt                                    |
-| AC-MEM-006 | 私聊 `/memory remember` 默认写入 identity/private scope              |
-| AC-MEM-007 | 群聊 `/memory remember` 默认写入 workspace/group scope               |
-| AC-MEM-008 | 写入 memory 后回复必须说明记忆作用域                                         |
+| AC-MEM-002 | 群聊执行 `/memory remember 本群默认短答` 后，写入 group workspace memory        |
+| AC-MEM-003 | private memory 不会进入群聊 prompt                                              |
+| AC-MEM-004 | `deleted_at` 不为空的 memory 不会进入 prompt                                    |
+| AC-MEM-005 | `secret` memory 永不进入 prompt                                                 |
+| AC-MEM-006 | 私聊 `/memory remember` 默认写入 identity/private scope                         |
+| AC-MEM-007 | 群聊 `/memory remember` 默认写入 workspace/group scope                          |
+| AC-MEM-008 | 写入 memory 后回复必须说明记忆作用域                                            |
 
 ---
 
@@ -2326,18 +2322,18 @@ CHECK 约束生效
 
 ## 21. 失败与降级策略
 
-| 失败点                             | 降级策略                                   |
-| ------------------------------- | -------------------------------------- |
-| SQLite 写入失败                     | 记录 error，继续单轮回复，但不使用历史                 |
-| IdentityResolver 失败             | 降级 anonymous actor，禁止高风险能力             |
-| WorkspaceResolver 失败            | 降级 personal/group default workspace    |
-| event_process_state 写入失败        | 记录 error，可继续但禁用幂等恢复                    |
-| ContextComposer 失败              | 降级当前单轮 prompt                          |
-| TranscriptStore 读取失败            | 不带历史，继续回复                              |
-| ResponsePolicy 失败               | 使用保守截断策略                               |
-| Agent Provider 失败               | 沿用当前错误处理                               |
-| sendMessage 失败                  | 不写 assistant transcript，更新 send_failed |
-| sendMessage 成功但 transcript 写入失败 | 更新 send_succeeded，后续补写                 |
+| 失败点                                 | 降级策略                                    |
+| -------------------------------------- | ------------------------------------------- |
+| SQLite 写入失败                        | 记录 error，继续单轮回复，但不使用历史      |
+| IdentityResolver 失败                  | 降级 anonymous actor，禁止高风险能力        |
+| WorkspaceResolver 失败                 | 降级 personal/group default workspace       |
+| event_process_state 写入失败           | 记录 error，可继续但禁用幂等恢复            |
+| ContextComposer 失败                   | 降级当前单轮 prompt                         |
+| TranscriptStore 读取失败               | 不带历史，继续回复                          |
+| ResponsePolicy 失败                    | 使用保守截断策略                            |
+| Agent Provider 失败                    | 沿用当前错误处理                            |
+| sendMessage 失败                       | 不写 assistant transcript，更新 send_failed |
+| sendMessage 成功但 transcript 写入失败 | 更新 send_succeeded，后续补写               |
 
 ---
 

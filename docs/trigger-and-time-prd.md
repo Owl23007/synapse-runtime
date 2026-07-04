@@ -165,12 +165,12 @@ QQ Official C2C / DM：
 
 ## 7. Adapter 能力矩阵
 
-| Adapter                     | @用户                | @全体        | bot 自身身份               | 发送消息 ID | 收到回复目标            | 平台 @bot hint            | reply_to_bot    |
-| --------------------------- | ------------------ | ---------- | ---------------------- | ------- | ----------------- | ----------------------- | --------------- |
-| OneBot11 / NapCat           | 支持                 | 支持         | event.self_id / config | 支持      | 支持                | 不需要                     | 首版必达            |
-| QQ Official Group           | 依赖事件类型             | 不明确        | AppID / config         | 支持      | 文档不稳定             | GROUP_AT_MESSAGE_CREATE | conditional     |
-| QQ Official Channel / Guild | 依赖 mentions / 事件类型 | 依赖 payload | AppID / bot user       | 支持      | message_reference | AT_MESSAGE_CREATE       | 有 reference 时支持 |
-| QQ Official C2C / DM        | 不适用                | 不适用        | AppID / config         | 支持      | msg_id / event_id | direct event            | partial         |
+| Adapter                     | @用户                    | @全体        | bot 自身身份           | 发送消息 ID | 收到回复目标      | 平台 @bot hint          | reply_to_bot        |
+| --------------------------- | ------------------------ | ------------ | ---------------------- | ----------- | ----------------- | ----------------------- | ------------------- |
+| OneBot11 / NapCat           | 支持                     | 支持         | event.self_id / config | 支持        | 支持              | 不需要                  | 首版必达            |
+| QQ Official Group           | 依赖事件类型             | 不明确       | AppID / config         | 支持        | 文档不稳定        | GROUP_AT_MESSAGE_CREATE | conditional         |
+| QQ Official Channel / Guild | 依赖 mentions / 事件类型 | 依赖 payload | AppID / bot user       | 支持        | message_reference | AT_MESSAGE_CREATE       | 有 reference 时支持 |
+| QQ Official C2C / DM        | 不适用                   | 不适用       | AppID / config         | 支持        | msg_id / event_id | direct event            | partial             |
 
 能力原则：
 
@@ -287,10 +287,10 @@ command_prefix
 
 mention segment 需要增加目标语义：
 
-| 字段             | 说明                 |
-| -------------- | ------------------ |
-| target=user    | 明确 @ 某个用户          |
-| target=all     | @全体                |
+| 字段           | 说明                      |
+| -------------- | ------------------------- |
+| target=user    | 明确 @ 某个用户           |
+| target=all     | @全体                     |
 | target=unknown | adapter 无法确认 @ 的目标 |
 
 同时新增 reply segment，用于保留平台 reply 消息段。
@@ -307,8 +307,8 @@ mention segment 需要增加目标语义：
 
 消息对象需要支持 `replyTo`。
 
-| 字段                | 说明            |
-| ----------------- | ------------- |
+| 字段              | 说明                    |
+| ----------------- | ----------------------- |
 | replyTo.messageId | 被回复消息的平台消息 ID |
 
 Adapter normalize 时应尽量填充该字段。
@@ -319,33 +319,33 @@ Adapter normalize 时应尽量填充该字段。
 
 事件对象需要增加两个能力区域：
 
-| 字段                  | 说明                    |
-| ------------------- | --------------------- |
+| 字段                | 说明                               |
+| ------------------- | ---------------------------------- |
 | triggerHint         | adapter 从平台事件中提取的触发提示 |
-| adapterCapabilities | 当前 adapter 支持哪些能力     |
+| adapterCapabilities | 当前 adapter 支持哪些能力          |
 
 triggerHint 至少需要表达：
 
-| 字段                   | 说明                            |
-| -------------------- | ----------------------------- |
-| platformMentionedBot | 平台是否明确表示该消息 @bot              |
+| 字段                 | 说明                                    |
+| -------------------- | --------------------------------------- |
+| platformMentionedBot | 平台是否明确表示该消息 @bot             |
 | repliedToBot         | Runtime enrich 后，该消息是否回复了 bot |
-| platformEventType    | 原始平台事件类型                      |
-| selfUserId           | 当前 bot 在该平台下的 self id         |
-| replyTargetMessageId | 被回复消息 ID                      |
+| platformEventType    | 原始平台事件类型                        |
+| selfUserId           | 当前 bot 在该平台下的 self id           |
+| replyTargetMessageId | 被回复消息 ID                           |
 
 adapterCapabilities 至少需要表达：
 
-| 能力                        | 说明                      |
-| ------------------------- | ----------------------- |
-| mentionUser               | 是否能识别 @具体用户             |
-| mentionAll                | 是否能识别 @全体               |
-| selfIdFromEvent           | 是否能从事件获取 bot 自身身份       |
+| 能力                      | 说明                              |
+| ------------------------- | --------------------------------- |
+| mentionUser               | 是否能识别 @具体用户              |
+| mentionAll                | 是否能识别 @全体                  |
+| selfIdFromEvent           | 是否能从事件获取 bot 自身身份     |
 | outgoingMessageId         | 发送后是否能获取消息 ID           |
 | incomingReplyTarget       | 收到消息时是否能获取 reply target |
-| platformMentionedBotHint  | 是否有平台级 @bot 事件          |
-| replyToBot                | yes / no / conditional  |
-| passiveReplyWindowSeconds | 平台被动回复窗口                |
+| platformMentionedBotHint  | 是否有平台级 @bot 事件            |
+| replyToBot                | yes / no / conditional            |
+| passiveReplyWindowSeconds | 平台被动回复窗口                  |
 
 ---
 
@@ -355,13 +355,13 @@ ConversationDecision 需要从粗粒度结果升级为结构化结果。
 
 需要表达：
 
-| 字段                 | 说明                                                            |
+| 字段               | 说明                                                          |
 | ------------------ | ------------------------------------------------------------- |
-| shouldRespond      | 是否响应                                                          |
-| reason             | 触发或忽略原因                                                       |
+| shouldRespond      | 是否响应                                                      |
+| reason             | 触发或忽略原因                                                |
 | trigger.kind       | private / mention / reply / command / keyword / platform_hint |
 | trigger.confidence | explicit / platform / heuristic                               |
-| request            | 触发后生成的 AgentRequest                                           |
+| request            | 触发后生成的 AgentRequest                                     |
 
 reason 至少覆盖：
 
@@ -424,24 +424,24 @@ TranscriptMessage 需要增加 `externalMessageId`。
 
 新增配置项：
 
-| 配置                       |           默认值 | 说明                     |
-| ------------------------ | ------------: | ---------------------- |
-| timezone                 | Asia/Shanghai | prompt 中使用的时区          |
-| privateHistoryTtlMinutes |           720 | 私聊历史 TTL               |
-| groupHistoryTtlMinutes   |            30 | 群聊历史 TTL               |
+| 配置                     |        默认值 | 说明                     |
+| ------------------------ | ------------: | ------------------------ |
+| timezone                 | Asia/Shanghai | prompt 中使用的时区      |
+| privateHistoryTtlMinutes |           720 | 私聊历史 TTL             |
+| groupHistoryTtlMinutes   |            30 | 群聊历史 TTL             |
 | channelHistoryTtlMinutes |            30 | channel / guild 历史 TTL |
-| privateMaxMessages       |            20 | 私聊最多历史消息数              |
-| groupMaxMessages         |             6 | 群聊最多历史消息数              |
-| channelMaxMessages       |             8 | channel 最多历史消息数        |
+| privateMaxMessages       |            20 | 私聊最多历史消息数       |
+| groupMaxMessages         |             6 | 群聊最多历史消息数       |
+| channelMaxMessages       |             8 | channel 最多历史消息数   |
 
 ### 10.2 ConversationTriggerPolicy
 
 新增配置项：
 
-| 配置                         |   默认值 | 说明                    |
-| -------------------------- | ----: | --------------------- |
-| commandPrefixes            | ["/"] | 命令前缀                  |
-| allowCommandWithoutMention |  true | 群聊 command 是否允许无 @ 触发 |
+| 配置                       | 默认值 | 说明                           |
+| -------------------------- | -----: | ------------------------------ |
+| commandPrefixes            |  ["/"] | 命令前缀                       |
+| allowCommandWithoutMention |   true | 群聊 command 是否允许无 @ 触发 |
 
 说明：
 
@@ -453,8 +453,8 @@ TranscriptMessage 需要增加 `externalMessageId`。
 
 新增可选配置：
 
-| 配置         | 说明                                   |
-| ---------- | ------------------------------------ |
+| 配置       | 说明                                              |
+| ---------- | ------------------------------------------------- |
 | selfUserId | bot 自己的 QQ 号，作为 event.self_id 缺失时的回退 |
 
 OneBot11 首选 `event.self_id`，配置只是 fallback。
@@ -582,27 +582,29 @@ reply_to_bot 优先于 AT_MESSAGE_CREATE。
 3. Adapter 填充 triggerHint 与 adapterCapabilities。
 4. RuntimeCore 执行 preRouteEnrich：
 
-   * 合并 selfUserId；
-   * normalize replyTo.messageId；
-   * 如有 replyTo，查询是否回复 bot 历史消息。
+   - 合并 selfUserId；
+   - normalize replyTo.messageId；
+   - 如有 replyTo，查询是否回复 bot 历史消息。
+
 5. ConversationRouter 判断是否触发。
 6. 若未触发：
 
-   * 记录 trace；
-   * 不写 transcript；
-   * 不调用 agent。
+   - 记录 trace；
+   - 不写 transcript；
+   - 不调用 agent。
+
 7. 若触发：
 
-   * 解析 identity；
-   * 解析 workspace；
-   * 执行幂等 begin；
-   * 写入 user transcript；
-   * 合成 context；
-   * 调用 agent；
-   * 发送消息；
-   * 写入 assistant transcript；
-   * 如果发送结果有 message id，写入 externalMessageId；
-   * 更新 process state。
+   - 解析 identity；
+   - 解析 workspace；
+   - 执行幂等 begin；
+   - 写入 user transcript；
+   - 合成 context；
+   - 调用 agent；
+   - 发送消息；
+   - 写入 assistant transcript；
+   - 如果发送结果有 message id，写入 externalMessageId；
+   - 更新 process state。
 
 ---
 
@@ -755,13 +757,13 @@ Passive reply window 控制平台是否允许基于某条消息被动回复。
 
 默认值：
 
-| 平台场景                |    窗口 |
-| ------------------- | ----: |
-| QQ Official C2C     | 3600s |
-| QQ Official Group   |  300s |
-| QQ Official Channel |  300s |
-| QQ Official DM      |  300s |
-| OneBot11 / NapCat   |   不适用 |
+| 平台场景            |   窗口 |
+| ------------------- | -----: |
+| QQ Official C2C     |  3600s |
+| QQ Official Group   |   300s |
+| QQ Official Channel |   300s |
+| QQ Official DM      |   300s |
+| OneBot11 / NapCat   | 不适用 |
 
 规则：
 
@@ -780,7 +782,7 @@ Passive reply window 控制平台是否允许基于某条消息被动回复。
 
 ContextComposer 根据 conversation type 选择 TTL：
 
-| conversation | 使用配置                     |
+| conversation | 使用配置                 |
 | ------------ | ------------------------ |
 | private      | privateHistoryTtlMinutes |
 | group        | groupHistoryTtlMinutes   |
@@ -792,20 +794,20 @@ ContextComposer 根据 conversation type 选择 TTL：
 
 ### 14.2 按 trigger kind 决定历史数量
 
-| conversation | trigger        | 历史策略                 |
-| ------------ | -------------- | -------------------- |
+| conversation | trigger        | 历史策略              |
+| ------------ | -------------- | --------------------- |
 | private      | private_always | 带 privateMaxMessages |
-| private      | command        | 不带普通历史               |
-| private      | keyword        | 带少量历史                |
+| private      | command        | 不带普通历史          |
+| private      | keyword        | 带少量历史            |
 | private      | reply          | 带 privateMaxMessages |
-| group        | command        | 不带普通历史               |
+| group        | command        | 不带普通历史          |
 | group        | mention        | 带 groupMaxMessages   |
 | group        | platform_hint  | 带 groupMaxMessages   |
-| group        | keyword        | 带少量历史                |
+| group        | keyword        | 带少量历史            |
 | group        | reply          | 带 groupMaxMessages   |
-| channel      | command        | 不带普通历史               |
+| channel      | command        | 不带普通历史          |
 | channel      | platform_hint  | 带 channelMaxMessages |
-| channel      | keyword        | 带少量历史                |
+| channel      | keyword        | 带少量历史            |
 | channel      | reply          | 带 channelMaxMessages |
 
 ### 14.3 command 不带普通历史
@@ -861,14 +863,14 @@ sourceEventId == currentSourceEventId 的消息
 
 PromptContext metadata 至少包含：
 
-| 字段                       | 说明              |
-| ------------------------ | --------------- |
-| currentTimeIso           | 当前时间            |
-| eventReceivedAt          | 当前事件接收时间        |
-| timezone                 | 当前时区            |
+| 字段                     | 说明                  |
+| ------------------------ | --------------------- |
+| currentTimeIso           | 当前时间              |
+| eventReceivedAt          | 当前事件接收时间      |
+| timezone                 | 当前时区              |
 | triggerKind              | 本轮触发类型          |
 | triggerReason            | 本轮触发原因          |
-| adapter                  | 当前 adapter      |
+| adapter                  | 当前 adapter          |
 | adapterCapabilityProfile | 当前 adapter 能力概要 |
 
 ---
@@ -901,8 +903,8 @@ ContextComposer 生成的 system prompt 必须强调：
 
 新增字段：
 
-| 字段                  | 说明                          |
-| ------------------- | --------------------------- |
+| 字段                | 说明                                  |
+| ------------------- | ------------------------------------- |
 | external_message_id | 平台侧消息 ID，用于 reply_to_bot 匹配 |
 
 新增索引：
@@ -921,10 +923,10 @@ session_id + external_message_id + role + deleted_at
 
 可选新增字段：
 
-| 字段                               | 说明                                        |
+| 字段                             | 说明                                      |
 | -------------------------------- | ----------------------------------------- |
 | send_mode                        | passive_reply / active_send / unsupported |
-| platform_reply_window_expires_at | 平台被动回复窗口过期时间                              |
+| platform_reply_window_expires_at | 平台被动回复窗口过期时间                  |
 
 ### 15.3 迁移兼容
 

@@ -17,9 +17,7 @@ function redactValue(value: unknown, replacement: string): unknown {
     const redacted: Record<string, unknown> = {};
 
     for (const [key, item] of Object.entries(value)) {
-      redacted[key] = SENSITIVE_KEY_PATTERN.test(key)
-        ? replacement
-        : redactValue(item, replacement);
+      redacted[key] = SENSITIVE_KEY_PATTERN.test(key) ? replacement : redactValue(item, replacement);
     }
 
     return redacted;

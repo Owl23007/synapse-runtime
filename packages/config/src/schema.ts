@@ -4,13 +4,7 @@ import { z } from "zod";
 
 export const DEFAULT_RUNTIME_DATA_DIR = join(homedir(), ".synapse", "runtime");
 
-export const PermissionPolicySchema = z.enum([
-  "allow",
-  "confirm",
-  "deny",
-  "sandbox",
-  "rate_limit"
-]);
+export const PermissionPolicySchema = z.enum(["allow", "confirm", "deny", "sandbox", "rate_limit"]);
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
 
@@ -18,10 +12,7 @@ export const RuntimeModeSchema = z.enum(["local", "attached", "hosted"]);
 
 export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
 
-const OptionalSecretSchema = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.string().min(1).optional()
-);
+const OptionalSecretSchema = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional());
 
 export const DEFAULT_PERMISSIONS = {
   "channel.qq.send_group_message": "allow",
@@ -53,12 +44,8 @@ export const AdminSettingsSchema = z
     host: z.string().min(1).default("127.0.0.1"),
     port: z.number().int().min(0).max(65535).default(3766),
     token: OptionalSecretSchema,
-    allowedOrigins: z
-      .array(z.string().min(1))
-      .default(["http://127.0.0.1:3766", "http://localhost:3766"]),
-    allowedRemoteAddresses: z
-      .array(z.string().min(1))
-      .default(["127.0.0.1", "::1", "::ffff:127.0.0.1"]),
+    allowedOrigins: z.array(z.string().min(1)).default(["http://127.0.0.1:3766", "http://localhost:3766"]),
+    allowedRemoteAddresses: z.array(z.string().min(1)).default(["127.0.0.1", "::1", "::ffff:127.0.0.1"]),
     logBufferSize: z.number().int().min(100).max(10_000).default(300)
   })
   .passthrough();
@@ -156,32 +143,34 @@ export const EchoAgentProviderConfigSchema = z
   })
   .passthrough();
 
-export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
-  QwenAgentProviderConfigSchema,
-  OpenAiCompatibleAgentProviderConfigSchema,
-  EchoAgentProviderConfigSchema
-]).superRefine((provider, ctx) => {
-  if (provider.type !== "openai-compatible" || provider.base !== undefined) {
-    return;
-  }
+export const AgentProviderConfigSchema = z
+  .discriminatedUnion("type", [
+    QwenAgentProviderConfigSchema,
+    OpenAiCompatibleAgentProviderConfigSchema,
+    EchoAgentProviderConfigSchema
+  ])
+  .superRefine((provider, ctx) => {
+    if (provider.type !== "openai-compatible" || provider.base !== undefined) {
+      return;
+    }
 
-  // 未选择内置预设时，必须显式声明调用地址和模型，避免新增厂商时修改代码表。
-  if (provider.baseUrl === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["baseUrl"],
-      message: "baseUrl is required when openai-compatible provider base is not set."
-    });
-  }
+    // 未选择内置预设时，必须显式声明调用地址和模型，避免新增厂商时修改代码表。
+    if (provider.baseUrl === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["baseUrl"],
+        message: "baseUrl is required when openai-compatible provider base is not set."
+      });
+    }
 
-  if (provider.model === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["model"],
-      message: "model is required when openai-compatible provider base is not set."
-    });
-  }
-});
+    if (provider.model === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["model"],
+        message: "model is required when openai-compatible provider base is not set."
+      });
+    }
+  });
 
 export const AgentSettingsSchema = z
   .object({
@@ -252,9 +241,7 @@ export const RuntimeConfigSchema = z
     agent: AgentSettingsSchema.default({}),
     conversation: ConversationSettingsSchema.default({}),
     channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
-    permissions: z
-      .record(z.string().min(1), PermissionPolicySchema)
-      .default(DEFAULT_PERMISSIONS)
+    permissions: z.record(z.string().min(1), PermissionPolicySchema).default(DEFAULT_PERMISSIONS)
   })
   .passthrough()
   .superRefine((config, ctx) => {

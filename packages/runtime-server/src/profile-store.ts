@@ -100,7 +100,9 @@ export async function resolveRuntimeConnection(options: RuntimeConnectionOptions
   const env = options.env ?? process.env;
   const profilePath = options.profilePath ?? getDefaultProfilePath(env);
   const config = await loadProfileConfig(profilePath);
-  const selectedProfileName = options.profile ?? (options.endpoint === undefined && env.SYNAPSE_RUNTIME_URL === undefined ? config.current : undefined);
+  const selectedProfileName =
+    options.profile ??
+    (options.endpoint === undefined && env.SYNAPSE_RUNTIME_URL === undefined ? config.current : undefined);
   const selectedProfile = selectedProfileName === undefined ? undefined : config.profiles[selectedProfileName];
   const token = options.token ?? env.SYNAPSE_RUNTIME_TOKEN ?? selectedProfile?.token;
 
@@ -149,7 +151,9 @@ function parseProfileConfig(value: unknown): RuntimeCliProfileConfig {
 
 function assertProfileName(profileName: string): void {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(profileName)) {
-    throw new Error("Runtime profile name must start with a letter or number and contain only letters, numbers, _ or -.");
+    throw new Error(
+      "Runtime profile name must start with a letter or number and contain only letters, numbers, _ or -."
+    );
   }
 }
 

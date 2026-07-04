@@ -8,15 +8,15 @@ Channel 负责把平台相关事件转换成 `SynapseChannelEvent`，并把 `Syn
 
 ```ts
 interface ChannelAdapter {
-  readonly id: string
-  readonly type: string
-  readonly provider: string
-  connect(): Promise<void>
-  disconnect(): Promise<void>
-  getStatus(): Promise<ChannelStatus>
-  getCapabilities(): ChannelCapabilities
-  sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult>
-  onEvent(handler: ChannelEventHandler): void
+  readonly id: string;
+  readonly type: string;
+  readonly provider: string;
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  getStatus(): Promise<ChannelStatus>;
+  getCapabilities(): ChannelCapabilities;
+  sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult>;
+  onEvent(handler: ChannelEventHandler): void;
 }
 ```
 

@@ -39,7 +39,7 @@ describe("runtime CLI profiles", () => {
         }
       }
     });
-    await expect(readFile(profilePath, "utf8")).resolves.toContain("\"current\": \"prod\"");
+    await expect(readFile(profilePath, "utf8")).resolves.toContain('"current": "prod"');
   });
 
   it("resolves connections by explicit endpoint, profile, env, current profile and default order", async () => {
