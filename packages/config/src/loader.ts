@@ -7,6 +7,7 @@ import { expandEnv, type EnvSource } from "./env.js";
 import { ConfigError } from "./errors.js";
 import { RuntimeConfigSchema, type RuntimeConfig } from "./schema.js";
 
+/** 加载配置选项 */
 export interface LoadConfigOptions {
   readonly env?: EnvSource;
   readonly allowUndefinedEnv?: boolean;
