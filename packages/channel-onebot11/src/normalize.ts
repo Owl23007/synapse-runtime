@@ -31,11 +31,13 @@ export function normalizeOneBot11Event(
   }
 
   const messageId = stringFromUnknown(payload.message_id);
+  const selfUserId = stringFromUnknown(payload.self_id);
   const timestamp = numberFromUnknown(payload.time);
   const senderName = stringFromUnknown(sender?.card)?.trim() || stringFromUnknown(sender?.nickname)?.trim() || undefined;
   const senderRole = stringFromUnknown(sender?.role);
   const rawMessage = stringFromUnknown(payload.raw_message);
   const segments = oneBot11SegmentsToSynapseSegments(payload.message, rawMessage);
+  const replySegment = segments.find((segment): segment is Extract<typeof segments[number], { type: "reply" }> => segment.type === "reply");
   const messageTypeForSynapse = segments.some((segment) => segment.type !== "text") ? "mixed" : "text";
 
   return {
@@ -53,7 +55,21 @@ export function normalizeOneBot11Event(
       ...(messageId === undefined ? {} : { id: messageId }),
       type: messageTypeForSynapse,
       segments,
+      ...(replySegment?.messageId === undefined ? {} : { replyTo: { messageId: replySegment.messageId } }),
       raw: payload.message ?? payload.raw_message
+    },
+    triggerHint: {
+      platformEventType: `${payload.post_type}.${messageType}`,
+      ...(selfUserId === undefined ? {} : { selfUserId }),
+      ...(replySegment?.messageId === undefined ? {} : { replyTargetMessageId: replySegment.messageId })
+    },
+    adapterCapabilities: {
+      mentionUser: true,
+      mentionAll: true,
+      selfIdFromEvent: selfUserId !== undefined,
+      outgoingMessageId: true,
+      incomingReplyTarget: true,
+      replyToBot: "yes"
     },
     raw: payload,
     receivedAt: timestamp === undefined ? new Date().toISOString() : new Date(timestamp * 1000).toISOString()

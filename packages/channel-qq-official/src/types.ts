@@ -81,4 +81,7 @@ export interface QqOfficialMessagePayload {
   readonly user_openid?: string;
   readonly raw_message?: unknown;
   readonly mentions?: unknown;
+  readonly message_reference?: unknown;
+  readonly referenced_message?: unknown;
+  readonly reply?: unknown;
 }

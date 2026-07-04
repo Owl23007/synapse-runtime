@@ -27,6 +27,7 @@ export function normalizeQqOfficialDispatch(
     stringFromUnknown(messagePayload.id) ??
     `${payload.t}:${Date.now()}`;
   const messageId = stringFromUnknown(messagePayload.msg_id) ?? stringFromUnknown(messagePayload.id);
+  const replyTargetMessageId = replyTargetMessageIdFromPayload(messagePayload);
 
   return {
     id: eventId,
@@ -49,13 +50,15 @@ export function normalizeQqOfficialDispatch(
         { type: "text", text: messagePayload.content ?? "" },
         ...mentionSegmentsFromPayload(payload.t, messagePayload)
       ],
-      replyTo: {
-        ...(messageId === undefined ? {} : { messageId }),
-        eventId,
-        sequence: 1
-      },
+      ...(replyTargetMessageId === undefined ? {} : { replyTo: { messageId: replyTargetMessageId } }),
       raw: messagePayload.raw_message ?? payload.d
     },
+    triggerHint: {
+      platformEventType: payload.t,
+      platformMentionedBot: payload.t === "GROUP_AT_MESSAGE_CREATE" || payload.t === "AT_MESSAGE_CREATE",
+      ...(replyTargetMessageId === undefined ? {} : { replyTargetMessageId })
+    },
+    adapterCapabilities: adapterCapabilitiesForEvent(payload.t, replyTargetMessageId),
     raw: payload,
     receivedAt: messagePayload.timestamp ?? new Date().toISOString()
   };
@@ -65,9 +68,10 @@ function conversationFromPayload(
   eventType: string,
   payload: QqOfficialMessagePayload
 ): SynapseChannelEvent["conversation"] | undefined {
-  if (eventType === "C2C_MESSAGE_CREATE") {
+  if (eventType === "C2C_MESSAGE_CREATE" || eventType === "DIRECT_MESSAGE_CREATE") {
     const userId = stringFromUnknown(payload.user_openid) ?? stringFromUnknown(payload.author?.user_openid);
-    return userId === undefined ? undefined : { id: userId, kind: "private" };
+    const id = userId ?? stringFromUnknown(payload.channel_id) ?? stringFromUnknown(payload.guild_id);
+    return id === undefined ? undefined : { id, kind: "private" };
   }
 
   if (eventType === "GROUP_AT_MESSAGE_CREATE" || eventType === "GROUP_MESSAGE_CREATE") {
@@ -75,7 +79,7 @@ function conversationFromPayload(
     return groupId === undefined ? undefined : { id: groupId, kind: "group" };
   }
 
-  if (eventType === "AT_MESSAGE_CREATE" || eventType === "MESSAGE_CREATE" || eventType === "DIRECT_MESSAGE_CREATE") {
+  if (eventType === "AT_MESSAGE_CREATE" || eventType === "MESSAGE_CREATE") {
     const id = stringFromUnknown(payload.channel_id) ?? stringFromUnknown(payload.guild_id);
     return id === undefined ? undefined : { id, kind: "channel" };
   }
@@ -90,14 +94,14 @@ function mentionSegmentsFromPayload(
   const mentions = Array.isArray(payload.mentions) ? payload.mentions : [];
   const segments = mentions
     .map((mention) => mentionSegmentFromUnknown(mention))
-    .filter((segment): segment is { readonly type: "mention"; readonly userId?: string; readonly label?: string } => segment !== undefined);
+    .filter((segment): segment is { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string } => segment !== undefined);
 
   if (segments.length > 0) {
     return segments;
   }
 
   if (eventType === "GROUP_AT_MESSAGE_CREATE" || eventType === "AT_MESSAGE_CREATE") {
-    return [{ type: "mention" }];
+    return [{ type: "mention", target: "unknown" }];
   }
 
   return [];
@@ -105,9 +109,9 @@ function mentionSegmentsFromPayload(
 
 function mentionSegmentFromUnknown(
   mention: unknown
-): { readonly type: "mention"; readonly userId?: string; readonly label?: string } | undefined {
+): { readonly type: "mention"; readonly target?: "user" | "all" | "unknown"; readonly userId?: string; readonly label?: string } | undefined {
   if (typeof mention === "string" && mention.length > 0) {
-    return { type: "mention", userId: mention };
+    return mention === "all" ? { type: "mention", target: "all" } : { type: "mention", target: "user", userId: mention };
   }
 
   if (!isRecord(mention)) {
@@ -128,7 +132,67 @@ function mentionSegmentFromUnknown(
 
   return {
     type: "mention",
+    target: userId === undefined ? "unknown" : "user",
     ...(userId === undefined ? {} : { userId }),
     ...(label === undefined ? {} : { label })
+  };
+}
+
+function replyTargetMessageIdFromPayload(payload: QqOfficialMessagePayload): string | undefined {
+  return messageIdFromUnknown(payload.message_reference) ??
+    messageIdFromUnknown(payload.referenced_message) ??
+    messageIdFromUnknown(payload.reply);
+}
+
+function messageIdFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return stringFromUnknown(value.message_id) ??
+    stringFromUnknown(value.msg_id) ??
+    stringFromUnknown(value.id) ??
+    stringFromUnknown(value.messageId);
+}
+
+function adapterCapabilitiesForEvent(
+  eventType: string,
+  replyTargetMessageId: string | undefined
+): NonNullable<SynapseChannelEvent["adapterCapabilities"]> {
+  if (eventType === "C2C_MESSAGE_CREATE" || eventType === "DIRECT_MESSAGE_CREATE") {
+    return {
+      mentionUser: false,
+      mentionAll: false,
+      outgoingMessageId: true,
+      incomingReplyTarget: replyTargetMessageId !== undefined,
+      platformMentionedBotHint: true,
+      replyToBot: replyTargetMessageId === undefined ? "no" : "conditional",
+      passiveReplyWindowSeconds: 3600
+    };
+  }
+
+  if (eventType === "GROUP_AT_MESSAGE_CREATE" || eventType === "GROUP_MESSAGE_CREATE") {
+    return {
+      mentionUser: false,
+      mentionAll: false,
+      outgoingMessageId: true,
+      incomingReplyTarget: replyTargetMessageId !== undefined,
+      platformMentionedBotHint: eventType === "GROUP_AT_MESSAGE_CREATE",
+      replyToBot: replyTargetMessageId === undefined ? "no" : "conditional",
+      passiveReplyWindowSeconds: 300
+    };
+  }
+
+  return {
+    mentionUser: true,
+    mentionAll: false,
+    outgoingMessageId: true,
+    incomingReplyTarget: replyTargetMessageId !== undefined,
+    platformMentionedBotHint: eventType === "AT_MESSAGE_CREATE",
+    replyToBot: replyTargetMessageId === undefined ? "no" : "conditional"
   };
 }

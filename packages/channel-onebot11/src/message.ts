@@ -61,6 +61,10 @@ function renderSegment(segment: SynapseMessage["segments"][number]): string {
     return segment.userId === undefined ? "" : `[CQ:at,qq=${escapeCqValue(segment.userId)}]`;
   }
 
+  if (segment.type === "reply") {
+    return segment.messageId === undefined ? "" : `[CQ:reply,id=${escapeCqValue(segment.messageId)}]`;
+  }
+
   if (segment.type === "image") {
     const file = segment.url ?? segment.fileId ?? segment.localPath;
     return file === undefined ? "" : `[CQ:image,file=${escapeCqValue(file)}]`;
@@ -87,7 +91,16 @@ function oneBot11SegmentToSynapseSegments(segment: unknown): readonly MessageSeg
 
   if (type === "at") {
     const userId = stringFromUnknown(data.qq);
-    return [{ type: "mention", ...(userId === undefined || userId === "all" ? {} : { userId }) }];
+    if (userId === "all") {
+      return [{ type: "mention", target: "all" }];
+    }
+
+    return [{ type: "mention", target: userId === undefined ? "unknown" : "user", ...(userId === undefined ? {} : { userId }) }];
+  }
+
+  if (type === "reply") {
+    const messageId = stringFromUnknown(data.id);
+    return [{ type: "reply", ...(messageId === undefined ? {} : { messageId }) }];
   }
 
   if (type === "image") {
@@ -120,7 +133,13 @@ function parseCqMessage(message: string): readonly MessageSegment[] {
     const params = parseCqParams(match[2] ?? "");
     if (type === "at") {
       const userId = params.qq;
-      segments.push({ type: "mention", ...(userId === undefined || userId === "all" ? {} : { userId }) });
+      if (userId === "all") {
+        segments.push({ type: "mention", target: "all" });
+      } else {
+        segments.push({ type: "mention", target: userId === undefined ? "unknown" : "user", ...(userId === undefined ? {} : { userId }) });
+      }
+    } else if (type === "reply") {
+      segments.push({ type: "reply", ...(params.id === undefined ? {} : { messageId: params.id }) });
     } else if (type === "image") {
       segments.push({
         type: "image",

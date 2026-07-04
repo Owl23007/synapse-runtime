@@ -172,7 +172,7 @@ describe("RuntimeServer", () => {
       },
       conversation: {
         privateTrigger: { mode: "always" },
-        groupTrigger: { mode: "mention" }
+        groupTrigger: { mode: "mention", botUserIds: ["bot-openid"] }
       },
       channels: {
         "qq-official": {
