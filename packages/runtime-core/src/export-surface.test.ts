@@ -4,7 +4,7 @@ describe("runtime-core export surface", () => {
   it("keeps public runtime exports stable", async () => {
     const runtimeCore = await import("./index.js");
 
-    expect(Object.keys(runtimeCore).sort()).toEqual([
+    expect(Object.keys(runtimeCore).toSorted()).toEqual([
       "ContextComposer",
       "IdentityResolverLite",
       "InMemoryEventProcessStore",

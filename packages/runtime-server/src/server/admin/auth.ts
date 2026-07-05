@@ -2,11 +2,7 @@ import type { AdminSettings } from "@synapse/runtime-config";
 import type { NovaRequest, NovaResponse } from "nova-http";
 import { sendJson } from "../http.js";
 
-export function authorizeAdminRequest(
-  admin: AdminSettings,
-  request: NovaRequest,
-  response: NovaResponse
-): boolean {
+export function authorizeAdminRequest(admin: AdminSettings, request: NovaRequest, response: NovaResponse): boolean {
   const origin = request.getHeader("origin");
 
   if (origin !== undefined && !admin.allowedOrigins.includes(origin)) {

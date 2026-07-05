@@ -4,7 +4,7 @@ describe("runtime-server export surface", () => {
   it("keeps public runtime exports stable", async () => {
     const runtimeServer = await import("./index.js");
 
-    expect(Object.keys(runtimeServer).sort()).toEqual([
+    expect(Object.keys(runtimeServer).toSorted()).toEqual([
       "DEFAULT_RUNTIME_ENDPOINT",
       "RuntimeAdminClient",
       "RuntimeServer",
@@ -30,6 +30,8 @@ describe("runtime-server export surface", () => {
     await expect(import("./server/runtime-factory.js")).resolves.toMatchObject({
       createRuntimeFromConfig: expect.any(Function)
     });
-    await expect(import("./server/admin/auth.js")).resolves.toMatchObject({ validateAdminSecurity: expect.any(Function) });
+    await expect(import("./server/admin/auth.js")).resolves.toMatchObject({
+      validateAdminSecurity: expect.any(Function)
+    });
   });
 });

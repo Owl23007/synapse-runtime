@@ -5,7 +5,12 @@ import Database from "better-sqlite3";
 import type { ConversationType, WorkspaceRef } from "../../context/types.js";
 import { eventProcessKey, normalizeMessageId } from "../../context/session.js";
 import type { WorkspaceResolveInput, WorkspaceStore } from "../../context/workspace.js";
-import type { EventProcessBeginInput, EventProcessState, EventProcessStatus, EventProcessStore } from "../../event-process/types.js";
+import type {
+  EventProcessBeginInput,
+  EventProcessState,
+  EventProcessStatus,
+  EventProcessStore
+} from "../../event-process/types.js";
 import type {
   TranscriptAppendInput,
   TranscriptExternalMessageLookup,

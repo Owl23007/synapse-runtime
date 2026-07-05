@@ -3,12 +3,7 @@ import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { bodyParser, createApp, type Nova } from "nova-http";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
-import type {
-  RuntimeFetch,
-  RuntimeServerLogger,
-  RuntimeServerOptions,
-  RuntimeServerStartResult
-} from "../types.js";
+import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
 import { validateAdminSecurity } from "./admin/auth.js";
 import { registerAdminRoutes } from "./admin/routes.js";
 import { RuntimeChannelManager } from "./channel-manager.js";
