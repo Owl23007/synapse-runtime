@@ -1,7 +1,11 @@
 export * from "./types.js";
-export * from "./session.js";
-export * from "./time.js";
-export * from "./history.js";
-export * from "./identity.js";
-export * from "./workspace.js";
-export * from "./composer.js";
+export { buildSessionId, buildSourceEventId, conversationTypeFromEvent, normalizeMessageId } from "./session.js";
+export { IdentityResolverLite, anonymousActor, type IdentityResolver } from "./identity.js";
+export {
+  WorkspaceResolverLite,
+  defaultWorkspace,
+  type WorkspaceResolveInput,
+  type WorkspaceResolver,
+  type WorkspaceStore
+} from "./workspace.js";
+export { ContextComposer, type ContextComposerOptions } from "./composer.js";

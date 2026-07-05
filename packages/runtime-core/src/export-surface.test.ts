@@ -10,26 +10,17 @@ describe("runtime-core export surface", () => {
       "InMemoryEventProcessStore",
       "InMemoryTranscriptStore",
       "OutputPolicyResolver",
-      "RUNTIME_CONTEXT_POST_MIGRATION_SQL",
-      "RUNTIME_CONTEXT_SCHEMA_SQL",
       "ResponsePolicy",
       "RuntimeCore",
       "SqliteRuntimeContextStore",
       "WorkspaceResolverLite",
       "anonymousActor",
-      "applyTextPolicy",
       "buildSessionId",
       "buildSourceEventId",
       "commandResponse",
       "conversationTypeFromEvent",
       "defaultWorkspace",
-      "ensureColumn",
-      "eventProcessKey",
-      "formatZonedTimestamp",
-      "isWithinHistoryTtl",
-      "migrateSqliteRuntimeContextStore",
-      "normalizeMessageId",
-      "trimHistory"
+      "normalizeMessageId"
     ]);
   });
 
