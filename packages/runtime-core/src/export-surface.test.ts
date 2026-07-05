@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+
+describe("runtime-core export surface", () => {
+  it("keeps public runtime exports stable", async () => {
+    const runtimeCore = await import("./index.js");
+
+    expect(Object.keys(runtimeCore).sort()).toEqual([
+      "ContextComposer",
+      "IdentityResolverLite",
+      "InMemoryEventProcessStore",
+      "InMemoryTranscriptStore",
+      "OutputPolicyResolver",
+      "RUNTIME_CONTEXT_POST_MIGRATION_SQL",
+      "RUNTIME_CONTEXT_SCHEMA_SQL",
+      "ResponsePolicy",
+      "RuntimeCore",
+      "SqliteRuntimeContextStore",
+      "WorkspaceResolverLite",
+      "anonymousActor",
+      "applyTextPolicy",
+      "buildSessionId",
+      "buildSourceEventId",
+      "commandResponse",
+      "conversationTypeFromEvent",
+      "defaultWorkspace",
+      "ensureColumn",
+      "eventProcessKey",
+      "formatZonedTimestamp",
+      "isWithinHistoryTtl",
+      "migrateSqliteRuntimeContextStore",
+      "normalizeMessageId",
+      "trimHistory"
+    ]);
+  });
+
+  it("keeps context deep imports compatible", async () => {
+    await expect(import("./context.js")).resolves.toMatchObject({
+      ContextComposer: expect.any(Function),
+      InMemoryTranscriptStore: expect.any(Function),
+      SqliteRuntimeContextStore: expect.any(Function)
+    });
+    await expect(import("./context/index.js")).resolves.toMatchObject({ ContextComposer: expect.any(Function) });
+    await expect(import("./storage/sqlite/index.js")).resolves.toMatchObject({
+      SqliteRuntimeContextStore: expect.any(Function)
+    });
+  });
+});
