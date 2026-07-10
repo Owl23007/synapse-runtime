@@ -2,58 +2,6 @@ import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 
-export const QWEN_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-
-export const OPENAI_COMPATIBLE_PROVIDER_PRESETS = {
-  openai: {
-    baseUrl: "https://api.openai.com/v1",
-    model: "gpt-4.1-mini"
-  },
-  qwen: {
-    baseUrl: QWEN_COMPATIBLE_BASE_URL,
-    model: "qwen-plus"
-  },
-  deepseek: {
-    baseUrl: "https://api.deepseek.com",
-    model: "deepseek-chat"
-  },
-  moonshot: {
-    baseUrl: "https://api.moonshot.cn/v1",
-    model: "moonshot-v1-8k"
-  },
-  zhipu: {
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    model: "glm-4-flash"
-  },
-  mistral: {
-    baseUrl: "https://api.mistral.ai/v1",
-    model: "mistral-small-latest"
-  },
-  gemini: {
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.0-flash"
-  },
-  groq: {
-    baseUrl: "https://api.groq.com/openai/v1",
-    model: "llama-3.1-8b-instant"
-  },
-  xai: {
-    baseUrl: "https://api.x.ai/v1",
-    model: "grok-2-latest"
-  },
-  openrouter: {
-    baseUrl: "https://openrouter.ai/api/v1",
-    model: "openai/gpt-4o-mini"
-  },
-  siliconflow: {
-    baseUrl: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen2.5-7B-Instruct"
-  }
-} as const;
-
-export type OpenAiCompatibleProviderBase = keyof typeof OPENAI_COMPATIBLE_PROVIDER_PRESETS;
-export type OpenAiCompatibleProviderBaseName = OpenAiCompatibleProviderBase | (string & {});
-
 /* 角色 */
 export type ChatRole = "system" | "user" | "assistant";
 
@@ -87,22 +35,8 @@ export interface ChatCompletionProvider {
 export interface OpenAiCompatibleChatProviderOptions {
   readonly id: string;
   readonly apiKey: string;
-  readonly base?: OpenAiCompatibleProviderBaseName;
-  readonly baseUrl?: string;
-  readonly model?: string;
-  readonly temperature?: number;
-  readonly maxTokens?: number;
-  readonly topP?: number;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly extraBody?: Readonly<Record<string, unknown>>;
-  readonly fetch?: FetchLike;
-}
-
-export interface QwenChatProviderOptions {
-  readonly id: string;
-  readonly apiKey: string;
-  readonly model?: string;
-  readonly baseUrl?: string;
+  readonly baseUrl: string;
+  readonly model: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
   readonly topP?: number;
@@ -153,12 +87,10 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   readonly #fetch: FetchLike;
 
   constructor(options: OpenAiCompatibleChatProviderOptions) {
-    const preset = resolveProviderPreset(options.base);
-
     this.id = options.id;
     this.#apiKey = parseRequiredString(options.apiKey, "apiKey");
-    this.#baseUrl = parseRequiredString(options.baseUrl ?? preset?.baseUrl ?? "", "baseUrl");
-    this.#model = parseRequiredString(options.model ?? preset?.model ?? "", "model");
+    this.#baseUrl = parseRequiredString(options.baseUrl, "baseUrl");
+    this.#model = parseRequiredString(options.model, "model");
     this.#temperature = options.temperature;
     this.#maxTokens = options.maxTokens;
     this.#topP = options.topP;
@@ -206,27 +138,6 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
       raw: responseBody
     };
   }
-}
-
-function resolveProviderPreset(base: OpenAiCompatibleProviderBaseName | undefined):
-  | {
-      readonly baseUrl: string;
-      readonly model: string;
-    }
-  | undefined {
-  if (base === undefined) {
-    return undefined;
-  }
-
-  if (isKnownProviderBase(base)) {
-    return OPENAI_COMPATIBLE_PROVIDER_PRESETS[base];
-  }
-
-  return undefined;
-}
-
-function isKnownProviderBase(base: string): base is OpenAiCompatibleProviderBase {
-  return Object.prototype.hasOwnProperty.call(OPENAI_COMPATIBLE_PROVIDER_PRESETS, base);
 }
 
 export class ApiChatAgent implements Agent {
@@ -303,22 +214,6 @@ export class ApiChatAgent implements Agent {
       };
     }
   }
-}
-
-export function createQwenChatProvider(options: QwenChatProviderOptions): OpenAiCompatibleChatProvider {
-  return new OpenAiCompatibleChatProvider({
-    id: options.id,
-    apiKey: options.apiKey,
-    base: "qwen",
-    ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
-    ...(options.model === undefined ? {} : { model: options.model }),
-    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
-    ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
-    ...(options.topP === undefined ? {} : { topP: options.topP }),
-    ...(options.headers === undefined ? {} : { headers: options.headers }),
-    ...(options.extraBody === undefined ? {} : { extraBody: options.extraBody }),
-    ...(options.fetch === undefined ? {} : { fetch: options.fetch })
-  });
 }
 
 async function defaultFetch(url: string, init?: FetchInitLike): Promise<FetchResponseLike> {

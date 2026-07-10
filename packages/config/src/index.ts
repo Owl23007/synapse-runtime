@@ -4,7 +4,6 @@ export { expandEnv, expandEnvString, type EnvSource, type ExpandEnvOptions } fro
 export { loadConfigFile, parseConfigContent, parseConfigObject, type LoadConfigOptions } from "./loader.js";
 export {
   AgentProviderConfigSchema,
-  AgentProviderBaseSchema,
   AgentProviderIdSchema,
   AgentSettingsSchema,
   AdminSettingsSchema,
@@ -22,7 +21,6 @@ export {
   OpenAiCompatibleAgentProviderConfigSchema,
   PermissionPolicySchema,
   QqOfficialChannelConfigSchema,
-  QwenAgentProviderConfigSchema,
   RiskLevelSchema,
   RuntimeConfigSchema,
   RuntimeModeSchema,
@@ -30,7 +28,6 @@ export {
   ServerSettingsSchema,
   TriggerModeSchema,
   type AgentProviderConfig,
-  type AgentProviderBase,
   type AgentProviderId,
   type AgentSettings,
   type AdminSettings,
@@ -45,7 +42,6 @@ export {
   type OpenAiCompatibleAgentProviderConfig,
   type PermissionPolicy,
   type QqOfficialChannelConfig,
-  type QwenAgentProviderConfig,
   type RiskLevel,
   type RuntimeConfig,
   type RuntimeMode,

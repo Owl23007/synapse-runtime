@@ -1,10 +1,5 @@
 import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
-import {
-  ApiChatAgent,
-  createQwenChatProvider,
-  OpenAiCompatibleChatProvider,
-  type ChatCompletionProvider
-} from "@synapse/runtime-agent-api-provider";
+import { ApiChatAgent, OpenAiCompatibleChatProvider, type ChatCompletionProvider } from "@synapse/runtime-agent-api-provider";
 import type { AgentProviderConfig, RuntimeConfig } from "@synapse/runtime-config";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 import type { RuntimeFetch } from "../types.js";
@@ -38,28 +33,12 @@ export function createChatProvider(
   providerConfig: AgentProviderConfig,
   options: { readonly fetch?: RuntimeFetch } = {}
 ): ChatCompletionProvider {
-  if (providerConfig.type === "qwen") {
-    return createQwenChatProvider({
-      id: providerId,
-      apiKey: providerConfig.apiKey,
-      model: providerConfig.model,
-      baseUrl: providerConfig.baseUrl,
-      ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
-      ...(providerConfig.maxTokens === undefined ? {} : { maxTokens: providerConfig.maxTokens }),
-      ...(providerConfig.topP === undefined ? {} : { topP: providerConfig.topP }),
-      headers: providerConfig.headers,
-      extraBody: providerConfig.extraBody,
-      ...(options.fetch === undefined ? {} : { fetch: options.fetch })
-    });
-  }
-
   if (providerConfig.type === "openai-compatible") {
     return new OpenAiCompatibleChatProvider({
       id: providerId,
       apiKey: providerConfig.apiKey,
-      ...(providerConfig.base === undefined ? {} : { base: providerConfig.base }),
-      ...(providerConfig.baseUrl === undefined ? {} : { baseUrl: providerConfig.baseUrl }),
-      ...(providerConfig.model === undefined ? {} : { model: providerConfig.model }),
+      baseUrl: providerConfig.baseUrl,
+      model: providerConfig.model,
       ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
       ...(providerConfig.maxTokens === undefined ? {} : { maxTokens: providerConfig.maxTokens }),
       ...(providerConfig.topP === undefined ? {} : { topP: providerConfig.topP }),

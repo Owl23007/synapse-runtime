@@ -1,65 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { textMessage } from "@synapse/runtime-protocol";
-import {
-  ApiChatAgent,
-  createQwenChatProvider,
-  OpenAiCompatibleChatProvider,
-  OPENAI_COMPATIBLE_PROVIDER_PRESETS,
-  QWEN_COMPATIBLE_BASE_URL
-} from "./index.js";
-
-describe("createQwenChatProvider", () => {
-  it("calls the Qwen OpenAI-compatible chat completions endpoint", async () => {
-    const requests: Array<{ url: string; headers?: Readonly<Record<string, string>>; body?: string }> = [];
-    const provider = createQwenChatProvider({
-      id: "qwen",
-      apiKey: "api-key",
-      model: "qwen-plus",
-      temperature: 0.2,
-      fetch: async (url, init) => {
-        requests.push({
-          url,
-          ...(init?.headers === undefined ? {} : { headers: init.headers }),
-          ...(init?.body === undefined ? {} : { body: init.body })
-        });
-
-        return jsonResponse({
-          choices: [{ message: { content: "pong" } }]
-        });
-      }
-    });
-
-    await expect(
-      provider.complete({
-        messages: [{ role: "user", content: "ping" }]
-      })
-    ).resolves.toMatchObject({ content: "pong" });
-
-    expect(requests).toEqual([
-      {
-        url: `${QWEN_COMPATIBLE_BASE_URL}/chat/completions`,
-        headers: {
-          authorization: "Bearer api-key",
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "qwen-plus",
-          messages: [{ role: "user", content: "ping" }],
-          temperature: 0.2
-        })
-      }
-    ]);
-  });
-});
+import { ApiChatAgent, OpenAiCompatibleChatProvider } from "./index.js";
 
 describe("OpenAiCompatibleChatProvider", () => {
-  it("resolves base presets and forwards compatible request options", async () => {
+  it("uses explicit endpoints and forwards compatible request options", async () => {
     const requests: Array<{ url: string; headers?: Readonly<Record<string, string>>; body?: string }> = [];
     const provider = new OpenAiCompatibleChatProvider({
       id: "openai",
       apiKey: "api-key",
-      base: "openai",
+      baseUrl: "https://api.openai.com/v1",
       model: "gpt-4.1-mini",
       topP: 0.8,
       headers: {
@@ -87,7 +37,7 @@ describe("OpenAiCompatibleChatProvider", () => {
 
     expect(requests).toEqual([
       {
-        url: `${OPENAI_COMPATIBLE_PROVIDER_PRESETS.openai.baseUrl}/chat/completions`,
+        url: "https://api.openai.com/v1/chat/completions",
         headers: {
           "x-provider": "test",
           authorization: "Bearer api-key",
@@ -103,12 +53,11 @@ describe("OpenAiCompatibleChatProvider", () => {
     ]);
   });
 
-  it("uses explicit baseUrl and model without requiring a built-in base preset", async () => {
+  it("uses explicit baseUrl and model for private gateways", async () => {
     const requests: Array<{ url: string; body?: string }> = [];
     const provider = new OpenAiCompatibleChatProvider({
       id: "private-gateway",
       apiKey: "api-key",
-      base: "tenant-gateway",
       baseUrl: "https://llm-gateway.internal/v1",
       model: "company-chat-prod",
       fetch: async (url, init) => {

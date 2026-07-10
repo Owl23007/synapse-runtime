@@ -17,7 +17,7 @@ features:
   - title: 统一通道
     details: 将 OneBot11/NapCat 与 QQ Official 事件归一化为 SynapseChannelEvent，并通过统一 ChannelAdapter 发送回复。
   - title: Agent Provider 层
-    details: 在 Agent 接口之后接入 echo、Qwen 或 OpenAI-compatible Chat Provider。
+    details: 在 Agent 接口之后接入 echo 或 OpenAI-compatible Chat Provider。
   - title: 上下文闭环
     details: 持久化最近会话、解析身份与工作区、合成 PromptContext，并恢复重复事件投递。
   - title: 权限闸门
@@ -37,7 +37,7 @@ Synapse Runtime 使用 pnpm workspace 组织代码。当前实现覆盖：
 - `@synapse/runtime-protocol`：统一消息、事件、会话与发送者契约
 - Channel 抽象，以及 OneBot11/NapCat、QQ Official 适配器
 - 私聊和群聊触发策略
-- Agent 抽象，以及 Qwen/OpenAI-compatible Chat Provider
+- Agent 抽象，以及 OpenAI-compatible Chat Provider
 - 通道发送和工具调用的静态权限决策
 - 本地 SQLite 上下文存储，包括 transcript、幂等状态、workspace 绑定和可选 memory schema
 

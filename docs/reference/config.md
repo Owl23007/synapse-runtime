@@ -63,8 +63,9 @@
 Provider types：
 
 - `echo`
-- `qwen`
 - `openai-compatible`
+
+`openai-compatible` providers require explicit `apiKey`, `baseUrl`, and `model` fields.
 
 通用 chat tuning 字段：
 

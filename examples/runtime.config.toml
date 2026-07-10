@@ -33,7 +33,7 @@ default = "qwen"
 systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."
 
 [agent.providers.qwen]
-type = "qwen"
+type = "openai-compatible"
 apiKey = "${QWEN_API_KEY}"
 baseUrl = "${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
 model = "qwen-plus"
@@ -59,6 +59,10 @@ temperature = 0.3
 # baseUrl = "https://llm-gateway.internal/v1"
 # model = "company-chat-prod"
 # temperature = 0.3
+#
+# [agent.providers.echo]
+# type = "echo"
+# prefix = "[echo] "
 
 [conversation.privateTrigger]
 mode = "always"

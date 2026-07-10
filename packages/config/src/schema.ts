@@ -104,8 +104,6 @@ export const AgentProviderIdSchema = z
     message: "Agent provider id must start with a letter or number and contain only letters, numbers, _ or -."
   });
 
-export const AgentProviderBaseSchema = z.string().min(1);
-
 const ChatProviderTuningSchema = {
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().positive().optional(),
@@ -114,24 +112,12 @@ const ChatProviderTuningSchema = {
   extraBody: z.record(z.string().min(1), z.unknown()).default({})
 } as const;
 
-export const QwenAgentProviderConfigSchema = z
-  .object({
-    type: z.literal("qwen"),
-    base: z.literal("qwen").default("qwen"),
-    apiKey: z.string().min(1),
-    model: z.string().min(1).default("qwen-plus"),
-    baseUrl: z.string().url().default("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-    ...ChatProviderTuningSchema
-  })
-  .passthrough();
-
 export const OpenAiCompatibleAgentProviderConfigSchema = z
   .object({
     type: z.literal("openai-compatible"),
-    base: AgentProviderBaseSchema.optional(),
     apiKey: z.string().min(1),
-    baseUrl: z.string().url().optional(),
-    model: z.string().min(1).optional(),
+    baseUrl: z.string().url(),
+    model: z.string().min(1),
     ...ChatProviderTuningSchema
   })
   .passthrough();
@@ -143,34 +129,10 @@ export const EchoAgentProviderConfigSchema = z
   })
   .passthrough();
 
-export const AgentProviderConfigSchema = z
-  .discriminatedUnion("type", [
-    QwenAgentProviderConfigSchema,
-    OpenAiCompatibleAgentProviderConfigSchema,
-    EchoAgentProviderConfigSchema
-  ])
-  .superRefine((provider, ctx) => {
-    if (provider.type !== "openai-compatible" || provider.base !== undefined) {
-      return;
-    }
-
-    // 未选择内置预设时，必须显式声明调用地址和模型，避免新增厂商时修改代码表。
-    if (provider.baseUrl === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["baseUrl"],
-        message: "baseUrl is required when openai-compatible provider base is not set."
-      });
-    }
-
-    if (provider.model === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["model"],
-        message: "model is required when openai-compatible provider base is not set."
-      });
-    }
-  });
+export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
+  OpenAiCompatibleAgentProviderConfigSchema,
+  EchoAgentProviderConfigSchema
+]);
 
 export const AgentSettingsSchema = z
   .object({
@@ -274,8 +236,6 @@ export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema
 export type MemorySettings = z.infer<typeof MemorySettingsSchema>;
 export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
 export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
-export type AgentProviderBase = z.infer<typeof AgentProviderBaseSchema>;
-export type QwenAgentProviderConfig = z.infer<typeof QwenAgentProviderConfigSchema>;
 export type OpenAiCompatibleAgentProviderConfig = z.infer<typeof OpenAiCompatibleAgentProviderConfigSchema>;
 export type EchoAgentProviderConfig = z.infer<typeof EchoAgentProviderConfigSchema>;
 export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>;

@@ -23,7 +23,7 @@
 | -------------------------------------- | --------------------------------------------------------------------- |
 | `@synapse/runtime-channel-onebot11`    | OneBot11/NapCat adapter                                               |
 | `@synapse/runtime-channel-qq-official` | QQ Official adapter                                                   |
-| `@synapse/runtime-agent-api-provider`  | Qwen、OpenAI-compatible chat completion provider，以及 `ApiChatAgent` |
+| `@synapse/runtime-agent-api-provider`  | OpenAI-compatible chat completion provider，以及 `ApiChatAgent` |
 
 ## 组合层
 

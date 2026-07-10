@@ -90,7 +90,7 @@ accessToken = "$\{NAPCAT_TOKEN}"
     expect(config.permissions["channel.qq.manage_group"]).toBe("deny");
   });
 
-  it("supports openai-compatible provider bases in toml configs", () => {
+  it("supports explicit openai-compatible providers in toml configs", () => {
     const config = parseConfigContent(
       `
 [agent]
@@ -98,8 +98,8 @@ default = "openai"
 
 [agent.providers.openai]
 type = "openai-compatible"
-base = "openai"
 apiKey = "$\{OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
 model = "gpt-4.1-mini"
 topP = 0.8
 
@@ -115,8 +115,8 @@ seed = 7
 
     expect(config.agent.providers.openai).toMatchObject({
       type: "openai-compatible",
-      base: "openai",
       apiKey: "openai-key",
+      baseUrl: "https://api.openai.com/v1",
       model: "gpt-4.1-mini",
       topP: 0.8,
       headers: {
@@ -128,7 +128,7 @@ seed = 7
     });
   });
 
-  it("supports explicit openai-compatible providers without built-in bases", () => {
+  it("supports private openai-compatible gateways", () => {
     const config = parseConfigContent(
       `
 [agent]
@@ -152,31 +152,6 @@ model = "company-chat-prod"
     });
   });
 
-  it("allows custom openai-compatible base names with explicit endpoint and model", () => {
-    const config = parseConfigContent(
-      `
-[agent]
-default = "custom"
-
-[agent.providers.custom]
-type = "openai-compatible"
-base = "tenant-gateway"
-apiKey = "$\{LLM_GATEWAY_API_KEY}"
-baseUrl = "https://llm-gateway.internal/v1"
-model = "company-chat-prod"
-`,
-      "runtime.config.toml",
-      { env: { LLM_GATEWAY_API_KEY: "gateway-key" } }
-    );
-
-    expect(config.agent.providers.custom).toMatchObject({
-      type: "openai-compatible",
-      base: "tenant-gateway",
-      baseUrl: "https://llm-gateway.internal/v1",
-      model: "company-chat-prod"
-    });
-  });
-
   it("supports json configs", () => {
     const config = parseConfigContent(
       JSON.stringify({
@@ -185,8 +160,10 @@ model = "company-chat-prod"
           default: "qwen",
           providers: {
             qwen: {
-              type: "qwen",
-              apiKey: "qwen-key"
+              type: "openai-compatible",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
             }
           }
         },
@@ -208,10 +185,10 @@ model = "company-chat-prod"
       port: 3766
     });
     expect(config.agent.providers.qwen).toMatchObject({
-      type: "qwen",
+      type: "openai-compatible",
       apiKey: "qwen-key",
-      model: "qwen-plus",
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      model: "qwen-plus"
     });
     expect(config.channels["qq-official"]).toMatchObject({
       adapter: "qq-official",
@@ -271,8 +248,10 @@ enableDurableMemory = true
           default: "missing",
           providers: {
             qwen: {
-              type: "qwen",
-              apiKey: "qwen-key"
+              type: "openai-compatible",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
             }
           }
         }
@@ -280,7 +259,7 @@ enableDurableMemory = true
     ).toThrow(/Default agent provider "missing" is not defined/);
   });
 
-  it("requires explicit endpoint and model when openai-compatible provider base is omitted", () => {
+  it("requires explicit endpoint and model for openai-compatible providers", () => {
     expect(() =>
       parseConfigObject({
         agent: {
@@ -293,7 +272,25 @@ enableDurableMemory = true
           }
         }
       })
-    ).toThrow(/baseUrl is required when openai-compatible provider base is not set/);
+    ).toThrow(/baseUrl: Required/);
+  });
+
+  it("rejects legacy qwen provider types", () => {
+    expect(() =>
+      parseConfigObject({
+        agent: {
+          default: "qwen",
+          providers: {
+            qwen: {
+              type: "qwen",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
+            }
+          }
+        }
+      })
+    ).toThrow(/Invalid discriminator value/);
   });
 
   it("rejects enabled onebot channels in hosted mode", () => {

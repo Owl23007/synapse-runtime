@@ -35,23 +35,7 @@ baseUrl = "https://api.deepseek.com"
 model = "deepseek-chat"
 ```
 
-已内置的 `base` preset：
-
-| base          | 默认 baseUrl                                              | 默认 model                 |
-| ------------- | --------------------------------------------------------- | -------------------------- |
-| `openai`      | `https://api.openai.com/v1`                               | `gpt-4.1-mini`             |
-| `qwen`        | `https://dashscope.aliyuncs.com/compatible-mode/v1`       | `qwen-plus`                |
-| `deepseek`    | `https://api.deepseek.com`                                | `deepseek-chat`            |
-| `moonshot`    | `https://api.moonshot.cn/v1`                              | `moonshot-v1-8k`           |
-| `zhipu`       | `https://open.bigmodel.cn/api/paas/v4`                    | `glm-4-flash`              |
-| `mistral`     | `https://api.mistral.ai/v1`                               | `mistral-small-latest`     |
-| `gemini`      | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.0-flash`         |
-| `groq`        | `https://api.groq.com/openai/v1`                          | `llama-3.1-8b-instant`     |
-| `xai`         | `https://api.x.ai/v1`                                     | `grok-2-latest`            |
-| `openrouter`  | `https://openrouter.ai/api/v1`                            | `openai/gpt-4o-mini`       |
-| `siliconflow` | `https://api.siliconflow.cn/v1`                           | `Qwen/Qwen2.5-7B-Instruct` |
-
-`model` 不做枚举校验。新增模型时只改配置，不需要改 schema。推荐显式配置 `baseUrl` 和 `model`，`base` 只作为内置厂商的可选快捷预设。私有网关或未内置厂商可以直接声明自己的 `baseUrl`：
+配置层不内置厂商 endpoint 或默认模型。`model` 不做枚举校验，新增模型或厂商时只改配置，不需要改 schema。每个 OpenAI-compatible provider 都显式声明自己的 `baseUrl` 和 `model`：
 
 ```toml
 [agent.providers.private-gateway]

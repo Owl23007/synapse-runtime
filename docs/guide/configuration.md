@@ -58,7 +58,7 @@ default = "qwen"
 systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."
 
 [agent.providers.qwen]
-type = "qwen"
+type = "openai-compatible"
 apiKey = "${QWEN_API_KEY}"
 baseUrl = "${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}"
 model = "qwen-plus"
@@ -68,10 +68,9 @@ temperature = 0.3
 支持的 provider 类型：
 
 - `echo`
-- `qwen`
 - `openai-compatible`
 
-OpenAI-compatible provider 可以使用已知 `base` preset，也可以显式配置 `baseUrl` 和 `model`。
+OpenAI-compatible provider 必须显式配置 `baseUrl` 和 `model`；provider id 只用于本地引用，不决定厂商。
 
 ## Conversation
 
