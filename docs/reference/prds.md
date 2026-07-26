@@ -7,11 +7,12 @@
 - [架构说明](../architecture.md)
 - [上下文闭环 PRD](../loop-memory-prd.md)
 - [Provider Runtime 对比](../provider-runtime-comparison.md)
-- [CLI Admin Console PRD](../synapse-runtime-cli-admin-console-prd.md)
+- [CLI Admin Console PRD](../cli-admin-console-prd.md)
 
 ## 通道
 
-- [QQ Channel PRD](../synapse-runtime-qq-channel-prd.md)
+- [QQ Channel PRD](../qq-channel-prd.md)
+- [Channel 输入输出调研与协议建模 PRD](../channel-input-output-protocol-prd.md)
 - [NapCat Docker 指南](../napcat-docker.md)
 
 ## 推荐阅读顺序

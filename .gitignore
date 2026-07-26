@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .synapse/
+.research/
 .pnpm*/
 docs/.vitepress/.temp/
 docs/.vitepress/cache/
