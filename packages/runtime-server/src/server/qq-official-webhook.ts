@@ -22,10 +22,11 @@ export interface HandleQqOfficialWebhookOptions {
   readonly response: NovaResponse;
   readonly awaitDispatch: boolean;
   readonly logger: RuntimeServerLogger;
+  readonly trackDispatch: (dispatch: Promise<void>) => void;
 }
 
 export async function handleQqOfficialWebhook(options: HandleQqOfficialWebhookOptions): Promise<void> {
-  const { route, request, response, awaitDispatch, logger } = options;
+  const { route, request, response, awaitDispatch, logger, trackDispatch } = options;
   const payload = readJsonBody(request);
   logger.info("Received QQ official webhook.", {
     route: route.path,
@@ -82,7 +83,7 @@ export async function handleQqOfficialWebhook(options: HandleQqOfficialWebhookOp
     return;
   }
 
-  void (async () => {
+  const backgroundDispatch = (async () => {
     try {
       const events = await dispatch;
       logger.info("QQ official webhook dispatch completed.", {
@@ -104,6 +105,7 @@ export async function handleQqOfficialWebhook(options: HandleQqOfficialWebhookOp
       });
     }
   })();
+  trackDispatch(backgroundDispatch);
   logger.info("Acked QQ official webhook before async dispatch completed.", {
     route: route.path,
     payload: summarizeQqOfficialPayload(payload)

@@ -63,6 +63,8 @@ export interface ConversationTrigger {
 
 export interface AgentRequest {
   readonly sessionId: string;
+  readonly lineId?: string;
+  readonly branchId?: string;
   readonly userId: string;
   readonly input: SynapseMessage;
   readonly source: ChannelSource;

@@ -21,7 +21,6 @@ export function buildSourceEventId(event: SynapseChannelEvent, provider: string)
     return eventId;
   }
 
-  const roundedReceivedAt = roundedIsoTimestamp(event.receivedAt);
   const text = event.message === undefined ? "" : getTextContent(event.message);
   const digest = createHash("sha256")
     .update(
@@ -32,8 +31,12 @@ export function buildSourceEventId(event: SynapseChannelEvent, provider: string)
         conversationTypeFromEvent(event),
         event.conversation.id,
         event.sender.id,
+        event.eventType,
         text,
-        roundedReceivedAt
+        event.receivedAt,
+        jsonFingerprint(event.message?.segments),
+        jsonFingerprint(event.triggerHint),
+        jsonFingerprint(event.raw)
       ].join("\u001f")
     )
     .digest("hex")
@@ -55,18 +58,10 @@ export function eventProcessKey(input: {
   readonly platform: string;
   readonly provider: string;
   readonly channelId: string;
-  readonly conversationType: ConversationType;
-  readonly conversationId: string;
   readonly sourceEventId: string;
+  readonly sourceEventType: string;
 }): string {
-  return [
-    input.platform,
-    input.provider,
-    input.channelId,
-    input.conversationType,
-    input.conversationId,
-    input.sourceEventId
-  ].join(":");
+  return [input.platform, input.provider, input.channelId, input.sourceEventId, input.sourceEventType].join("\u001f");
 }
 
 function normalizeStableId(id: string | undefined): string | undefined {
@@ -78,8 +73,18 @@ function looksGeneratedFromWallClock(id: string): boolean {
   return /:\d{13}$/.test(id);
 }
 
-function roundedIsoTimestamp(timestamp: string): string {
-  const parsed = Date.parse(timestamp);
-  const ms = Number.isNaN(parsed) ? Date.now() : parsed;
-  return new Date(Math.floor(ms / 60_000) * 60_000).toISOString();
+function jsonFingerprint(value: unknown): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  try {
+    return (
+      JSON.stringify(value, (_key, item: unknown) =>
+        typeof item === "bigint" ? { $bigint: item.toString() } : item
+      ) ?? ""
+    );
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
 }

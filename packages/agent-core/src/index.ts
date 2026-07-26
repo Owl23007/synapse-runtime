@@ -1,6 +1,6 @@
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import type { SynapseMessage } from "@synapse/runtime-protocol";
-import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
+import type { ScopedToolRuntimeView } from "@synapse/runtime-tool-runtime";
 
 export type AgentRunStatus = "queued" | "running" | "waiting_confirm" | "succeeded" | "failed";
 
@@ -25,7 +25,28 @@ export interface AgentRun {
 }
 
 export interface AgentRuntimeContext {
-  readonly tools: ToolRuntime;
+  readonly tools: ScopedToolRuntimeView;
+  readonly conversation: AgentConversationRuntime;
+}
+
+export interface AgentBranchCreateInput {
+  readonly title: string;
+  readonly goal: string;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+  readonly contextSnapshot?: unknown;
+}
+
+export interface AgentBranchRef {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly parentMainlineId: string;
+  readonly sourceEventId: string;
+  readonly status: string;
+}
+
+export interface AgentConversationRuntime {
+  createBranch(input: AgentBranchCreateInput): Promise<AgentBranchRef>;
 }
 
 export interface Agent {

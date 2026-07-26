@@ -17,7 +17,7 @@ export interface RuntimeFactoryOptions {
 
 export interface RuntimeFactoryResult {
   readonly runtime: RuntimeCore;
-  readonly contextStore?: SqliteRuntimeContextStore;
+  readonly contextStore: SqliteRuntimeContextStore;
 }
 
 export function createRuntimeFromConfig(options: RuntimeFactoryOptions): RuntimeFactoryResult {
@@ -26,14 +26,12 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   });
   const conversation = new ConversationRouter(options.config.conversation);
   const tools = new ToolRuntime(new StaticPermissionEngine(options.config.permissions));
-  const contextStore = options.config.context.enabled
-    ? new SqliteRuntimeContextStore({
-        databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
-      })
-    : undefined;
+  const contextStore = new SqliteRuntimeContextStore({
+    databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
+  });
 
-  return {
-    runtime: new RuntimeCore({
+  try {
+    const runtime = new RuntimeCore({
       channels: options.channels,
       conversation,
       agent,
@@ -53,16 +51,16 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         groupMaxMessages: options.config.context.groupMaxMessages,
         channelMaxMessages: options.config.context.channelMaxMessages,
         providerByChannelId: providerByChannelId(options.config.channels),
-        ...(contextStore === undefined
-          ? {}
-          : {
-              transcriptStore: contextStore,
-              eventProcessStore: contextStore
-            })
+        conversationStore: contextStore,
+        eventProcessStore: contextStore,
+        ...(options.config.context.enabled ? { transcriptStore: contextStore } : {})
       }
-    }),
-    ...(contextStore === undefined ? {} : { contextStore })
-  };
+    });
+    return { runtime, contextStore };
+  } catch (error) {
+    contextStore.close();
+    throw error;
+  }
 }
 
 function providerByChannelId(channels: RuntimeConfig["channels"]): Readonly<Record<string, string>> {

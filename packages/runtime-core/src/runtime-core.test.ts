@@ -24,6 +24,7 @@ import {
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import {
   buildSourceEventId,
+  InMemoryConversationStore,
   InMemoryEventProcessStore,
   InMemoryTranscriptStore,
   RuntimeCore,
@@ -31,6 +32,7 @@ import {
   WorkspaceResolverLite,
   type EventProcessBeginInput,
   type EventProcessState,
+  type AcceptNormalizedEventInput,
   type IdentityResolver,
   type TranscriptAppendInput
 } from "./index.js";
@@ -103,6 +105,21 @@ class RecordingTranscriptStore extends InMemoryTranscriptStore {
   }
 }
 
+class RecordingConversationStore extends InMemoryConversationStore {
+  readonly accepted: AcceptNormalizedEventInput[] = [];
+
+  override async acceptNormalizedEvent(input: AcceptNormalizedEventInput) {
+    this.accepted.push(input);
+    return super.acceptNormalizedEvent(input);
+  }
+}
+
+class FailingConversationStore extends InMemoryConversationStore {
+  override async acceptNormalizedEvent(): ReturnType<InMemoryConversationStore["acceptNormalizedEvent"]> {
+    throw new Error("conversation persistence unavailable");
+  }
+}
+
 class RecordingEventProcessStore extends InMemoryEventProcessStore {
   readonly begins: EventProcessBeginInput[] = [];
   readonly updates: Array<{ id: string; status: EventProcessState["status"] | undefined }> = [];
@@ -169,8 +186,19 @@ describe("RuntimeCore", () => {
         channelId: "qq-local",
         conversationType: "private",
         conversationId: "user-1",
-        sourceEventId: "event-1"
+        sourceEventId: "event-1",
+        sourceEventType: "message.created"
       });
+      const [firstClaim, duplicateClaim] = await Promise.all([
+        store.claim(state.id, {
+          expectedStatus: state.status,
+          expectedUpdatedAt: state.updatedAt
+        }),
+        store.claim(state.id, {
+          expectedStatus: state.status,
+          expectedUpdatedAt: state.updatedAt
+        })
+      ]);
       const updated = await store.update(state.id, {
         status: "agent_completed",
         incomingMessageId: first.id,
@@ -186,14 +214,27 @@ describe("RuntimeCore", () => {
         channelId: "qq-local",
         conversationType: "private",
         conversationId: "user-1",
-        sourceEventId: "event-1"
+        sourceEventId: "event-1",
+        sourceEventType: "message.created"
+      });
+      const distinctEventType = await reopened.begin({
+        platform: "qq",
+        provider: "napcat",
+        channelId: "qq-local",
+        conversationType: "private",
+        conversationId: "user-1",
+        sourceEventId: "event-1",
+        sourceEventType: "message.deleted"
       });
 
       expect(duplicate).toEqual(first);
+      expect(Number(firstClaim.claimed) + Number(duplicateClaim.claimed)).toBe(1);
       expect(recent.map((message) => message.text)).toEqual(["hello", "reply"]);
       expect(updated.status).toBe("agent_completed");
       expect(recovered.status).toBe("agent_completed");
       expect(recovered.agentOutputText).toBe("reply");
+      expect(distinctEventType).toMatchObject({ status: "received" });
+      expect(distinctEventType.id).not.toBe(recovered.id);
       reopened.close();
 
       const db = new Database(databasePath);
@@ -468,6 +509,8 @@ describe("RuntimeCore", () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-core-restart-"));
     const databasePath = join(dir, "runtime-context.sqlite");
     let runCount = 0;
+    let firstStore: SqliteRuntimeContextStore | undefined;
+    let secondStore: SqliteRuntimeContextStore | undefined;
     const agent: Agent = {
       id: "sqlite-dedupe-agent",
       async run(request): Promise<AgentRun> {
@@ -486,7 +529,7 @@ describe("RuntimeCore", () => {
 
     try {
       const firstChannel = new MockChannelAdapter();
-      const firstStore = new SqliteRuntimeContextStore({ databasePath });
+      firstStore = new SqliteRuntimeContextStore({ databasePath });
       const firstRuntime = new RuntimeCore({
         channels: new InMemoryChannelRegistry(),
         conversation: new ConversationRouter({
@@ -506,9 +549,10 @@ describe("RuntimeCore", () => {
       firstRuntime.attachChannel(firstChannel);
       await firstChannel.emit(event);
       firstStore.close();
+      firstStore = undefined;
 
       const secondChannel = new MockChannelAdapter();
-      const secondStore = new SqliteRuntimeContextStore({ databasePath });
+      secondStore = new SqliteRuntimeContextStore({ databasePath });
       const secondRuntime = new RuntimeCore({
         channels: new InMemoryChannelRegistry(),
         conversation: new ConversationRouter({
@@ -531,8 +575,9 @@ describe("RuntimeCore", () => {
       expect(firstChannel.sent).toHaveLength(1);
       expect(secondChannel.sent).toHaveLength(0);
       expect(secondRuntime.traces).toEqual([{ eventId: "event-1", status: "ignored", reason: "duplicate_completed" }]);
-      secondStore.close();
     } finally {
+      secondStore?.close();
+      firstStore?.close();
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -575,13 +620,16 @@ describe("RuntimeCore", () => {
         channelId: "qq-local",
         conversationType: "private",
         conversationId: "user-1",
-        sourceEventId: "event-1"
+        sourceEventId: "event-1",
+        sourceEventType: "message.created"
       }
     ]);
     expect(eventProcessStore.updates.map((update) => update.status)).toEqual([
+      undefined,
       "processing",
       "agent_completed",
       undefined,
+      "processing",
       "send_succeeded",
       "completed"
     ]);
@@ -596,12 +644,18 @@ describe("RuntimeCore", () => {
       ...first,
       id: "qq-local:message:private:1700000000001"
     };
+    const distinctMessage = {
+      ...duplicate,
+      id: "qq-local:message:private:1700000000002",
+      receivedAt: new Date(1_000).toISOString()
+    };
 
     expect(buildSourceEventId(first, "napcat")).toEqual(buildSourceEventId(duplicate, "napcat"));
     expect(buildSourceEventId(first, "napcat")).toMatch(/^best-effort:/);
+    expect(buildSourceEventId(first, "napcat")).not.toEqual(buildSourceEventId(distinctMessage, "napcat"));
   });
 
-  it("deduplicates generated wall-clock source event ids with best-effort hashing", async () => {
+  it("deduplicates exact generated-id replays without collapsing later same-text messages", async () => {
     const channel = new MockChannelAdapter();
     let runCount = 0;
     const agent: Agent = {
@@ -637,18 +691,25 @@ describe("RuntimeCore", () => {
       ...first,
       id: "qq-local:message:private:1700000000001"
     };
+    const distinctMessage = {
+      ...duplicate,
+      id: "qq-local:message:private:1700000000002",
+      receivedAt: new Date(1_000).toISOString()
+    };
 
     runtime.attachChannel(channel);
     await channel.emit(first);
     await channel.emit(duplicate);
+    await channel.emit(distinctMessage);
 
-    expect(runCount).toBe(1);
-    expect(channel.sent).toHaveLength(1);
+    expect(runCount).toBe(2);
+    expect(channel.sent).toHaveLength(2);
   });
 
-  it("does not write transcript for untriggered group messages", async () => {
+  it("persists and projects untriggered group messages before routing", async () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new RecordingTranscriptStore();
+    const conversationStore = new RecordingConversationStore();
     const agent: Agent = {
       id: "unused-agent",
       async run(request): Promise<AgentRun> {
@@ -671,17 +732,70 @@ describe("RuntimeCore", () => {
       }),
       agent,
       tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" })),
-      context: { transcriptStore }
+      context: { transcriptStore, conversationStore }
     });
 
     runtime.attachChannel(channel);
     await channel.emit(groupMessage("event-1", "ordinary group message"));
 
-    expect(transcriptStore.appends).toEqual([]);
+    expect(transcriptStore.appends).toEqual([
+      expect.objectContaining({
+        role: "user",
+        sourceEventId: "event-1",
+        text: "ordinary group message"
+      })
+    ]);
+    expect(conversationStore.accepted).toHaveLength(1);
+    await expect(conversationStore.listNormalizedEvents("qq:napcat:qq-local:group:group-1")).resolves.toMatchObject([
+      {
+        sourceEventId: "event-1",
+        sourceEventType: "message.created",
+        text: "ordinary group message"
+      }
+    ]);
     expect(channel.sent).toEqual([]);
   });
 
-  it("does not trigger or persist group messages that mention someone else or everyone", async () => {
+  it("includes an earlier untriggered mainline message when a later group message triggers the agent", async () => {
+    const channel = new MockChannelAdapter();
+    const transcriptStore = new InMemoryTranscriptStore();
+    let observedHistory: readonly { readonly content: string }[] = [];
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "keyword", keywords: ["Synapse"] },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "group-history-agent",
+        async run(request): Promise<AgentRun> {
+          observedHistory = request.promptContext?.messages ?? [];
+          return {
+            id: "group-history-run",
+            agentId: "group-history-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("ok")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_group_message": "allow" })),
+      context: { transcriptStore }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(groupMessage("history-event-1", "ordinary group context"));
+    await channel.emit(groupMessage("history-event-2", "Synapse, respond now"));
+
+    expect(observedHistory.map((message) => message.content)).toEqual([
+      expect.stringContaining("ordinary group context")
+    ]);
+    expect(channel.sent).toHaveLength(1);
+  });
+
+  it("does not trigger group messages that mention someone else or everyone but preserves their history", async () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new RecordingTranscriptStore();
     let runCount = 0;
@@ -725,7 +839,11 @@ describe("RuntimeCore", () => {
     );
 
     expect(runCount).toBe(0);
-    expect(transcriptStore.appends).toEqual([]);
+    expect(transcriptStore.appends).toHaveLength(2);
+    expect(transcriptStore.appends).toEqual([
+      expect.objectContaining({ role: "user", sourceEventId: "event-other" }),
+      expect.objectContaining({ role: "user", sourceEventId: "event-all" })
+    ]);
     expect(runtime.traces).toEqual([
       { eventId: "event-other", status: "ignored", reason: "mentioned_other_user" },
       { eventId: "event-all", status: "ignored", reason: "mention_all" }
@@ -775,9 +893,9 @@ describe("RuntimeCore", () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new RecordingTranscriptStore();
     await transcriptStore.append({
-      sessionId: "qq:unknown:qq-local:group:group-1",
+      sessionId: "qq:napcat:qq-local:group:group-1",
       platform: "qq",
-      provider: "unknown",
+      provider: "napcat",
       channelId: "qq-local",
       conversationType: "group",
       conversationId: "group-1",
@@ -957,7 +1075,7 @@ describe("RuntimeCore", () => {
     expect(sentText(channel.sent[0]?.message)).toContain("workspaceId=group:qq:qq-local:group-1");
   });
 
-  it("continues without idempotency recovery when event process begin fails", async () => {
+  it("does not start the agent when idempotency recovery persistence fails", async () => {
     const channel = new MockChannelAdapter();
     let runCount = 0;
     const agent: Agent = {
@@ -989,8 +1107,51 @@ describe("RuntimeCore", () => {
     runtime.attachChannel(channel);
     await channel.emit(privateMessage("event-1", "hello"));
 
-    expect(runCount).toBe(1);
-    expect(channel.sent).toHaveLength(1);
+    expect(runCount).toBe(0);
+    expect(channel.sent).toHaveLength(0);
+    expect(runtime.traces).toEqual([{ eventId: "event-1", status: "failed", reason: "idempotency unavailable" }]);
+  });
+
+  it("does not route, run, or send when canonical event persistence fails", async () => {
+    const channel = new MockChannelAdapter();
+    let runCount = 0;
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "always" },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "must-not-run",
+        async run(request): Promise<AgentRun> {
+          runCount += 1;
+          return {
+            id: "run-1",
+            agentId: "must-not-run",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("unexpected")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" })),
+      context: { conversationStore: new FailingConversationStore() }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(privateMessage("event-1", "hello"));
+
+    expect(runCount).toBe(0);
+    expect(channel.sent).toHaveLength(0);
+    expect(runtime.traces).toEqual([
+      {
+        eventId: "event-1",
+        status: "failed",
+        reason: "persistence_failed: conversation persistence unavailable"
+      }
+    ]);
   });
 
   it("resolves an existing workspace conversation binding from SQLite", async () => {

@@ -1,5 +1,11 @@
 import { eventProcessKey } from "../context/session.js";
-import type { EventProcessBeginInput, EventProcessState, EventProcessStore } from "./types.js";
+import type {
+  EventProcessBeginInput,
+  EventProcessClaim,
+  EventProcessClaimInput,
+  EventProcessState,
+  EventProcessStore
+} from "./types.js";
 
 export class InMemoryEventProcessStore implements EventProcessStore {
   readonly #states = new Map<string, EventProcessState>();
@@ -15,6 +21,25 @@ export class InMemoryEventProcessStore implements EventProcessStore {
     const state: EventProcessState = { id, status: "received", updatedAt: new Date().toISOString() };
     this.#states.set(id, state);
     return state;
+  }
+
+  async claim(id: string, input: EventProcessClaimInput): Promise<EventProcessClaim> {
+    const existing = this.#states.get(id);
+    if (existing === undefined) {
+      throw new Error(`Event process state "${id}" does not exist.`);
+    }
+
+    if (existing.status !== input.expectedStatus || existing.updatedAt !== input.expectedUpdatedAt) {
+      return { claimed: false, state: existing };
+    }
+
+    const state: EventProcessState = {
+      ...existing,
+      status: "processing",
+      updatedAt: new Date().toISOString()
+    };
+    this.#states.set(id, state);
+    return { claimed: true, state };
   }
 
   async update(id: string, patch: Partial<Omit<EventProcessState, "id" | "updatedAt">>): Promise<EventProcessState> {

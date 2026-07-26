@@ -6,7 +6,9 @@ describe("runtime-core export surface", () => {
 
     expect(Object.keys(runtimeCore).toSorted()).toEqual([
       "ContextComposer",
+      "ConversationStoreError",
       "IdentityResolverLite",
+      "InMemoryConversationStore",
       "InMemoryEventProcessStore",
       "InMemoryTranscriptStore",
       "OutputPolicyResolver",

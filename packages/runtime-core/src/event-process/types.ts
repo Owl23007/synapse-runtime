@@ -15,6 +15,7 @@ export interface EventProcessState {
   readonly incomingMessageId?: string;
   readonly assistantMessageId?: string;
   readonly agentOutputText?: string;
+  readonly agentOutputJson?: string;
   readonly sendResultJson?: string;
   readonly errorJson?: string;
 }
@@ -26,9 +27,21 @@ export interface EventProcessBeginInput {
   readonly conversationType: ConversationType;
   readonly conversationId: string;
   readonly sourceEventId: string;
+  readonly sourceEventType: string;
+}
+
+export interface EventProcessClaimInput {
+  readonly expectedStatus: EventProcessStatus;
+  readonly expectedUpdatedAt: string;
+}
+
+export interface EventProcessClaim {
+  readonly claimed: boolean;
+  readonly state: EventProcessState;
 }
 
 export interface EventProcessStore {
   begin(input: EventProcessBeginInput): Promise<EventProcessState>;
+  claim?(id: string, input: EventProcessClaimInput): Promise<EventProcessClaim>;
   update(id: string, patch: Partial<Omit<EventProcessState, "id" | "updatedAt">>): Promise<EventProcessState>;
 }

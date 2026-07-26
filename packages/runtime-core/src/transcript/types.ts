@@ -1,8 +1,12 @@
 import type { ConversationType } from "../context/types.js";
+import type { SynapseMessage } from "@synapse/runtime-protocol";
 
 export interface TranscriptMessage {
   readonly id: string;
   readonly sessionId: string;
+  readonly lineId?: string | undefined;
+  readonly normalizedEventId?: string | undefined;
+  readonly lineEventId?: string | undefined;
   readonly platform: string;
   readonly provider: string;
   readonly channelId: string;
@@ -12,6 +16,10 @@ export interface TranscriptMessage {
   readonly role: "user" | "assistant" | "system";
   readonly actorId?: string;
   readonly text: string;
+  readonly message?: SynapseMessage | undefined;
+  readonly rawPayload?: unknown;
+  readonly eventType?: string | undefined;
+  readonly idempotencyKey?: string | undefined;
   readonly createdAt: string;
   readonly externalMessageId?: string;
   readonly deletedAt?: string;
@@ -19,6 +27,9 @@ export interface TranscriptMessage {
 
 export interface TranscriptAppendInput {
   readonly sessionId: string;
+  readonly lineId?: string | undefined;
+  readonly normalizedEventId?: string | undefined;
+  readonly lineEventId?: string | undefined;
   readonly platform: string;
   readonly provider: string;
   readonly channelId: string;
@@ -28,14 +39,23 @@ export interface TranscriptAppendInput {
   readonly role: "user" | "assistant" | "system";
   readonly actorId?: string;
   readonly text: string;
+  readonly message?: SynapseMessage | undefined;
+  readonly rawPayload?: unknown;
+  readonly eventType?: string | undefined;
+  readonly idempotencyKey?: string | undefined;
   readonly createdAt?: string;
   readonly externalMessageId?: string;
 }
 
 export interface TranscriptStore {
   append(input: TranscriptAppendInput): Promise<TranscriptMessage>;
-  listRecent(sessionId: string, options?: { readonly limit?: number }): Promise<readonly TranscriptMessage[]>;
+  listRecent(sessionId: string, options?: TranscriptListRecentOptions): Promise<readonly TranscriptMessage[]>;
   findByExternalMessageId?(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined>;
+}
+
+export interface TranscriptListRecentOptions {
+  readonly limit?: number;
+  readonly lineId?: string;
 }
 
 export interface TranscriptExternalMessageLookup {

@@ -38,7 +38,7 @@ export class RuntimeChannelManager {
   }
 
   async connectAll(): Promise<void> {
-    await Promise.all(
+    const results = await Promise.allSettled(
       this.#channels.list().map(async (channel) => {
         this.#logger.info("Connecting channel.", {
           channelId: channel.id,
@@ -52,6 +52,7 @@ export class RuntimeChannelManager {
         });
       })
     );
+    throwIfChannelOperationsFailed(results, "connect");
   }
 
   async disconnectAll(): Promise<void> {
@@ -61,7 +62,8 @@ export class RuntimeChannelManager {
       this.#channels.unregister(channel.id);
     }
 
-    await Promise.all(channels.map((channel) => channel.disconnect()));
+    const results = await Promise.allSettled(channels.map((channel) => channel.disconnect()));
+    throwIfChannelOperationsFailed(results, "disconnect");
   }
 
   attachEnabledChannels(config: RuntimeConfig): void {
@@ -154,6 +156,16 @@ export class RuntimeChannelManager {
       channelId,
       adapter: channelConfig.adapter
     });
+  }
+}
+
+function throwIfChannelOperationsFailed(
+  results: readonly PromiseSettledResult<unknown>[],
+  operation: "connect" | "disconnect"
+): void {
+  const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+  if (errors.length > 0) {
+    throw new AggregateError(errors, `One or more channels failed to ${operation}.`);
   }
 }
 

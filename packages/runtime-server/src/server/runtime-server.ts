@@ -28,6 +28,10 @@ export class RuntimeServer {
   readonly #channelManager: RuntimeChannelManager;
   #runtime: RuntimeCore;
   #contextStore: SqliteRuntimeContextStore | undefined;
+  #lifecycleTail: Promise<void> = Promise.resolve();
+  #startPromise: Promise<RuntimeServerStartResult> | undefined;
+  #stopPromise: Promise<void> | undefined;
+  #stopped = false;
   readonly #startedAt = new Date().toISOString();
 
   constructor(options: RuntimeServerOptions) {
@@ -72,48 +76,78 @@ export class RuntimeServer {
     this.#configureAdmin();
   }
 
-  async start(): Promise<RuntimeServerStartResult> {
-    validateAdminSecurity(this.#config.admin);
-    this.#logger.info("Starting Synapse Runtime server.", {
-      runtimeMode: this.#config.runtime.mode,
-      logLevel: this.#config.runtime.logLevel,
-      host: this.#config.server.host,
-      port: this.#config.server.port,
-      adminEnabled: this.#config.admin.enabled,
-      adminHost: this.#config.admin.enabled ? this.#config.admin.host : undefined,
-      adminPort: this.#config.admin.enabled ? this.#config.admin.port : undefined,
-      awaitDispatch: this.#awaitDispatch,
-      enabledChannels: Object.entries(this.#config.channels)
-        .filter(([, channel]) => channel.enabled)
-        .map(([channelId, channel]) => ({
-          channelId,
-          adapter: channel.adapter,
-          mode: channel.adapter === "qq-official" ? channel.mode : undefined,
-          webhookPath: channel.adapter === "qq-official" ? channel.webhookPath : undefined
-        }))
-    });
-    this.#channelManager.attachEnabledChannels(this.#config);
-    await this.#channelManager.connectAll();
-
-    await this.#app.listen(this.#config.server.port, this.#config.server.host);
-    const adminResult = await startAdminApp({
-      app: this.#adminApp,
-      config: this.#config,
-      logger: this.#logger
-    });
-    const result = serverStartResult({ app: this.#app, config: this.#config, admin: adminResult });
-    this.#logger.info("Synapse Runtime server started.", { ...result });
-    return result;
+  start(): Promise<RuntimeServerStartResult> {
+    if (this.#stopPromise !== undefined) {
+      return Promise.reject(new Error("Runtime server is shutting down and cannot be started."));
+    }
+    this.#startPromise ??= this.#enqueueLifecycle(() => this.#performStart());
+    return this.#startPromise;
   }
 
-  async stop(): Promise<void> {
-    this.#logger.info("Stopping Synapse Runtime server.");
-    await this.#app.close();
-    if (this.#config.admin.enabled) {
-      await this.#adminApp.close();
+  async #performStart(): Promise<RuntimeServerStartResult> {
+    if (this.#stopped) {
+      throw new Error("Runtime server has already stopped and cannot be started.");
     }
-    await this.#channelManager.disconnectAll();
-    this.#closeContextStore();
+
+    try {
+      validateAdminSecurity(this.#config.admin);
+      this.#logger.info("Starting Synapse Runtime server.", {
+        runtimeMode: this.#config.runtime.mode,
+        logLevel: this.#config.runtime.logLevel,
+        host: this.#config.server.host,
+        port: this.#config.server.port,
+        adminEnabled: this.#config.admin.enabled,
+        adminHost: this.#config.admin.enabled ? this.#config.admin.host : undefined,
+        adminPort: this.#config.admin.enabled ? this.#config.admin.port : undefined,
+        awaitDispatch: this.#awaitDispatch,
+        enabledChannels: Object.entries(this.#config.channels)
+          .filter(([, channel]) => channel.enabled)
+          .map(([channelId, channel]) => ({
+            channelId,
+            adapter: channel.adapter,
+            mode: channel.adapter === "qq-official" ? channel.mode : undefined,
+            webhookPath: channel.adapter === "qq-official" ? channel.webhookPath : undefined
+          }))
+      });
+      this.#channelManager.attachEnabledChannels(this.#config);
+      await this.#channelManager.connectAll();
+
+      await this.#app.listen(this.#config.server.port, this.#config.server.host);
+      const adminResult = await startAdminApp({
+        app: this.#adminApp,
+        config: this.#config,
+        logger: this.#logger
+      });
+      const result = serverStartResult({ app: this.#app, config: this.#config, admin: adminResult });
+      this.#logger.info("Synapse Runtime server started.", { ...result });
+      return result;
+    } catch (error) {
+      await this.#performStop();
+      throw error;
+    }
+  }
+
+  stop(): Promise<void> {
+    this.#stopPromise ??= this.#enqueueLifecycle(() => this.#performStop());
+    return this.#stopPromise;
+  }
+
+  async #performStop(): Promise<void> {
+    if (this.#stopped) {
+      return;
+    }
+    this.#stopped = true;
+    this.#logger.info("Stopping Synapse Runtime server.");
+    this.#webhookRegistry.pause();
+    await this.#cleanupStep("close gateway listener", () => this.#app.close());
+    await this.#cleanupStep("close admin listener", () => this.#adminApp.close());
+    this.#webhookRegistry.clear();
+    await this.#cleanupStep("drain webhook dispatch", () => this.#webhookRegistry.drain());
+    await this.#cleanupStep("drain runtime operations", () => this.#runtime.dispose());
+    await this.#cleanupStep("disconnect channels", () => this.#channelManager.disconnectAll());
+    await this.#cleanupStep("close runtime context store", async () => {
+      this.#closeContextStore();
+    });
     this.#logger.info("Synapse Runtime server stopped.");
   }
 
@@ -141,43 +175,82 @@ export class RuntimeServer {
     });
   }
 
-  async #reloadConfig(): Promise<void> {
-    if (this.#configPath === undefined) {
-      throw new Error("Runtime server was not started from a config file.");
-    }
+  #reloadConfig(): Promise<void> {
+    return this.#enqueueLifecycle(async () => {
+      if (this.#configPath === undefined) {
+        throw new Error("Runtime server was not started from a config file.");
+      }
+      if (this.#stopPromise !== undefined) {
+        throw new Error("Runtime server is shutting down and cannot reload its configuration.");
+      }
 
-    const nextConfig = await loadConfigFile(this.#configPath);
-    validateAdminSecurity(nextConfig.admin);
-    await this.#replaceRuntimeConfig(nextConfig);
-    this.#logger.info("Admin reloaded runtime config.", {
-      configPath: this.#configPath,
-      enabledChannels: Object.entries(nextConfig.channels)
-        .filter(([, channel]) => channel.enabled)
-        .map(([channelId, channel]) => ({ channelId, adapter: channel.adapter }))
+      const nextConfig = await loadConfigFile(this.#configPath);
+      validateAdminSecurity(nextConfig.admin);
+      await this.#replaceRuntimeConfig(nextConfig);
+      this.#logger.info("Admin reloaded runtime config.", {
+        configPath: this.#configPath,
+        enabledChannels: Object.entries(nextConfig.channels)
+          .filter(([, channel]) => channel.enabled)
+          .map(([channelId, channel]) => ({ channelId, adapter: channel.adapter }))
+      });
     });
   }
 
   async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
+    this.#webhookRegistry.pause();
+    this.#webhookRegistry.clear();
+    await this.#webhookRegistry.drain();
+    await this.#runtime.dispose();
     await this.#channelManager.disconnectAll();
     this.#closeContextStore();
     this.#config = nextConfig;
-    const runtimeResult = createRuntimeFromConfig({
-      config: nextConfig,
-      channels: this.#channels,
-      logger: this.#logger,
-      ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
-    });
-    this.#runtime = runtimeResult.runtime;
-    this.#contextStore = runtimeResult.contextStore;
-    this.#webhookRegistry.clear();
-    this.#channelManager.attachEnabledChannels(this.#config);
-
-    await Promise.all(this.#channels.list().map((channel) => channel.connect()));
+    try {
+      const runtimeResult = createRuntimeFromConfig({
+        config: nextConfig,
+        channels: this.#channels,
+        logger: this.#logger,
+        ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
+      });
+      this.#runtime = runtimeResult.runtime;
+      this.#contextStore = runtimeResult.contextStore;
+      this.#channelManager.attachEnabledChannels(this.#config);
+      await this.#channelManager.connectAll();
+      this.#webhookRegistry.resume();
+    } catch (error) {
+      await this.#cleanupStep("dispose failed replacement runtime", () => this.#runtime.dispose());
+      await this.#cleanupStep("disconnect failed replacement channels", () => this.#channelManager.disconnectAll());
+      this.#closeContextStore();
+      throw error;
+    }
   }
 
   #closeContextStore(): void {
-    this.#contextStore?.close();
+    const contextStore = this.#contextStore;
     this.#contextStore = undefined;
+    contextStore?.close();
+  }
+
+  async #cleanupStep(label: string, operation: () => void | Promise<void>): Promise<void> {
+    try {
+      await operation();
+    } catch (error) {
+      this.#logger.error(`Runtime cleanup failed to ${label}.`, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  #enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.#lifecycleTail;
+    const result = (async () => {
+      await previous;
+      return operation();
+    })();
+    this.#lifecycleTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
   }
 }
 

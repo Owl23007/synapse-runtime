@@ -18,6 +18,9 @@ export class QqOfficialWebhookRegistry {
   readonly #logger: RuntimeServerLogger;
   readonly #routes = new Map<string, QqOfficialRoute>();
   readonly #registeredPaths = new Set<string>();
+  readonly #inFlightRequests = new Set<Promise<unknown>>();
+  readonly #inFlightDispatches = new Set<Promise<unknown>>();
+  #paused = false;
 
   constructor(options: QqOfficialWebhookRegistryOptions) {
     this.#app = options.app;
@@ -45,6 +48,10 @@ export class QqOfficialWebhookRegistry {
     this.#app.post(
       path,
       this.#asyncRoute(async (request: NovaRequest, response: NovaResponse) => {
+        if (this.#paused) {
+          sendJson(response, 503, { ok: false, error: "runtime_reloading" });
+          return;
+        }
         const activeRoute = this.#routes.get(path);
 
         if (activeRoute === undefined) {
@@ -58,7 +65,10 @@ export class QqOfficialWebhookRegistry {
             request,
             response,
             awaitDispatch: this.#awaitDispatch,
-            logger: this.#logger
+            logger: this.#logger,
+            trackDispatch: (dispatch) => {
+              this.#track(this.#inFlightDispatches, dispatch);
+            }
           });
         } catch (error) {
           this.#logger.error("Unhandled QQ official webhook error.", {
@@ -86,9 +96,27 @@ export class QqOfficialWebhookRegistry {
     this.#routes.clear();
   }
 
+  pause(): void {
+    this.#paused = true;
+  }
+
+  resume(): void {
+    this.#paused = false;
+  }
+
+  async drain(): Promise<void> {
+    const pending = [...this.#inFlightRequests, ...this.#inFlightDispatches];
+    if (pending.length === 0) {
+      return;
+    }
+
+    await Promise.allSettled(pending);
+    return this.drain();
+  }
+
   #asyncRoute(handler: Handler): Handler {
     return (request, response) => {
-      void Promise.resolve(handler(request, response)).catch((error) => {
+      const operation = Promise.resolve(handler(request, response)).catch((error) => {
         this.#logger.error("HTTP route handler failed.", {
           error: error instanceof Error ? error.message : String(error)
         });
@@ -97,6 +125,13 @@ export class QqOfficialWebhookRegistry {
           sendJson(response, 500, { ok: false, error: "internal_error" });
         }
       });
+      this.#track(this.#inFlightRequests, operation);
     };
+  }
+
+  #track(target: Set<Promise<unknown>>, operation: Promise<unknown>): void {
+    target.add(operation);
+    const remove = (): boolean => target.delete(operation);
+    void operation.then(remove, remove);
   }
 }

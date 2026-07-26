@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrivateKey, sign } from "node:crypto";
+import { createServer, type Server as NetServer } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseConfigObject } from "@synapse/runtime-config";
+import { SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { RuntimeServer, loadEnvFile, type RuntimeFetch } from "./index.js";
 
 const servers: RuntimeServer[] = [];
@@ -139,6 +141,110 @@ describe("RuntimeServer", () => {
         }
       }
     ]);
+  });
+
+  it("drains an acknowledged background webhook before closing the runtime database", async () => {
+    const sendStarted = deferred<void>();
+    const releaseSend = deferred<void>();
+    let sentMessages = 0;
+    const fetch: RuntimeFetch = async (url) => {
+      if (url === "https://bots.qq.com/app/getAppAccessToken") {
+        return jsonResponse({ access_token: "token-1", expires_in: 7200 });
+      }
+      if (url === "https://api.sgroup.qq.com/v2/users/user-openid/messages") {
+        sentMessages += 1;
+        sendStarted.resolve();
+        await releaseSend.promise;
+        return jsonResponse({ id: "sent-after-drain" });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    };
+    const config = parseTestConfig({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { enabled: false },
+      agent: {
+        default: "echo",
+        providers: {
+          echo: {
+            type: "echo",
+            prefix: "echo: "
+          }
+        }
+      },
+      conversation: {
+        privateTrigger: { mode: "always" },
+        groupTrigger: { mode: "always" }
+      },
+      channels: {
+        "qq-official": {
+          adapter: "qq-official",
+          appId: "app-id",
+          appSecret: "app-secret",
+          enabled: true
+        }
+      },
+      permissions: {
+        "channel.qq.send_private_message": "allow"
+      }
+    });
+    const server = new RuntimeServer({ config, fetch, awaitDispatch: false, logger: silentLogger });
+    servers.push(server);
+    const started = await server.start();
+
+    await expect(
+      fetchJson(`http://127.0.0.1:${started.port}/webhooks/qq-official/qq-official`, {
+        method: "POST",
+        body: signedQqBody("app-secret", {
+          op: 0,
+          t: "C2C_MESSAGE_CREATE",
+          d: {
+            id: "event-drain",
+            msg_id: "message-drain",
+            user_openid: "user-openid",
+            content: "finish this before shutdown"
+          }
+        })
+      })
+    ).resolves.toEqual({ op: 12 });
+    await sendStarted.promise;
+
+    const stopping = server.stop();
+    let stopSettled = false;
+    void stopping.then(() => {
+      stopSettled = true;
+      return undefined;
+    });
+    await Promise.resolve();
+    expect(stopSettled).toBe(false);
+
+    releaseSend.resolve();
+    await stopping;
+
+    expect(sentMessages).toBe(1);
+    const store = new SqliteRuntimeContextStore({
+      databasePath: join(config.runtime.dataDir, "runtime-context.sqlite")
+    });
+    try {
+      await expect(
+        store.begin({
+          platform: "qq",
+          provider: "qq-official",
+          channelId: "qq-official",
+          conversationType: "private",
+          conversationId: "user-openid",
+          sourceEventId: "message-drain",
+          sourceEventType: "message.created"
+        })
+      ).resolves.toMatchObject({
+        status: "completed"
+      });
+      const mainline = await store.getMainline("qq:qq-official:qq-official:private:user-openid");
+      expect((await store.listEvents(mainline.id)).filter((event) => event.type === "delivery_succeeded")).toHaveLength(
+        1
+      );
+    } finally {
+      store.close();
+    }
   });
 
   it("treats QQ official group messages with mentions as group mention triggers", async () => {
@@ -483,6 +589,53 @@ describe("RuntimeServer", () => {
     await expect(server.start()).rejects.toThrow(/Remote admin API requires admin\.token/);
   });
 
+  it("serializes concurrent starts without tearing down the running server", async () => {
+    const config = parseTestConfig({
+      server: { host: "127.0.0.1", port: 0 },
+      admin: { enabled: false },
+      channels: {}
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
+
+    const firstStart = server.start();
+    const duplicateStart = server.start();
+    expect(duplicateStart).toBe(firstStart);
+
+    const [firstResult, duplicateResult] = await Promise.all([firstStart, duplicateStart]);
+    expect(duplicateResult).toEqual(firstResult);
+    await expect(fetchJson(`http://127.0.0.1:${firstResult.port}/health`)).resolves.toEqual({ ok: true });
+  });
+
+  it("rolls back the main listener when the admin listener fails to start", async () => {
+    const mainPortProbe = createServer();
+    const mainPort = await listenOnEphemeralPort(mainPortProbe);
+    await closeNetServer(mainPortProbe);
+    const occupiedAdmin = createServer();
+    const adminPort = await listenOnEphemeralPort(occupiedAdmin);
+    const config = parseTestConfig({
+      server: { host: "127.0.0.1", port: mainPort },
+      admin: { host: "127.0.0.1", port: adminPort },
+      channels: {}
+    });
+    const server = new RuntimeServer({ config, logger: silentLogger });
+    servers.push(server);
+
+    try {
+      await expect(server.start()).rejects.toThrow();
+
+      const mainPortVerification = createServer();
+      try {
+        await expect(listenOnPort(mainPortVerification, mainPort)).resolves.toBeUndefined();
+      } finally {
+        await closeNetServer(mainPortVerification);
+      }
+      await expect(server.stop()).resolves.toBeUndefined();
+    } finally {
+      await closeNetServer(occupiedAdmin);
+    }
+  });
+
   it("requires admin bearer token when token is configured", async () => {
     const config = parseTestConfig({
       server: { host: "127.0.0.1", port: 0 },
@@ -682,3 +835,48 @@ const silentLogger = {
   warn() {},
   error() {}
 };
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+async function listenOnEphemeralPort(server: NetServer): Promise<number> {
+  await listenOnPort(server, 0);
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("Expected a TCP listener address.");
+  }
+  return address.port;
+}
+
+function listenOnPort(server: NetServer, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+}
+
+function closeNetServer(server: NetServer): Promise<void> {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    });
+  });
+}
