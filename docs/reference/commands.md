@@ -1,5 +1,17 @@
 # 命令
 
+## Runtime 消息指令
+
+在已配置命令前缀的会话中，可以发送以下指令：
+
+| Command                            | 说明             |
+| ---------------------------------- | ---------------- |
+| `/help`                            | 查看所有可用指令 |
+| `/whoami`                          | 查看当前身份     |
+| `/workspace info`                  | 查看当前工作区   |
+| `/workspace use project:<id>`      | 切换到项目工作区 |
+| `/memory <remember\|list\|delete>` | 管理长期记忆     |
+
 ## Workspace Scripts
 
 | Command             | 说明                                                       |
