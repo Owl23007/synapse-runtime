@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "qq-official.outbound.send-group-text.documented.v1",
+  "channel": "qq-official",
+  "direction": "outbound",
+  "capability": "message.send.group.text.passive-reply",
+  "status": "documented",
+  "capturedAt": "2026-07-19T00:00:00.000Z",
+  "provenance": {
+    "kind": "official-documentation",
+    "source": "https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html"
+  },
+  "environment": {
+    "provider": "qq-official",
+    "adapterVersion": "official-docs-updated-2026-06-23",
+    "transport": "https",
+    "runtimeCommit": "not-applicable",
+    "accountQualification": "unspecified",
+    "sandbox": "unspecified"
+  },
+  "redactions": ["Authorization is replaced with [REDACTED].", "Openids and message identifiers are placeholders."],
+  "artifacts": {
+    "platformRequest": {
+      "method": "POST",
+      "url": "https://api.sgroup.qq.com/v2/groups/<group-openid-1>/messages",
+      "headers": {
+        "authorization": "[REDACTED]",
+        "content-type": "application/json"
+      },
+      "body": {
+        "content": "fixture reply",
+        "msg_type": 0,
+        "msg_id": "<message-1>",
+        "msg_seq": 1
+      }
+    },
+    "platformResponse": {
+      "status": 200,
+      "body": { "id": "<message-2>", "timestamp": 1784419200 }
+    }
+  },
+  "conclusion": "QQ Official documents group passive text replies using msg_id plus msg_seq and returns message id and timestamp.",
+  "limitations": [
+    "Documentation example only; reply window, quota, error codes and timestamp shape require real capture."
+  ]
+}

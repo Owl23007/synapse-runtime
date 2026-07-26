@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { getTextContent } from "@synapse/runtime-protocol";
 import { describe, expect, it } from "vitest";
 import {
   createQqOfficialWebhookValidationResponse,
@@ -107,6 +109,84 @@ describe("normalizeQqOfficialDispatch", () => {
       }
     });
   });
+
+  it("preserves ordered attachments as normalized namespaced protocol parts", () => {
+    const payload = loadPlatformEvent(
+      "../../../fixtures/qq-official/inbound/group-attachments.documented.fixture.json"
+    );
+    const attachments = (
+      payload.d as {
+        readonly attachments: readonly unknown[];
+      }
+    ).attachments;
+
+    const event = normalizeQqOfficialDispatch("qq-official", payload);
+
+    expect(event?.message).toMatchObject({
+      type: "mixed",
+      segments: [
+        { type: "text", text: "fixture attachments" },
+        {
+          type: "image",
+          url: "https://example.invalid/attachments/<image-1>.png",
+          alt: "<image-1>.png",
+          namespace: "qq-official",
+          raw: attachments[0]
+        },
+        {
+          type: "audio",
+          url: "https://example.invalid/attachments/<audio-1>.ogg",
+          namespace: "qq-official",
+          raw: attachments[1]
+        },
+        {
+          type: "video",
+          url: "https://example.invalid/attachments/<video-1>.mp4",
+          namespace: "qq-official",
+          raw: attachments[2]
+        },
+        {
+          type: "file",
+          name: "<file-1>.pdf",
+          url: "https://example.invalid/attachments/<file-1>.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 45678,
+          namespace: "qq-official",
+          raw: attachments[3]
+        }
+      ]
+    });
+    expect(JSON.parse(JSON.stringify(event?.message?.segments))).toEqual(event?.message?.segments);
+    expect(event?.message === undefined ? undefined : getTextContent(event.message)).toBe("fixture attachments");
+  });
+
+  it("preserves malformed attachment entries as unknown protocol parts", () => {
+    const rawAttachment = { filename: "future.bin", extension: { kind: "future" } };
+    const event = normalizeQqOfficialDispatch("qq-official", {
+      op: 0,
+      t: "C2C_MESSAGE_CREATE",
+      d: {
+        id: "message-unknown-attachment",
+        user_openid: "user-openid",
+        content: "",
+        attachments: [rawAttachment]
+      }
+    });
+
+    expect(event?.message).toMatchObject({
+      type: "mixed",
+      segments: [
+        { type: "text", text: "" },
+        {
+          type: "unknown",
+          namespace: "qq-official",
+          rawType: "attachment",
+          fallbackText: "future.bin",
+          raw: rawAttachment
+        }
+      ]
+    });
+  });
 });
 
 describe("QqOfficialChannelAdapter", () => {
@@ -170,4 +250,23 @@ function jsonResponse(body: unknown) {
       return body;
     }
   };
+}
+
+function loadPlatformEvent(path: string): {
+  readonly op?: number;
+  readonly t?: string;
+  readonly id?: string;
+  readonly d?: unknown;
+} {
+  const fixture = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as {
+    readonly artifacts: {
+      readonly platformEvent: {
+        readonly op?: number;
+        readonly t?: string;
+        readonly id?: string;
+        readonly d?: unknown;
+      };
+    };
+  };
+  return fixture.artifacts.platformEvent;
 }

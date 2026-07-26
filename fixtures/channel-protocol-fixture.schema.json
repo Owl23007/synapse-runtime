@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synapse.local/schemas/channel-protocol-fixture-v1.json",
+  "title": "Synapse Channel Protocol Fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "channel",
+    "direction",
+    "capability",
+    "status",
+    "capturedAt",
+    "provenance",
+    "environment",
+    "redactions",
+    "artifacts",
+    "conclusion",
+    "limitations"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "channel-protocol-fixture/v1" },
+    "id": { "type": "string", "minLength": 1 },
+    "channel": { "enum": ["onebot11", "qq-official", "cli"] },
+    "direction": { "enum": ["inbound", "outbound", "errors"] },
+    "capability": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": [
+        "documented",
+        "tested-supported",
+        "tested-partial",
+        "tested-unsupported",
+        "unstable",
+        "blocked",
+        "unknown"
+      ]
+    },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source"],
+      "properties": {
+        "kind": {
+          "enum": ["official-documentation", "real-api-capture", "local-terminal-capture", "synthetic"]
+        },
+        "source": { "type": "string", "minLength": 1 },
+        "testRunId": { "type": "string" }
+      }
+    },
+    "environment": { "type": "object" },
+    "redactions": { "type": "array", "items": { "type": "string" } },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "platformEvent": {},
+        "platformRequest": {},
+        "platformResponse": {},
+        "terminalInput": {},
+        "terminalOutput": {}
+      }
+    },
+    "conclusion": { "type": "string", "minLength": 1 },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

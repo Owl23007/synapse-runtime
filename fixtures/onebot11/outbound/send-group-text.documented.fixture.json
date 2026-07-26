@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "onebot11.outbound.send-group-text.documented.v1",
+  "channel": "onebot11",
+  "direction": "outbound",
+  "capability": "message.send.group.text",
+  "status": "documented",
+  "capturedAt": "2026-07-19T00:00:00.000Z",
+  "provenance": {
+    "kind": "official-documentation",
+    "source": "https://napneko.github.io/onebot/network"
+  },
+  "environment": {
+    "provider": "napcat",
+    "adapterVersion": "documentation-current-at-2026-07-19",
+    "transport": "websocket",
+    "runtimeCommit": "not-applicable"
+  },
+  "redactions": ["Uses documentation example identifiers; authorization is not part of the frame."],
+  "artifacts": {
+    "platformRequest": {
+      "action": "send_msg",
+      "params": {
+        "message_type": "group",
+        "group_id": 100100,
+        "message": [{ "type": "text", "data": { "text": "fixture text" } }]
+      },
+      "echo": "<request-1>"
+    },
+    "platformResponse": {
+      "status": "ok",
+      "retcode": 0,
+      "data": { "message_id": 123456 },
+      "echo": "<request-1>"
+    }
+  },
+  "conclusion": "NapCat documents send_msg over WebSocket and returns a message identifier on success.",
+  "limitations": ["Documentation example only; error fields, echo behavior and client rendering require real capture."]
+}

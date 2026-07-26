@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "onebot11.inbound.group-text-mention.documented.v1",
+  "channel": "onebot11",
+  "direction": "inbound",
+  "capability": "message.receive.mixed.text-mention",
+  "status": "documented",
+  "capturedAt": "2026-07-19T00:00:00.000Z",
+  "provenance": {
+    "kind": "official-documentation",
+    "source": "https://github.com/botuniverse/onebot-11/blob/master/event/message.md"
+  },
+  "environment": {
+    "provider": "onebot11-standard",
+    "adapterVersion": "master",
+    "transport": "unspecified",
+    "runtimeCommit": "not-applicable"
+  },
+  "redactions": ["Uses specification example identifiers; contains no real account data."],
+  "artifacts": {
+    "platformEvent": {
+      "time": 1600000000,
+      "self_id": 10001000,
+      "post_type": "message",
+      "message_type": "group",
+      "sub_type": "normal",
+      "message_id": 123456,
+      "group_id": 100100,
+      "user_id": 10002000,
+      "message": [
+        { "type": "at", "data": { "qq": "10001000" } },
+        { "type": "text", "data": { "text": " hello" } }
+      ],
+      "raw_message": "[CQ:at,qq=10001000] hello",
+      "sender": { "user_id": 10002000, "nickname": "example", "role": "member" }
+    }
+  },
+  "conclusion": "The OneBot 11 message event can carry an ordered array containing mention and text segments.",
+  "limitations": ["Documentation example only; it does not prove NapCat runtime behavior or exact optional fields."]
+}

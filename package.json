@@ -11,6 +11,7 @@
     "fmt:check": "oxfmt --check .",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
+    "fixtures:validate": "node tools/channel-fixtures/validate-fixtures.mjs",
     "start": "node packages/runtime-server/dist/cli.js --config examples/runtime.config.toml --env-file .env",
     "tui": "node packages/runtime-server/dist/cli.js console",
     "tui:spawn": "node packages/runtime-server/dist/cli.js console --config examples/runtime.config.toml --env-file .env --spawn",

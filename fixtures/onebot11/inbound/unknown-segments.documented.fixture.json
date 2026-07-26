@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "onebot11.inbound.unknown-segments.documented.v1",
+  "channel": "onebot11",
+  "direction": "inbound",
+  "capability": "message.receive.unknown-part",
+  "status": "documented",
+  "capturedAt": "2026-07-25T00:00:00.000Z",
+  "provenance": {
+    "kind": "official-documentation",
+    "source": "https://github.com/botuniverse/onebot-11/blob/master/message/segment.md"
+  },
+  "environment": {
+    "provider": "onebot11-standard",
+    "adapterVersion": "master",
+    "transport": "unspecified",
+    "runtimeCommit": "not-applicable"
+  },
+  "redactions": ["Uses stable placeholder identifiers and synthetic message content; contains no real account data."],
+  "artifacts": {
+    "platformEvent": {
+      "time": 1600000000,
+      "self_id": 10001000,
+      "post_type": "message",
+      "message_type": "group",
+      "message_id": 123457,
+      "group_id": 100100,
+      "user_id": 10002000,
+      "message": [
+        { "type": "text", "data": { "text": "before " } },
+        { "type": "face", "data": { "id": "14", "vendor_extension": { "animated": false } } },
+        { "type": "text", "data": { "text": " after" } }
+      ],
+      "raw_message": "before [CQ:face,id=14] after",
+      "sender": { "user_id": 10002000, "nickname": "example", "role": "member" }
+    }
+  },
+  "conclusion": "OneBot 11 messages are ordered segment arrays; an adapter must retain a segment it cannot normalize instead of dropping it.",
+  "limitations": [
+    "Documentation-derived contract seed only; the extra vendor_extension field is synthetic and does not claim OneBot 11 support."
+  ]
+}

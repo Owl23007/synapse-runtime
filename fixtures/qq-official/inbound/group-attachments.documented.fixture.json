@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "qq-official.inbound.group-attachments.documented.v1",
+  "channel": "qq-official",
+  "direction": "inbound",
+  "capability": "message.receive.attachments",
+  "status": "documented",
+  "capturedAt": "2026-07-25T00:00:00.000Z",
+  "provenance": {
+    "kind": "official-documentation",
+    "source": "https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html"
+  },
+  "environment": {
+    "provider": "qq-official",
+    "adapterVersion": "official-docs-reviewed-2026-07-19",
+    "transport": "webhook-or-websocket",
+    "runtimeCommit": "not-applicable"
+  },
+  "redactions": ["All openids, message identifiers, filenames, and attachment URLs are stable placeholders."],
+  "artifacts": {
+    "platformEvent": {
+      "id": "<event-attachments-1>",
+      "op": 0,
+      "s": 43,
+      "t": "GROUP_MESSAGE_CREATE",
+      "d": {
+        "author": {
+          "member_openid": "<member-openid-1>",
+          "member_role": "member",
+          "bot": false
+        },
+        "content": "fixture attachments",
+        "group_openid": "<group-openid-1>",
+        "id": "<message-attachments-1>",
+        "timestamp": "2026-07-25T08:00:00+08:00",
+        "attachments": [
+          {
+            "content_type": "image/png",
+            "filename": "<image-1>.png",
+            "height": 480,
+            "size": 12345,
+            "url": "https://example.invalid/attachments/<image-1>.png",
+            "width": 640
+          },
+          {
+            "content_type": "audio/ogg",
+            "filename": "<audio-1>.ogg",
+            "size": 23456,
+            "url": "https://example.invalid/attachments/<audio-1>.ogg"
+          },
+          {
+            "content_type": "video/mp4",
+            "filename": "<video-1>.mp4",
+            "size": 34567,
+            "url": "https://example.invalid/attachments/<video-1>.mp4"
+          },
+          {
+            "content_type": "application/pdf",
+            "filename": "<file-1>.pdf",
+            "size": 45678,
+            "url": "https://example.invalid/attachments/<file-1>.pdf"
+          }
+        ]
+      }
+    }
+  },
+  "conclusion": "QQ Official message events can carry ordered attachment objects whose media metadata must remain recoverable after normalization.",
+  "limitations": [
+    "Documentation-derived contract seed only; it does not prove that every conversation type emits every listed content type."
+  ]
+}

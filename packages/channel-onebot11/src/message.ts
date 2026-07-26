@@ -1,6 +1,6 @@
 import type { ChannelTarget } from "@synapse/runtime-channel";
 import type { MessageSegment, SynapseMessage } from "@synapse/runtime-protocol";
-import { isRecord, stringFromUnknown } from "./utils.js";
+import { isRecord, safeJson, stringFromUnknown } from "./utils.js";
 
 export function renderOneBot11Message(message: SynapseMessage): string {
   const rendered = message.segments.map(renderSegment).join("");
@@ -82,7 +82,7 @@ function oneBot11SegmentToSynapseSegments(segment: unknown): readonly MessageSeg
   }
 
   if (!isRecord(segment)) {
-    return [];
+    return [unknownOneBot11Segment(segment)];
   }
 
   const type = stringFromUnknown(segment.type);
@@ -124,7 +124,29 @@ function oneBot11SegmentToSynapseSegments(segment: unknown): readonly MessageSeg
     ];
   }
 
-  return [];
+  return [unknownOneBot11Segment(segment, type, data)];
+}
+
+function unknownOneBot11Segment(
+  raw: unknown,
+  rawType = "unknown",
+  data?: Readonly<Record<string, unknown>>
+): MessageSegment {
+  return {
+    type: "unknown",
+    namespace: "onebot11",
+    rawType,
+    fallbackText: data === undefined ? safeJson(raw) : renderUnknownCqSegment(rawType, data),
+    raw
+  };
+}
+
+function renderUnknownCqSegment(type: string, data: Readonly<Record<string, unknown>>): string {
+  const params = Object.entries(data).flatMap(([key, value]) => {
+    const normalized = stringFromUnknown(value);
+    return normalized === undefined ? [] : [`${key}=${escapeCqValue(normalized)}`];
+  });
+  return `[CQ:${escapeCqValue(type)}${params.length === 0 ? "" : `,${params.join(",")}`}]`;
 }
 
 function parseCqMessage(message: string): readonly MessageSegment[] {

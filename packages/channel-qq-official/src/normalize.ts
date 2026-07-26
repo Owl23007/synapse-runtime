@@ -1,6 +1,6 @@
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+import type { MessageSegment, SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { QqOfficialDispatchPayload, QqOfficialMessagePayload } from "./types.js";
-import { isRecord, stringFromUnknown } from "./utils.js";
+import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
 export function normalizeQqOfficialDispatch(
   channelId: string,
@@ -28,6 +28,7 @@ export function normalizeQqOfficialDispatch(
     `${payload.t}:${Date.now()}`;
   const messageId = stringFromUnknown(messagePayload.msg_id) ?? stringFromUnknown(messagePayload.id);
   const replyTargetMessageId = replyTargetMessageIdFromPayload(messagePayload);
+  const attachmentSegments = attachmentSegmentsFromPayload(messagePayload.attachments);
 
   return {
     id: eventId,
@@ -45,10 +46,11 @@ export function normalizeQqOfficialDispatch(
     },
     message: {
       ...(messageId === undefined ? {} : { id: messageId }),
-      type: "text",
+      type: attachmentSegments.length === 0 ? "text" : "mixed",
       segments: [
         { type: "text", text: messagePayload.content ?? "" },
-        ...mentionSegmentsFromPayload(payload.t, messagePayload)
+        ...mentionSegmentsFromPayload(payload.t, messagePayload),
+        ...attachmentSegments
       ],
       ...(replyTargetMessageId === undefined ? {} : { replyTo: { messageId: replyTargetMessageId } }),
       raw: messagePayload.raw_message ?? payload.d
@@ -61,6 +63,73 @@ export function normalizeQqOfficialDispatch(
     adapterCapabilities: adapterCapabilitiesForEvent(payload.t, replyTargetMessageId),
     raw: payload,
     receivedAt: messagePayload.timestamp ?? new Date().toISOString()
+  };
+}
+
+function attachmentSegmentsFromPayload(attachments: unknown): readonly MessageSegment[] {
+  return Array.isArray(attachments) ? attachments.map(attachmentSegmentFromUnknown) : [];
+}
+
+function attachmentSegmentFromUnknown(attachment: unknown): MessageSegment {
+  if (!isRecord(attachment)) {
+    return unknownAttachmentPart(attachment);
+  }
+
+  const contentType = stringFromUnknown(attachment.content_type);
+  const url = stringFromUnknown(attachment.url);
+  const filename = stringFromUnknown(attachment.filename);
+  const metadata = {
+    namespace: "qq-official",
+    raw: attachment
+  } as const;
+
+  if (contentType?.toLowerCase().startsWith("image/")) {
+    return {
+      type: "image",
+      ...(url === undefined ? {} : { url }),
+      ...(filename === undefined ? {} : { alt: filename }),
+      ...metadata
+    };
+  }
+
+  if (contentType?.toLowerCase().startsWith("audio/")) {
+    return {
+      type: "audio",
+      ...(url === undefined ? {} : { url }),
+      ...metadata
+    };
+  }
+
+  if (contentType?.toLowerCase().startsWith("video/")) {
+    return {
+      type: "video",
+      ...(url === undefined ? {} : { url }),
+      ...metadata
+    };
+  }
+
+  if (contentType !== undefined) {
+    const sizeBytes = numberFromUnknown(attachment.size);
+    return {
+      type: "file",
+      name: filename ?? "attachment",
+      ...(url === undefined ? {} : { url }),
+      mimeType: contentType,
+      ...(sizeBytes === undefined ? {} : { sizeBytes }),
+      ...metadata
+    };
+  }
+
+  return unknownAttachmentPart(attachment, filename ?? url ?? "");
+}
+
+function unknownAttachmentPart(raw: unknown, fallbackText = ""): MessageSegment {
+  return {
+    type: "unknown",
+    namespace: "qq-official",
+    rawType: "attachment",
+    fallbackText,
+    raw
   };
 }
 

@@ -16,7 +16,19 @@ export interface SenderRef {
 
 export type MessageType = "text" | "image" | "file" | "audio" | "video" | "mixed";
 
-export type MessageSegment =
+export type ProtocolPartMetadata =
+  | { readonly namespace: string; readonly raw: unknown }
+  | { readonly namespace?: never; readonly raw?: never };
+
+export interface UnknownMessagePart {
+  readonly type: "unknown";
+  readonly namespace: string;
+  readonly rawType: string;
+  readonly fallbackText: string;
+  readonly raw: unknown;
+}
+
+type NormalizedMessageSegment =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "mention";
@@ -42,6 +54,8 @@ export type MessageSegment =
     }
   | { readonly type: "audio"; readonly url?: string; readonly fileId?: string; readonly durationMs?: number }
   | { readonly type: "video"; readonly url?: string; readonly fileId?: string; readonly durationMs?: number };
+
+export type MessageSegment = (NormalizedMessageSegment & ProtocolPartMetadata) | UnknownMessagePart;
 
 export interface SynapseMessage {
   readonly id?: string;

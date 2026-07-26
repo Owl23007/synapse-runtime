@@ -1,4 +1,6 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { getTextContent } from "@synapse/runtime-protocol";
 import { describe, expect, it } from "vitest";
 import { OneBot11ChannelAdapter, normalizeOneBot11Event, renderOneBot11Message, textMessage } from "./index.js";
 import type { OneBot11WebSocketConstructor } from "./types.js";
@@ -62,6 +64,34 @@ describe("normalizeOneBot11Event", () => {
         segments: [{ type: "text", text: "hello" }]
       }
     });
+  });
+
+  it("preserves unknown ordered segments as namespaced protocol parts", () => {
+    const payload = loadPlatformEvent("../../../fixtures/onebot11/inbound/unknown-segments.documented.fixture.json");
+    const rawSegment = (
+      payload as {
+        readonly message: readonly unknown[];
+      }
+    ).message[1];
+
+    const event = normalizeOneBot11Event("qq-local", payload);
+
+    expect(event?.message).toMatchObject({
+      type: "mixed",
+      segments: [
+        { type: "text", text: "before " },
+        {
+          type: "unknown",
+          namespace: "onebot11",
+          rawType: "face",
+          fallbackText: "[CQ:face,id=14]",
+          raw: rawSegment
+        },
+        { type: "text", text: " after" }
+      ]
+    });
+    expect(JSON.parse(JSON.stringify(event?.message?.segments))).toEqual(event?.message?.segments);
+    expect(event?.message === undefined ? undefined : getTextContent(event.message)).toBe("before  after");
   });
 });
 
@@ -190,4 +220,11 @@ function fakeWebSocketCtor(socket: FakeWebSocket): OneBot11WebSocketConstructor 
       return socket;
     }
   } as unknown as OneBot11WebSocketConstructor;
+}
+
+function loadPlatformEvent(path: string): unknown {
+  const fixture = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as {
+    readonly artifacts: { readonly platformEvent: unknown };
+  };
+  return fixture.artifacts.platformEvent;
 }
