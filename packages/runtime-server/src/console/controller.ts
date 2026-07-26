@@ -19,6 +19,7 @@ export class RuntimeConsoleController {
   readonly #listeners = new Set<StateListener>();
   #server: RuntimeServer | undefined;
   #client: RuntimeAdminClient | undefined;
+  #unsubscribeRemoteLogs: (() => void) | undefined;
   #state: ConsoleState;
 
   constructor(options: RuntimeConsoleOptions) {
@@ -76,6 +77,8 @@ export class RuntimeConsoleController {
     this.#setState({ status: "stopping" });
 
     try {
+      this.#unsubscribeRemoteLogs?.();
+      this.#unsubscribeRemoteLogs = undefined;
       await this.#server?.stop();
       this.#setState({
         status: "stopped",
@@ -269,6 +272,7 @@ export class RuntimeConsoleController {
       ...(connection.token === undefined ? {} : { token: connection.token })
     });
     await this.#refreshRemoteState();
+    this.#startRemoteLogStream();
     this.#setState({
       status: "running",
       endpoint: connection.endpoint,
@@ -371,6 +375,30 @@ export class RuntimeConsoleController {
     }
 
     this.#setState({ logs: parseLogEntries(value.logs) });
+  }
+
+  #appendRemoteLog(value: unknown): void {
+    const entry = parseLogEntries([value])[0];
+
+    if (entry === undefined) {
+      return;
+    }
+
+    const existing = this.#state.logs.filter((item) => item.id !== entry.id);
+    this.#setState({ logs: [...existing, entry].sort((left, right) => left.id - right.id).slice(-300) });
+  }
+
+  #startRemoteLogStream(): void {
+    if (this.#client === undefined || this.#unsubscribeRemoteLogs !== undefined) {
+      return;
+    }
+
+    this.#unsubscribeRemoteLogs = this.#client.streamLogs(
+      (entry) => this.#appendRemoteLog(entry),
+      (error) => {
+        this.#logger.warn("Remote log stream disconnected.", { error: formatError(error) });
+      }
+    );
   }
 
   #applyRemoteReload(value: unknown): void {

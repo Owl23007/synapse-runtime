@@ -2,6 +2,7 @@ import { redactConfig, type RuntimeConfig } from "@synapse/runtime-config";
 import { Box, Text, useApp, useInput } from "ink";
 import { createElement, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { RuntimeConsoleController } from "./controller.js";
+import { toStructuredLog } from "./log-view-model.js";
 import type { ConsoleLevel, ConsoleLogEntry, ConsoleState } from "./types.js";
 
 export function RuntimeConsoleApp({ controller }: { readonly controller: RuntimeConsoleController }): ReactElement {
@@ -184,11 +185,26 @@ function LogPanel({ logs, expanded }: { readonly logs: readonly ConsoleLogEntry[
     Box,
     { flexDirection: "column" },
     ...visible.map((entry) => {
-      const metadata = expanded && entry.metadata !== undefined ? ` ${formatMetadata(entry.metadata)}` : "";
+      const structured = toStructuredLog(entry);
       return createElement(
-        Text,
-        { key: entry.id, color: levelColor(entry.level) },
-        `${formatTime(entry.timestamp)} ${entry.level.toUpperCase().padEnd(5)} ${entry.message}${metadata}`
+        Box,
+        { key: entry.id, flexDirection: "column" },
+        createElement(
+          Text,
+          { color: statusColorForLog(structured.status, structured.level) },
+          `${formatTime(structured.timestamp)} ${formatKind(structured.kind).padEnd(8)} ${formatLogStatus(structured.status).padEnd(8)} ${structured.title}${structured.summary.length === 0 ? "" : `  ${structured.summary}`}`
+        ),
+        ...(expanded
+          ? structured.fields
+              .slice(3)
+              .map((item) =>
+                createElement(
+                  Text,
+                  { key: `${entry.id}-${item.label}`, color: "gray" },
+                  `  ${item.label.padEnd(10)} ${item.value}`
+                )
+              )
+          : [])
       );
     })
   );
@@ -256,10 +272,6 @@ function formatTime(timestamp: string): string {
   return new Date(timestamp).toLocaleTimeString("en-US", { hour12: false });
 }
 
-function formatMetadata(metadata: Readonly<Record<string, unknown>>): string {
-  return JSON.stringify(metadata);
-}
-
 function levelColor(level: ConsoleLevel): "gray" | "blue" | "yellow" | "red" {
   if (level === "debug") {
     return "gray";
@@ -274,4 +286,48 @@ function levelColor(level: ConsoleLevel): "gray" | "blue" | "yellow" | "red" {
   }
 
   return "blue";
+}
+
+function formatKind(kind: ReturnType<typeof toStructuredLog>["kind"]): string {
+  return {
+    admin: "admin",
+    agent: "agent",
+    channel: "channel",
+    console: "console",
+    event: "event",
+    routing: "routing",
+    server: "server",
+    unknown: "log"
+  }[kind];
+}
+
+function formatLogStatus(status: ReturnType<typeof toStructuredLog>["status"]): string {
+  return {
+    accepted: "accepted",
+    failed: "failed",
+    ignored: "ignored",
+    info: "info",
+    received: "received",
+    started: "started",
+    succeeded: "ok"
+  }[status];
+}
+
+function statusColorForLog(
+  status: ReturnType<typeof toStructuredLog>["status"],
+  level: ConsoleLevel
+): "gray" | "blue" | "yellow" | "red" | "green" {
+  if (status === "failed" || level === "error") {
+    return "red";
+  }
+
+  if (status === "ignored" || level === "warn") {
+    return "yellow";
+  }
+
+  if (status === "succeeded" || status === "accepted") {
+    return "green";
+  }
+
+  return levelColor(level);
 }

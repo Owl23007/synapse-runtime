@@ -10,11 +10,13 @@ export interface AdminFetchInit {
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
+  readonly signal?: AbortSignal;
 }
 
 export interface AdminFetchResponse {
   readonly ok: boolean;
   readonly status: number;
+  readonly body?: ReadableStream<Uint8Array> | null;
   json(): Promise<unknown>;
 }
 
@@ -65,6 +67,18 @@ export class RuntimeAdminClient {
     return this.#get(`/admin/logs${query}`);
   }
 
+  streamLogs(onLog: (entry: unknown) => void, onError?: (error: Error) => void): () => void {
+    const abort = new AbortController();
+    void this.#streamLogs(abort.signal, onLog).catch((error: unknown) => {
+      if (abort.signal.aborted) {
+        return;
+      }
+
+      onError?.(error instanceof Error ? error : new Error("Admin log stream failed."));
+    });
+    return () => abort.abort();
+  }
+
   #get(path: string): Promise<unknown> {
     return this.#request(path, { method: "GET" });
   }
@@ -87,6 +101,55 @@ export class RuntimeAdminClient {
     }
 
     return body;
+  }
+
+  async #streamLogs(signal: AbortSignal, onLog: (entry: unknown) => void): Promise<void> {
+    const response = await this.#fetch(`${this.#endpoint}/admin/events/stream`, {
+      method: "GET",
+      signal,
+      headers: {
+        accept: "text/event-stream",
+        ...(this.#token === undefined ? {} : { authorization: `Bearer ${this.#token}` })
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Admin log stream failed with HTTP ${response.status}.`);
+    }
+
+    if (response.body === undefined || response.body === null) {
+      throw new Error("Admin log stream response has no body.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (!signal.aborted) {
+      const result = await reader.read();
+
+      if (result.done) {
+        return;
+      }
+
+      buffer += decoder.decode(result.value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? "";
+
+      for (const event of events) {
+        const data = event
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length).trimStart())
+          .join("\n");
+
+        if (data.length === 0) {
+          continue;
+        }
+
+        onLog(JSON.parse(data));
+      }
+    }
   }
 }
 
