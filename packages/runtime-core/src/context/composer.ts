@@ -1,15 +1,18 @@
 import type { ConversationTrigger, PromptContext, PromptContextMessage } from "@synapse/runtime-conversation";
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
-import type { BranchContext, ConversationStore, LineEvent } from "../conversation/types.js";
+import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
+import type { ConversationStore, LineEvent } from "../conversation/types.js";
 import type { OutputPolicy } from "../output/policy.js";
 import type { TranscriptStore } from "../transcript/types.js";
 import { trimHistory, isWithinHistoryTtl } from "./history.js";
+import { BranchContextProjector } from "./projection.js";
 import { formatZonedTimestamp } from "./time.js";
 import type { RuntimeActor, WorkspaceRef } from "./types.js";
 
 export interface ContextComposerOptions {
   readonly transcriptStore: TranscriptStore;
   readonly conversationStore?: ConversationStore;
+  /** 用于临时重建分支上下文的投影器 */
+  readonly contextProjector?: BranchContextProjector;
   readonly maxHistoryChars?: number;
   readonly timezone?: string;
 }
@@ -17,6 +20,7 @@ export interface ContextComposerOptions {
 export class ContextComposer {
   readonly #transcriptStore: TranscriptStore;
   readonly #conversationStore: ConversationStore | undefined;
+  readonly #contextProjector: BranchContextProjector | undefined;
   readonly #maxHistoryChars: number;
   readonly #timezone: string;
 
@@ -24,6 +28,15 @@ export class ContextComposer {
     this.#transcriptStore = options.transcriptStore;
     this.#conversationStore = options.conversationStore;
     this.#maxHistoryChars = options.maxHistoryChars ?? 6000;
+    this.#contextProjector =
+      options.contextProjector ??
+      (options.conversationStore === undefined
+        ? undefined
+        : new BranchContextProjector({
+            conversationStore: options.conversationStore,
+            transcriptStore: options.transcriptStore,
+            defaultMaxChars: this.#maxHistoryChars
+          }));
     this.#timezone = options.timezone ?? "UTC";
   }
 
@@ -113,16 +126,24 @@ export class ContextComposer {
     readonly sessionId: string;
     readonly lineId?: string;
     readonly branchId?: string;
+    readonly currentInput: SynapseMessage;
     readonly maxMessages: number;
   }): Promise<string | undefined> {
     if (this.#conversationStore === undefined || input.lineId === undefined) {
       return undefined;
     }
 
-    const state =
-      input.branchId === undefined
-        ? await this.#mainlineState(input.lineId, input.maxMessages)
-        : branchState(await this.#conversationStore.getBranchContext(input.branchId), input.maxMessages);
+    if (input.branchId !== undefined && this.#contextProjector !== undefined) {
+      const projection = await this.#contextProjector.project({
+        branchId: input.branchId,
+        currentInput: getTextContent(input.currentInput),
+        maxChars: this.#maxHistoryChars,
+        recentMessageLimit: input.maxMessages
+      });
+      return projection.contextText;
+    }
+
+    const state = await this.#mainlineState(input.lineId, input.maxMessages);
     if (state === undefined) {
       return undefined;
     }
@@ -166,41 +187,6 @@ function buildContextSystemPrompt(
       ? ""
       : `\nConversation line state (authoritative structured context; keep branch details isolated to this line): ${conversationState}`;
   return `${constraints}\nCurrent input is the primary task. Historical messages are timestamped background only; do not continue an old topic unless the current input clearly asks for it.\nTime context: timezone=${timeContext.timezone}, currentLocal=${timeContext.currentTimeLocal}, currentIso=${timeContext.currentTimeIso}, eventReceivedLocal=${timeContext.eventReceivedAtLocal}, eventReceivedIso=${timeContext.eventReceivedAt}. When the user asks about the current time or date, answer using currentLocal and timezone.\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.${statePrompt}`;
-}
-
-function branchState(context: BranchContext, maxEvents: number): unknown {
-  return {
-    kind: "branch",
-    branch: {
-      id: context.branch.id,
-      title: context.branch.title,
-      goal: context.branch.goal,
-      reason: context.branch.reason,
-      status: context.branch.status,
-      sourceEventId: context.branch.sourceEventId
-    },
-    sourceEvent: eventForPrompt(context.sourceEvent),
-    ...(context.contextSnapshot === undefined ? {} : { contextSnapshot: context.contextSnapshot }),
-    recentEvents: context.events.slice(-maxEvents).map(eventForPrompt),
-    tasks: context.tasks.map((task) => ({
-      id: task.id,
-      status: task.status,
-      executor: task.executor,
-      ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
-      ...(task.output === undefined ? {} : { output: task.output }),
-      ...(task.error === undefined ? {} : { error: task.error }),
-      artifacts: task.artifacts
-    })),
-    results: context.results.map((result) => ({
-      id: result.id,
-      version: result.version,
-      status: result.status,
-      summary: result.summary,
-      artifacts: result.artifacts,
-      citations: result.citations,
-      nextActions: result.nextActions
-    }))
-  };
 }
 
 function eventForPrompt(event: LineEvent): unknown {

@@ -5,6 +5,7 @@ describe("runtime-core export surface", () => {
     const runtimeCore = await import("./index.js");
 
     expect(Object.keys(runtimeCore).toSorted()).toEqual([
+      "BranchContextProjector",
       "ContextAttributorLite",
       "ContextComposer",
       "ConversationStoreError",
