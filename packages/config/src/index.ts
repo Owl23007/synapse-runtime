@@ -7,6 +7,7 @@ export {
   AgentProviderIdSchema,
   AgentSettingsSchema,
   AdminSettingsSchema,
+  BraveWebSearchSettingsSchema,
   ChannelConfigSchema,
   ChannelIdSchema,
   ContextPolicySchema,
@@ -25,12 +26,17 @@ export {
   RuntimeConfigSchema,
   RuntimeModeSchema,
   RuntimeSettingsSchema,
+  SearxngWebSearchSettingsSchema,
   ServerSettingsSchema,
+  ToolSettingsSchema,
   TriggerModeSchema,
+  WebSearchSettingsSchema,
+  WebToolSettingsSchema,
   type AgentProviderConfig,
   type AgentProviderId,
   type AgentSettings,
   type AdminSettings,
+  type BraveWebSearchSettings,
   type ChannelConfig,
   type ContextPolicy,
   type ConversationSettings,
@@ -46,7 +52,11 @@ export {
   type RuntimeConfig,
   type RuntimeMode,
   type RuntimeSettings,
+  type SearxngWebSearchSettings,
   type ServerSettings,
-  type TriggerMode
+  type ToolSettings,
+  type TriggerMode,
+  type WebSearchSettings,
+  type WebToolSettings
 } from "./schema.js";
 export { redactConfig, type RedactOptions } from "./redact.js";

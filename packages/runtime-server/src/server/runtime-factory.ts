@@ -4,6 +4,7 @@ import type { ChannelConfig, RuntimeConfig } from "@synapse/runtime-config";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
+import { createWebTools } from "@synapse/runtime-tool-web";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
@@ -18,6 +19,8 @@ export interface RuntimeFactoryOptions {
 export interface RuntimeFactoryResult {
   readonly runtime: RuntimeCore;
   readonly contextStore: SqliteRuntimeContextStore;
+  /** 当前生产运行时实际注册的工具集合 */
+  readonly tools: ToolRuntime;
 }
 
 export function createRuntimeFromConfig(options: RuntimeFactoryOptions): RuntimeFactoryResult {
@@ -26,6 +29,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   });
   const conversation = new ConversationRouter(options.config.conversation);
   const tools = new ToolRuntime(new StaticPermissionEngine(options.config.permissions));
+  registerBuiltInTools(tools, options.config);
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
   });
@@ -56,10 +60,31 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         ...(options.config.context.enabled ? { transcriptStore: contextStore } : {})
       }
     });
-    return { runtime, contextStore };
+    return { runtime, contextStore, tools };
   } catch (error) {
     contextStore.close();
     throw error;
+  }
+}
+
+function registerBuiltInTools(tools: ToolRuntime, config: RuntimeConfig): void {
+  const web = config.tools.web;
+  if (!web.enabled) {
+    return;
+  }
+  const builtIns = createWebTools({
+    ...(web.search === undefined ? {} : { search: web.search }),
+    allowedDomains: web.allowedDomains,
+    deniedDomains: web.deniedDomains,
+    allowPrivateNetwork: web.allowPrivateNetwork,
+    timeoutMs: web.timeoutMs,
+    maxResponseBytes: web.maxResponseBytes,
+    maxContentChars: web.maxContentChars,
+    maxRedirects: web.maxRedirects,
+    userAgent: web.userAgent
+  });
+  for (const tool of builtIns) {
+    tools.register(tool);
   }
 }
 

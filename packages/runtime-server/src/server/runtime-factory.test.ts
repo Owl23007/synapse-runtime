@@ -7,6 +7,67 @@ import { describe, expect, it } from "vitest";
 import { createRuntimeFromConfig } from "./runtime-factory.js";
 
 describe("createRuntimeFromConfig", () => {
+  it("registers configured production web tools", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "synapse-runtime-factory-web-tools-"));
+    const config = parseConfigObject({
+      runtime: { dataDir },
+      tools: {
+        web: {
+          enabled: true,
+          search: {
+            provider: "brave",
+            apiKey: "brave-key"
+          }
+        }
+      }
+    });
+
+    try {
+      const result = createRuntimeFromConfig({
+        config,
+        channels: new InMemoryChannelRegistry(),
+        logger: silentLogger
+      });
+
+      try {
+        expect(result.tools.list().map((tool) => tool.name)).toEqual(["web.search", "web.fetch"]);
+        expect(result.tools.list()[0]?.inputSchema).toMatchObject({
+          required: ["query"]
+        });
+        expect(result.tools.list()[1]?.inputSchema).toMatchObject({
+          required: ["url"]
+        });
+      } finally {
+        result.contextStore.close();
+      }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps production web tools disabled by default", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "synapse-runtime-factory-no-web-tools-"));
+    const config = parseConfigObject({
+      runtime: { dataDir }
+    });
+
+    try {
+      const result = createRuntimeFromConfig({
+        config,
+        channels: new InMemoryChannelRegistry(),
+        logger: silentLogger
+      });
+
+      try {
+        expect(result.tools.list()).toEqual([]);
+      } finally {
+        result.contextStore.close();
+      }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the SQLite runtime store durable when prompt context is disabled", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "synapse-runtime-factory-context-disabled-"));
     const databasePath = join(dataDir, "runtime-context.sqlite");

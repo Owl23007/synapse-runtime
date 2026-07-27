@@ -228,6 +228,62 @@ enableDurableMemory = true
     });
   });
 
+  it("supports guarded web tools with Brave search", () => {
+    const config = parseConfigContent(
+      `
+[tools.web]
+enabled = true
+allowedDomains = ["docs.example.com"]
+deniedDomains = ["private.example.com"]
+timeoutMs = 8000
+maxContentChars = 12000
+
+[tools.web.search]
+provider = "brave"
+apiKey = "$\{BRAVE_SEARCH_API_KEY}"
+`,
+      "runtime.config.toml",
+      { env: { BRAVE_SEARCH_API_KEY: "brave-key" } }
+    );
+
+    expect(config.tools.web).toMatchObject({
+      enabled: true,
+      allowedDomains: ["docs.example.com"],
+      deniedDomains: ["private.example.com"],
+      allowPrivateNetwork: false,
+      timeoutMs: 8000,
+      maxResponseBytes: 2_000_000,
+      maxContentChars: 12000,
+      maxRedirects: 5,
+      search: {
+        provider: "brave",
+        apiKey: "brave-key",
+        baseUrl: "https://api.search.brave.com/res/v1/web/search"
+      }
+    });
+    expect(config.permissions["network.web.search"]).toBe("allow");
+    expect(config.permissions["network.web.fetch"]).toBe("allow");
+  });
+
+  it("supports self-hosted SearXNG search", () => {
+    const config = parseConfigObject({
+      tools: {
+        web: {
+          enabled: true,
+          search: {
+            provider: "searxng",
+            baseUrl: "https://search.example.com/search"
+          }
+        }
+      }
+    });
+
+    expect(config.tools.web.search).toEqual({
+      provider: "searxng",
+      baseUrl: "https://search.example.com/search"
+    });
+  });
+
   it("fails when a required env placeholder is missing", () => {
     expect(() =>
       parseConfigObject({

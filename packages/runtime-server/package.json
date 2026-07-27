@@ -35,6 +35,7 @@
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
+    "@synapse/runtime-tool-web": "workspace:*",
     "ink": "^5.2.1",
     "nova-http": "^0.1.1",
     "react": "^18.3.1",

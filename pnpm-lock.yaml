@@ -163,6 +163,9 @@ importers:
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../tool-runtime
+      '@synapse/runtime-tool-web':
+        specifier: workspace:*
+        version: link:../tool-web
       ink:
         specifier: ^5.2.1
         version: 5.2.1(@types/react@18.3.18)(react@18.3.1)
@@ -188,6 +191,12 @@ importers:
       '@synapse/runtime-permission':
         specifier: workspace:*
         version: link:../permission
+
+  packages/tool-web:
+    dependencies:
+      '@synapse/runtime-tool-runtime':
+        specifier: workspace:*
+        version: link:../tool-runtime
 
 packages:
 
