@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentRuntimeContext } from "@synapse/runtime-agent-core";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { textMessage } from "@synapse/runtime-protocol";
 import { ApiChatAgent, OpenAiCompatibleChatProvider } from "./index.js";
@@ -86,6 +87,89 @@ describe("OpenAiCompatibleChatProvider", () => {
       }
     ]);
   });
+
+  it("serializes tool definitions and parses structured tool calls", async () => {
+    let requestBody: unknown;
+    const provider = new OpenAiCompatibleChatProvider({
+      id: "tool-provider",
+      apiKey: "api-key",
+      baseUrl: "https://llm.example/v1",
+      model: "tool-model",
+      fetch: async (_url, init) => {
+        requestBody = JSON.parse(init?.body ?? "{}") as unknown;
+        return jsonResponse({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call-time",
+                    type: "function",
+                    function: {
+                      name: "get_current_time",
+                      arguments: '{"timezone":"Asia/Shanghai"}'
+                    }
+                  }
+                ]
+              },
+              finish_reason: "tool_calls"
+            }
+          ],
+          usage: {
+            prompt_tokens: 20,
+            completion_tokens: 8,
+            total_tokens: 28
+          }
+        });
+      }
+    });
+
+    await expect(
+      provider.complete({
+        messages: [{ role: "user", content: "现在几点" }],
+        tools: [
+          {
+            name: "get_current_time",
+            description: "查询当前时间",
+            parameters: {
+              type: "object",
+              additionalProperties: true
+            }
+          }
+        ],
+        toolChoice: "auto"
+      })
+    ).resolves.toMatchObject({
+      content: "",
+      finishReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "call-time",
+          name: "get_current_time",
+          arguments: { timezone: "Asia/Shanghai" }
+        }
+      ],
+      usage: {
+        promptTokens: 20,
+        completionTokens: 8,
+        totalTokens: 28
+      }
+    });
+    expect(requestBody).toMatchObject({
+      model: "tool-model",
+      tool_choice: "auto",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_current_time",
+            description: "查询当前时间"
+          }
+        }
+      ]
+    });
+  });
 });
 
 describe("ApiChatAgent", () => {
@@ -156,7 +240,219 @@ describe("ApiChatAgent", () => {
       output: textMessage("current answer")
     });
   });
+
+  it("runs model tool model as one agent run", async () => {
+    const modelRequests: unknown[] = [];
+    const toolCalls: unknown[] = [];
+    const agent = new ApiChatAgent({
+      id: "tool-agent",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          modelRequests.push(structuredClone(request));
+          if (modelRequests.length === 1) {
+            return {
+              content: "",
+              finishReason: "tool_calls",
+              toolCalls: [
+                {
+                  id: "call-search",
+                  name: "search_repository",
+                  arguments: { query: "ContextAttributor" },
+                  rawArguments: '{"query":"ContextAttributor"}'
+                }
+              ]
+            };
+          }
+          expect(request.messages.at(-1)).toMatchObject({
+            role: "tool",
+            toolCallId: "call-search",
+            name: "search_repository"
+          });
+          expect(request.messages.at(-1)?.content).toContain("attribution.ts");
+          return {
+            content: "ContextAttributor 位于 attribution.ts",
+            finishReason: "stop"
+          };
+        }
+      }
+    });
+
+    const run = await agent.run(
+      agentRequest("搜索 ContextAttributor"),
+      agentContext(async (name, input, context) => {
+        toolCalls.push({ name, input, context });
+        return {
+          status: "succeeded",
+          output: { files: ["packages/runtime-core/src/context/attribution.ts"] }
+        };
+      })
+    );
+
+    expect(modelRequests).toHaveLength(2);
+    expect(toolCalls).toEqual([
+      {
+        name: "search_repository",
+        input: { query: "ContextAttributor" },
+        context: { runId: "run-event-1", callId: "call-search" }
+      }
+    ]);
+    expect(run).toMatchObject({
+      status: "succeeded",
+      output: textMessage("ContextAttributor 位于 attribution.ts"),
+      steps: [
+        { id: "model-1", kind: "model", status: "succeeded" },
+        { id: "tool-1", kind: "tool", status: "succeeded" },
+        { id: "model-2", kind: "model", status: "succeeded" }
+      ]
+    });
+  });
+
+  it("returns tool failures to the model as observations", async () => {
+    let modelStep = 0;
+    const agent = new ApiChatAgent({
+      id: "recovering-tool-agent",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          modelStep += 1;
+          if (modelStep === 1) {
+            return {
+              content: "",
+              toolCalls: [
+                {
+                  id: "call-failing",
+                  name: "search_repository",
+                  arguments: { query: "missing" },
+                  rawArguments: '{"query":"missing"}'
+                }
+              ]
+            };
+          }
+          expect(request.messages.at(-1)?.content).toContain("repository unavailable");
+          return { content: "仓库暂时不可用，请稍后重试" };
+        }
+      }
+    });
+
+    const run = await agent.run(
+      agentRequest("搜索仓库"),
+      agentContext(async () => {
+        throw new Error("repository unavailable");
+      })
+    );
+
+    expect(run).toMatchObject({
+      status: "succeeded",
+      output: textMessage("仓库暂时不可用，请稍后重试"),
+      steps: [
+        { kind: "model", status: "succeeded" },
+        { kind: "tool", status: "failed" },
+        { kind: "model", status: "succeeded" }
+      ]
+    });
+  });
+
+  it("fails safely when the model step budget is exhausted", async () => {
+    const agent = new ApiChatAgent({
+      id: "budgeted-agent",
+      maxSteps: 1,
+      provider: {
+        id: "test-provider",
+        async complete() {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "call-loop",
+                name: "search_repository",
+                arguments: { query: "loop" },
+                rawArguments: '{"query":"loop"}'
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    await expect(
+      agent.run(
+        agentRequest("不断搜索"),
+        agentContext(async () => ({
+          status: "succeeded",
+          output: { files: [] }
+        }))
+      )
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: "Agent loop exceeded the model step limit of 1.",
+      steps: [
+        { kind: "model", status: "succeeded" },
+        { kind: "tool", status: "succeeded" }
+      ]
+    });
+  });
 });
+
+function agentContext(
+  call: (
+    name: string,
+    input: unknown,
+    context: { readonly runId: string; readonly callId?: string }
+  ) => Promise<
+    | { readonly status: "succeeded"; readonly output?: unknown }
+    | { readonly status: "blocked"; readonly reason?: string }
+  >
+): AgentRuntimeContext {
+  return {
+    tools: {
+      list: () => [
+        {
+          name: "search_repository",
+          description: "搜索仓库",
+          permission: {
+            action: "repository.search",
+            resource: "workspace"
+          },
+          async handle() {
+            return undefined;
+          }
+        }
+      ],
+      async decidePermission(request) {
+        return {
+          action: request.action,
+          resource: request.resource,
+          decision: "allow"
+        };
+      },
+      call: async <TOutput = unknown>(
+        name: string,
+        input: unknown,
+        context: { readonly runId: string; readonly callId?: string }
+      ) => {
+        const result = await call(name, input, context);
+        return result.status === "blocked"
+          ? result
+          : {
+              status: "succeeded",
+              output: result.output as TOutput
+            };
+      }
+    },
+    conversation: {
+      async createBranch(input) {
+        return {
+          id: `branch-${input.idempotencyKey}`,
+          sessionId: "qq:user-1",
+          parentMainlineId: "mainline:qq:user-1",
+          sourceEventId: "event-1",
+          status: "created"
+        };
+      }
+    }
+  };
+}
 
 function agentRequest(text: string): AgentRequest {
   return {

@@ -1,19 +1,58 @@
-import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
+import type { Agent, AgentRun, AgentRuntimeContext, AgentStep } from "@synapse/runtime-agent-core";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 
 /* 角色 */
-export type ChatRole = "system" | "user" | "assistant";
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 /* 聊天消息 */
 export interface ChatCompletionMessage {
   readonly role: ChatRole;
-  readonly content: string;
+  readonly content: string | null;
+  readonly toolCalls?: readonly ChatToolCall[];
+  readonly toolCallId?: string;
+  readonly name?: string;
+}
+
+/**
+ * 模型请求执行的结构化工具调用
+ */
+export interface ChatToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: unknown;
+  readonly rawArguments: string;
+  readonly argumentError?: string;
+}
+
+/**
+ * 发送给模型的工具定义
+ */
+export interface ChatToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * 模型请求的工具选择策略
+ */
+export type ChatToolChoice = "auto" | "none" | { readonly name: string };
+
+/**
+ * 模型调用的用量信息
+ */
+export interface ChatTokenUsage {
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly totalTokens?: number;
 }
 
 /* 聊天请求 */
 export interface ChatCompletionRequest {
   readonly messages: readonly ChatCompletionMessage[];
+  readonly tools?: readonly ChatToolDefinition[];
+  readonly toolChoice?: ChatToolChoice;
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
@@ -21,17 +60,28 @@ export interface ChatCompletionRequest {
   readonly extraBody?: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * 聊天完成的结构化结果
+ */
 export interface ChatCompletionResult {
   readonly content: string;
+  readonly toolCalls?: readonly ChatToolCall[];
+  readonly finishReason?: string;
+  readonly usage?: ChatTokenUsage;
   readonly raw?: unknown;
 }
 
-/* 服务提供商 */
+/**
+ * 聊天完成服务提供商
+ */
 export interface ChatCompletionProvider {
   readonly id: string;
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;
 }
 
+/**
+ * OpenAI 兼容聊天提供商的配置
+ */
 export interface OpenAiCompatibleChatProviderOptions {
   readonly id: string;
   readonly apiKey: string;
@@ -45,10 +95,17 @@ export interface OpenAiCompatibleChatProviderOptions {
   readonly fetch?: FetchLike;
 }
 
+/**
+ * 工具型聊天 Agent 的配置
+ */
 export interface ApiChatAgentOptions {
   readonly id: string;
   readonly provider: ChatCompletionProvider;
   readonly systemPrompt?: string;
+  /** 单次运行允许的最大模型步数 */
+  readonly maxSteps?: number;
+  /** 单次运行允许的最大工具调用数 */
+  readonly maxToolCalls?: number;
 }
 
 type FetchLike = (url: string, init?: FetchInitLike) => Promise<FetchResponseLike>;
@@ -69,11 +126,17 @@ interface ChatCompletionResponse {
   readonly choices?: readonly {
     readonly message?: {
       readonly content?: unknown;
+      readonly tool_calls?: unknown;
     };
+    readonly finish_reason?: unknown;
   }[];
+  readonly usage?: unknown;
   readonly error?: unknown;
 }
 
+/**
+ * 调用 OpenAI 兼容聊天接口的模型提供商
+ */
 export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   readonly id: string;
   readonly #apiKey: string;
@@ -107,7 +170,20 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
       ...this.#extraBody,
       ...request.extraBody,
       model: request.model ?? this.#model,
-      messages: request.messages,
+      messages: request.messages.map(messageForProvider),
+      ...(request.tools === undefined || request.tools.length === 0
+        ? {}
+        : {
+            tools: request.tools.map((tool) => ({
+              type: "function",
+              function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters
+              }
+            })),
+            tool_choice: toolChoiceForProvider(request.toolChoice ?? "auto")
+          }),
       ...(temperature === undefined ? {} : { temperature }),
       ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
       ...(topP === undefined ? {} : { top_p: topP })
@@ -127,93 +203,325 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
       throw new Error(`Chat completion failed with HTTP ${response.status}: ${safeJson(responseBody)}`);
     }
 
-    const content = responseBody.choices?.[0]?.message?.content;
-
-    if (typeof content !== "string" || content.length === 0) {
-      throw new Error("Chat completion response is missing choices[0].message.content.");
+    const choice = responseBody.choices?.[0];
+    const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
+    const toolCalls = parseToolCalls(choice?.message?.tool_calls);
+    if (content.length === 0 && toolCalls.length === 0) {
+      throw new Error("Chat completion response has neither text content nor tool calls.");
     }
 
     return {
       content,
+      toolCalls,
+      ...(typeof choice?.finish_reason === "string" ? { finishReason: choice.finish_reason } : {}),
+      ...parseUsage(responseBody.usage),
       raw: responseBody
     };
   }
 }
 
+/**
+ * 在模型与工具之间循环执行直到产生最终文本的 Agent
+ */
 export class ApiChatAgent implements Agent {
   readonly id: string;
   readonly #provider: ChatCompletionProvider;
   readonly #systemPrompt: string | undefined;
+  readonly #maxSteps: number;
+  readonly #maxToolCalls: number;
 
   constructor(options: ApiChatAgentOptions) {
     this.id = options.id;
     this.#provider = options.provider;
     this.#systemPrompt = options.systemPrompt;
+    this.#maxSteps = positiveInteger(options.maxSteps ?? 8, "maxSteps");
+    this.#maxToolCalls = positiveInteger(options.maxToolCalls ?? 16, "maxToolCalls");
   }
 
-  async run(request: AgentRequest): Promise<AgentRun> {
-    const startedAt = new Date().toISOString();
+  async run(request: AgentRequest, context?: AgentRuntimeContext): Promise<AgentRun> {
+    const runId = `run-${request.event.id}`;
     const userText = getTextContent(request.input);
+    const steps: AgentStep[] = [];
+    let toolCallCount = 0;
+    const availableTools = context?.tools.list() ?? [];
+    const toolDefinitions: ChatToolDefinition[] = availableTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: {
+        type: "object",
+        additionalProperties: true
+      }
+    }));
+    const messages: ChatCompletionMessage[] = [
+      ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
+      ...(request.promptContext?.system === undefined
+        ? []
+        : [{ role: "system" as const, content: request.promptContext.system }]),
+      ...(request.promptContext?.messages.map((message) => ({
+        role: message.role,
+        content: message.content
+      })) ?? []),
+      { role: "user", content: userText }
+    ];
 
     try {
-      const contextMessages =
-        request.promptContext?.messages.map((message) => ({
-          role: message.role,
-          content: message.content
-        })) ?? [];
-      const result = await this.#provider.complete({
-        messages: [
-          ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
-          ...(request.promptContext?.system === undefined
-            ? []
-            : [{ role: "system" as const, content: request.promptContext.system }]),
-          ...contextMessages,
-          { role: "user", content: userText }
-        ]
-      });
-      const finishedAt = new Date().toISOString();
-
-      return {
-        id: `run-${request.event.id}`,
-        agentId: this.id,
-        sessionId: request.sessionId,
-        status: "succeeded",
-        input: request.input,
-        steps: [
-          {
-            id: "model-1",
+      for (let stepIndex = 1; stepIndex <= this.#maxSteps; stepIndex += 1) {
+        const modelStartedAt = new Date().toISOString();
+        let result: ChatCompletionResult;
+        try {
+          // 模型步骤依赖前一步观察结果必须串行执行
+          // oxlint-disable-next-line no-await-in-loop
+          result = await this.#provider.complete({
+            messages,
+            ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" })
+          });
+        } catch (error) {
+          steps.push({
+            id: `model-${stepIndex}`,
             kind: "model",
-            status: "succeeded",
-            startedAt,
-            finishedAt,
+            status: "failed",
+            startedAt: modelStartedAt,
+            finishedAt: new Date().toISOString(),
             detail: this.#provider.id
-          }
-        ],
-        output: textMessage(result.content)
-      };
-    } catch (error) {
-      const finishedAt = new Date().toISOString();
+          });
+          throw error;
+        }
+        const modelFinishedAt = new Date().toISOString();
+        const toolCalls = result.toolCalls ?? [];
+        steps.push({
+          id: `model-${stepIndex}`,
+          kind: "model",
+          status: "succeeded",
+          startedAt: modelStartedAt,
+          finishedAt: modelFinishedAt,
+          detail: modelStepDetail(this.#provider.id, result)
+        });
 
+        if (toolCalls.length === 0) {
+          if (result.content.length === 0) {
+            throw new Error("Agent loop finished without a text response.");
+          }
+          return {
+            id: runId,
+            agentId: this.id,
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps,
+            output: textMessage(result.content)
+          };
+        }
+
+        messages.push({
+          role: "assistant",
+          content: result.content.length === 0 ? null : result.content,
+          toolCalls
+        });
+        for (const toolCall of toolCalls) {
+          toolCallCount += 1;
+          if (toolCallCount > this.#maxToolCalls) {
+            throw new Error(`Agent loop exceeded the tool call limit of ${this.#maxToolCalls}.`);
+          }
+          const toolStartedAt = new Date().toISOString();
+          // 工具结果需要按照模型给出的调用顺序写回上下文
+          // oxlint-disable-next-line no-await-in-loop
+          const observation = await executeToolCall(toolCall, runId, context);
+          const toolFinishedAt = new Date().toISOString();
+          steps.push({
+            id: `tool-${toolCallCount}`,
+            kind: "tool",
+            status: observation.status,
+            startedAt: toolStartedAt,
+            finishedAt: toolFinishedAt,
+            detail: toolCall.name
+          });
+          messages.push({
+            role: "tool",
+            content: safeJson(observation.payload),
+            toolCallId: toolCall.id,
+            name: toolCall.name
+          });
+        }
+      }
+      throw new Error(`Agent loop exceeded the model step limit of ${this.#maxSteps}.`);
+    } catch (error) {
       return {
-        id: `run-${request.event.id}`,
+        id: runId,
         agentId: this.id,
         sessionId: request.sessionId,
         status: "failed",
         input: request.input,
-        steps: [
-          {
-            id: "model-1",
-            kind: "model",
-            status: "failed",
-            startedAt,
-            finishedAt,
-            detail: this.#provider.id
-          }
-        ],
+        steps,
         error: error instanceof Error ? error.message : "Unknown chat completion error."
       };
     }
   }
+}
+
+function messageForProvider(message: ChatCompletionMessage): unknown {
+  return {
+    role: message.role,
+    content: message.content,
+    ...(message.toolCalls === undefined
+      ? {}
+      : {
+          tool_calls: message.toolCalls.map((toolCall) => ({
+            id: toolCall.id,
+            type: "function",
+            function: {
+              name: toolCall.name,
+              arguments: toolCall.rawArguments
+            }
+          }))
+        }),
+    ...(message.toolCallId === undefined ? {} : { tool_call_id: message.toolCallId }),
+    ...(message.name === undefined ? {} : { name: message.name })
+  };
+}
+
+function toolChoiceForProvider(choice: ChatToolChoice): unknown {
+  return typeof choice === "string"
+    ? choice
+    : {
+        type: "function",
+        function: {
+          name: choice.name
+        }
+      };
+}
+
+function parseToolCalls(value: unknown): readonly ChatToolCall[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((candidate) => {
+    if (!isRecord(candidate) || !isRecord(candidate.function)) {
+      return [];
+    }
+    const id = candidate.id;
+    const name = candidate.function.name;
+    const rawArguments = candidate.function.arguments;
+    if (typeof id !== "string" || typeof name !== "string" || typeof rawArguments !== "string") {
+      return [];
+    }
+    try {
+      return [
+        {
+          id,
+          name,
+          arguments: JSON.parse(rawArguments) as unknown,
+          rawArguments
+        }
+      ];
+    } catch (error) {
+      return [
+        {
+          id,
+          name,
+          arguments: {},
+          rawArguments,
+          argumentError: error instanceof Error ? error.message : "Invalid tool arguments"
+        }
+      ];
+    }
+  });
+}
+
+function parseUsage(value: unknown): { readonly usage?: ChatTokenUsage } {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const promptTokens = optionalNumber(value.prompt_tokens);
+  const completionTokens = optionalNumber(value.completion_tokens);
+  const totalTokens = optionalNumber(value.total_tokens);
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+    return {};
+  }
+  return {
+    usage: {
+      ...(promptTokens === undefined ? {} : { promptTokens }),
+      ...(completionTokens === undefined ? {} : { completionTokens }),
+      ...(totalTokens === undefined ? {} : { totalTokens })
+    }
+  };
+}
+
+async function executeToolCall(
+  toolCall: ChatToolCall,
+  runId: string,
+  context: AgentRuntimeContext | undefined
+): Promise<{
+  readonly status: Extract<AgentStep["status"], "succeeded" | "failed" | "blocked">;
+  readonly payload: unknown;
+}> {
+  if (toolCall.argumentError !== undefined) {
+    return {
+      status: "failed",
+      payload: {
+        status: "failed",
+        error: `Tool arguments are not valid JSON: ${toolCall.argumentError}`
+      }
+    };
+  }
+  if (context === undefined) {
+    return {
+      status: "failed",
+      payload: {
+        status: "failed",
+        error: "No tool runtime is available for this agent run"
+      }
+    };
+  }
+  if (!context.tools.list().some((tool) => tool.name === toolCall.name)) {
+    return {
+      status: "failed",
+      payload: {
+        status: "failed",
+        error: `Unknown tool "${toolCall.name}"`
+      }
+    };
+  }
+  try {
+    const result = await context.tools.call(toolCall.name, toolCall.arguments, {
+      runId,
+      callId: toolCall.id
+    });
+    if (result.status === "blocked") {
+      return {
+        status: "blocked",
+        payload: {
+          status: "blocked",
+          reason: result.reason ?? "Tool execution was blocked"
+        }
+      };
+    }
+    return {
+      status: "succeeded",
+      payload: {
+        status: "succeeded",
+        output: result.output
+      }
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      payload: {
+        status: "failed",
+        error: error instanceof Error ? error.message : "Unknown tool execution error"
+      }
+    };
+  }
+}
+
+function modelStepDetail(providerId: string, result: ChatCompletionResult): string {
+  const details = [providerId];
+  if (result.finishReason !== undefined) {
+    details.push(`finish=${result.finishReason}`);
+  }
+  if (result.usage?.totalTokens !== undefined) {
+    details.push(`tokens=${result.usage.totalTokens}`);
+  }
+  return details.join(" ");
 }
 
 async function defaultFetch(url: string, init?: FetchInitLike): Promise<FetchResponseLike> {
@@ -230,6 +538,21 @@ function parseRequiredString(value: string, field: string): string {
   }
 
   return value;
+}
+
+function positiveInteger(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Agent option "${field}" must be a positive safe integer.`);
+  }
+  return value;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
 }
 
 function safeJson(value: unknown): string {
