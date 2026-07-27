@@ -247,10 +247,12 @@ export class ApiChatAgent implements Agent {
     const toolDefinitions: ChatToolDefinition[] = availableTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: "object",
-        additionalProperties: true
-      }
+      parameters:
+        tool.inputSchema ??
+        {
+          type: "object",
+          additionalProperties: true
+        }
     }));
     const messages: ChatCompletionMessage[] = [
       ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),

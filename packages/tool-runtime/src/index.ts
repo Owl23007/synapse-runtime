@@ -31,10 +31,21 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
   context: ToolContext
 ) => Promise<TOutput>;
 
+/**
+ * 根据输入和运行上下文动态生成权限要求
+ */
+export type ToolPermissionResolver<TInput = unknown> = (
+  input: TInput,
+  context: ToolContext
+) => PermissionRequirement;
+
 export interface Tool<TInput = unknown, TOutput = unknown> {
   readonly name: string;
   readonly description: string;
-  readonly permission: PermissionRequirement;
+  /** 发送给模型并用于参数校验的 JSON Schema */
+  readonly inputSchema?: Readonly<Record<string, unknown>>;
+  /** 固定权限要求或根据本次调用动态生成的权限要求 */
+  readonly permission: PermissionRequirement | ToolPermissionResolver<TInput>;
   handle(input: TInput, context: ToolContext): Promise<TOutput>;
 }
 
@@ -279,9 +290,11 @@ export class ToolRuntime implements ToolRuntimeView {
 
     let decision: PermissionDecision;
     try {
+      const permission =
+        typeof tool.permission === "function" ? tool.permission(input, callContext) : tool.permission;
       decision = await this.#permissionEngine.decide({
-        action: tool.permission.action,
-        resource: tool.permission.resource,
+        action: permission.action,
+        resource: permission.resource,
         subject: callContext.userId
       });
     } catch (error) {

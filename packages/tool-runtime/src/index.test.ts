@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PermissionEngine } from "@synapse/runtime-permission";
+import type { PermissionEngine, PermissionRequest } from "@synapse/runtime-permission";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import {
   ToolCallRecoveryError,
@@ -15,6 +15,61 @@ const BASE_CONTEXT: ToolContext = {
   sessionId: "session-1",
   userId: "user-1"
 };
+
+describe("ToolRuntime contracts", () => {
+  it("resolves permission resources from tool input", async () => {
+    const requests: PermissionRequest[] = [];
+    const runtime = new ToolRuntime({
+      async decide(request) {
+        requests.push(request);
+        return {
+          action: request.action,
+          resource: request.resource,
+          decision: "allow"
+        };
+      }
+    });
+    runtime.register({
+      name: "web.fetch",
+      description: "Fetch a web page.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" }
+        },
+        required: ["url"],
+        additionalProperties: false
+      },
+      permission(input) {
+        const url = (input as { readonly url: string }).url;
+        return {
+          action: "network.web.fetch",
+          resource: new URL(url).hostname
+        };
+      },
+      async handle() {
+        return "content";
+      }
+    });
+
+    await expect(
+      runtime.call("web.fetch", { url: "https://docs.example.com/guide" }, BASE_CONTEXT)
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      output: "content"
+    });
+    expect(requests).toEqual([
+      {
+        action: "network.web.fetch",
+        resource: "docs.example.com",
+        subject: "user-1"
+      }
+    ]);
+    expect(runtime.list()[0]?.inputSchema).toMatchObject({
+      required: ["url"]
+    });
+  });
+});
 
 describe("ToolRuntime observers", () => {
   it("awaits observers in subscription order and preserves the supplied call scope", async () => {

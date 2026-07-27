@@ -290,6 +290,17 @@ describe("ApiChatAgent", () => {
     );
 
     expect(modelRequests).toHaveLength(2);
+    expect(modelRequests[0]).toMatchObject({
+      tools: [
+        {
+          name: "search_repository",
+          parameters: {
+            required: ["query"],
+            additionalProperties: false
+          }
+        }
+      ]
+    });
     expect(toolCalls).toEqual([
       {
         name: "search_repository",
@@ -410,6 +421,14 @@ function agentContext(
         {
           name: "search_repository",
           description: "搜索仓库",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string" }
+            },
+            required: ["query"],
+            additionalProperties: false
+          },
           permission: {
             action: "repository.search",
             resource: "workspace"
