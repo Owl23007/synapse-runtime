@@ -52,6 +52,27 @@
 | --------------------- | ------- | ------- |
 | `enableDurableMemory` | boolean | `false` |
 
+## `tools.web`
+
+| Field                 | Type     | Default              |
+| --------------------- | -------- | -------------------- |
+| `enabled`             | boolean  | `false`              |
+| `allowedDomains`      | string[] | `[]`                 |
+| `deniedDomains`       | string[] | `[]`                 |
+| `allowPrivateNetwork` | boolean  | `false`              |
+| `timeoutMs`           | integer  | `15000`              |
+| `maxResponseBytes`    | integer  | `2000000`            |
+| `maxContentChars`     | integer  | `24000`              |
+| `maxRedirects`        | integer  | `5`                  |
+| `userAgent`           | string   | `SynapseRuntime/0.1` |
+
+可选的 `tools.web.search` 支持：
+
+- `provider = "brave"`，必须配置 `apiKey`，可选配置 `baseUrl`
+- `provider = "searxng"`，必须配置 `baseUrl`
+
+`tools.web.enabled = true` 时至少注册 `web.fetch`，配置搜索提供商后同时注册 `web.search`
+
 ## `agent`
 
 | Field          | Type        | Default  |

@@ -10,6 +10,8 @@ Runtime 配置由 `@synapse/runtime-config` 加载。Loader 支持 TOML、YAML �
 [admin]
 [context]
 [memory]
+[tools.web]
+[tools.web.search]
 [agent]
 [conversation.privateTrigger]
 [conversation.groupTrigger]
@@ -17,6 +19,8 @@ Runtime 配置由 `@synapse/runtime-config` 加载。Loader 支持 TOML、YAML �
 [channels."<channel-id>"]
 [permissions]
 ```
+
+联网能力默认关闭，启用方式、搜索提供商和安全边界见[联网工具](./web-tools.md)
 
 ## Runtime
 

@@ -79,6 +79,27 @@ allowCommandWithoutMention = true
 includeHistory = true
 maxMessages = 20
 
+[tools.web]
+enabled = false
+allowedDomains = []
+deniedDomains = []
+allowPrivateNetwork = false
+timeoutMs = 15000
+maxResponseBytes = 2000000
+maxContentChars = 24000
+maxRedirects = 5
+userAgent = "SynapseRuntime/0.1"
+
+# 启用 Brave Search 时取消以下注释并配置 BRAVE_SEARCH_API_KEY
+# [tools.web.search]
+# provider = "brave"
+# apiKey = "${BRAVE_SEARCH_API_KEY}"
+#
+# 使用自建 SearXNG 时可改为
+# [tools.web.search]
+# provider = "searxng"
+# baseUrl = "https://search.example.com/search"
+
 [channels."qq-local"]
 adapter = "onebot11"
 provider = "napcat"
@@ -103,3 +124,5 @@ riskLevel = "low"
 "channel.qq.send_private_message" = "allow"
 "channel.qq.manage_group" = "allow"
 "channel.qq.send_media" = "confirm"
+"network.web.search" = "allow"
+"network.web.fetch" = "allow"

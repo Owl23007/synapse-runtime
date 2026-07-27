@@ -16,6 +16,7 @@
 | `@synapse/runtime-channel`      | Channel adapter 契约、target 类型、capabilities 和内存 registry |
 | `@synapse/runtime-agent-core`   | Agent 接口、agent run 模型和 agent registry                     |
 | `@synapse/runtime-tool-runtime` | Tool 注册、tool 权限检查和 tool 调用                            |
+| `@synapse/runtime-tool-web`     | 受权限和 SSRF 防护约束的 Web 搜索、抓取与文本提取               |
 
 ## 具体实现
 

@@ -1,5 +1,25 @@
 # Synapse Agent 下一迭代互联网访问能力 PRD
 
+## 当前实现状态
+
+截至 2026-07-27 已完成：
+
+- OpenAI-compatible 结构化工具调用与多步 Agent Loop
+- 工具 JSON Schema 透传和动态权限资源
+- `web.search` 的 Brave Search 与 SearXNG Provider
+- `web.fetch` 的公开网页抓取与轻量 HTML 文本提取
+- 协议、凭据、域名、DNS、私网地址和逐跳重定向防护
+- 超时、响应字节限制、内容长度限制和外部内容不可信提示
+- 生产运行时配置、工具注册、审计事件和幂等重放接线
+
+仍待后续增强：
+
+- 独立 `web.extract` 和 Readability 级正文抽取
+- 搜索与抓取缓存
+- `confirm` 和 `rate_limit` 的可恢复交互状态机
+- Citation ID 与回答片段到来源片段的映射
+- Browser、MCP 和登录态网页能力
+
 ## 1. 背景
 
 Synapse Runtime 已经具备 Agent 运行时、配置体系、上下文合成、工具运行时和权限模型的雏形。但当前互联网访问能力仍未形成闭环：
