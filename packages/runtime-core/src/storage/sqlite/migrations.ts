@@ -21,7 +21,7 @@ export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
     if (foreignKeyErrors.length > 0) {
       throw new Error(`Runtime context migration produced ${foreignKeyErrors.length} foreign key violation(s).`);
     }
-    db.pragma("user_version = 3");
+    db.pragma("user_version = 4");
   });
 
   migrate.immediate();

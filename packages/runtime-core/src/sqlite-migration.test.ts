@@ -188,7 +188,7 @@ describe("SqliteRuntimeContextStore migrations", () => {
 
       const inspected = new Database(databasePath, { readonly: true });
       expect(inspected.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-      expect(inspected.pragma("user_version", { simple: true })).toBe(3);
+      expect(inspected.pragma("user_version", { simple: true })).toBe(4);
       inspected.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -429,7 +429,7 @@ describe("SqliteRuntimeContextStore migrations", () => {
         { source_event_type: "message.created", count: 1 },
         { source_event_type: "message.deleted", count: 1 }
       ]);
-      expect(inspected.pragma("user_version", { simple: true })).toBe(3);
+      expect(inspected.pragma("user_version", { simple: true })).toBe(4);
       inspected.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });

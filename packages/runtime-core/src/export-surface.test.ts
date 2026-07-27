@@ -17,6 +17,7 @@ describe("runtime-core export surface", () => {
       "SqliteRuntimeContextStore",
       "WorkspaceResolverLite",
       "anonymousActor",
+      "applyConversationStatePatch",
       "buildSessionId",
       "buildSourceEventId",
       "commandResponse",

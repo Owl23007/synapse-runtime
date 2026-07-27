@@ -14,6 +14,26 @@ export type BranchStatus =
   | "archived";
 export type TaskStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
 export type BranchResultStatus = "completed" | "failed" | "cancelled";
+/**
+ * 语义节点记录一次值得独立追踪的上下文变化
+ */
+export type ConversationNodeKind =
+  | "topic_created"
+  | "focus_changed"
+  | "decision"
+  | "assumption_rejected"
+  | "question_opened"
+  | "question_resolved"
+  | "task_result"
+  | "context_resumed"
+  | "fork"
+  | "merge"
+  | (string & {});
+
+/**
+ * 语义状态补丁采用 JSON Merge Patch 语义
+ */
+export type ConversationStatePatch = Readonly<Record<string, unknown>>;
 
 export type LineEventType =
   | "user_message"
@@ -171,6 +191,62 @@ export interface BranchMerge {
   readonly createdAt: string;
 }
 
+/**
+ * 不可变的会话语义节点
+ */
+export interface ConversationNode {
+  readonly id: string;
+  readonly ordinal: number;
+  readonly sequence: number;
+  readonly sessionId: string;
+  readonly lineId: string;
+  readonly parentIds: readonly string[];
+  readonly kind: ConversationNodeKind;
+  readonly title: string;
+  readonly statePatch: ConversationStatePatch;
+  readonly sourceEventIds: readonly string[];
+  readonly sourceTaskIds: readonly string[];
+  readonly sourceResultIds: readonly string[];
+  readonly createdBy: string;
+  readonly idempotencyKey: string;
+  readonly createdAt: string;
+}
+
+/**
+ * 指向某条语义路径最新节点的可移动引用
+ */
+export interface ConversationLineHead {
+  readonly lineId: string;
+  readonly nodeId: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * 从语义节点派生的上下文检查点
+ */
+export interface ConversationContextSnapshot {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly lineId: string;
+  readonly nodeId: string;
+  readonly nodeOrdinal: number;
+  readonly state: Readonly<Record<string, unknown>>;
+  readonly idempotencyKey: string;
+  readonly createdAt: string;
+}
+
+/**
+ * 按节点图重建得到的临时语义状态
+ */
+export interface ReconstructedConversationState {
+  readonly sessionId: string;
+  readonly lineId: string;
+  readonly headNodeId?: string;
+  readonly snapshot?: ConversationContextSnapshot;
+  readonly state: Readonly<Record<string, unknown>>;
+  readonly appliedNodeIds: readonly string[];
+}
+
 export interface CreateSessionInput {
   /**
    * `sessionId` is accepted as an alias so callers can pass an existing
@@ -306,6 +382,43 @@ export interface MergeBranchResultInput {
   readonly createdAt?: string;
 }
 
+/**
+ * 创建语义节点时使用的输入
+ */
+export interface CreateConversationNodeInput {
+  readonly id?: string;
+  readonly parentIds?: readonly string[];
+  readonly kind: ConversationNodeKind;
+  readonly title: string;
+  readonly statePatch: ConversationStatePatch;
+  readonly sourceEventIds?: readonly string[];
+  readonly sourceTaskIds?: readonly string[];
+  readonly sourceResultIds?: readonly string[];
+  readonly createdBy: string;
+  readonly idempotencyKey: string;
+  readonly createdAt?: string;
+}
+
+/**
+ * 创建上下文检查点时使用的输入
+ */
+export interface CreateConversationContextSnapshotInput {
+  readonly id?: string;
+  readonly nodeId?: string;
+  readonly idempotencyKey: string;
+  readonly createdAt?: string;
+}
+
+/**
+ * 查询语义节点时使用的筛选条件
+ */
+export interface ListConversationNodesOptions {
+  readonly limit?: number;
+  readonly afterOrdinal?: number;
+  readonly beforeOrdinal?: number;
+  readonly kinds?: readonly ConversationNodeKind[];
+}
+
 export interface ListLinesOptions {
   readonly kind?: ConversationLine["kind"];
   readonly statuses?: readonly (MainlineStatus | BranchStatus)[];
@@ -428,6 +541,17 @@ export interface ConversationStore {
   getBranchResult(resultId: string): Promise<BranchResult | undefined>;
   listBranchResults(branchId: string): Promise<readonly BranchResult[]>;
   mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge>;
+
+  createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode>;
+  getNode(nodeId: string): Promise<ConversationNode | undefined>;
+  listNodes(lineId: string, options?: ListConversationNodesOptions): Promise<readonly ConversationNode[]>;
+  getLineHead(lineId: string): Promise<ConversationLineHead | undefined>;
+  createContextSnapshot(
+    lineId: string,
+    input: CreateConversationContextSnapshotInput
+  ): Promise<ConversationContextSnapshot>;
+  getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined>;
+  reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState>;
 
   getBranchContext(branchId: string): Promise<BranchContext>;
   getRecoveryState(sessionId?: string): Promise<ConversationRecoveryState>;

@@ -10,24 +10,31 @@ import type {
   BranchResultTrace,
   BranchStatus,
   ConversationBranch,
+  ConversationContextSnapshot,
   ConversationLine,
+  ConversationLineHead,
   ConversationMainline,
+  ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
   ConversationStore,
   ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
+  CreateConversationContextSnapshotInput,
+  CreateConversationNodeInput,
   CreateSessionInput,
   CreateTaskInput,
   EventTrace,
   LineEvent,
   ListBranchesOptions,
+  ListConversationNodesOptions,
   ListLineEventsOptions,
   ListLinesOptions,
   ListTasksOptions,
   MergeBranchResultInput,
   NormalizedEvent,
+  ReconstructedConversationState,
   SessionStatus,
   TaskStatus,
   TaskTrace,
@@ -37,6 +44,7 @@ import type {
 } from "./types.js";
 import { ConversationStoreError } from "./types.js";
 import { collectRelatedEvents } from "./trace.js";
+import { applyConversationStatePatch } from "./state.js";
 
 interface IdempotentRecord<T> {
   readonly signature: unknown;
@@ -95,6 +103,11 @@ export class InMemoryConversationStore implements ConversationStore {
   readonly #resultEventIds = new Map<string, string>();
   readonly #merges = new Map<string, BranchMerge>();
   readonly #mergesByResult = new Map<string, BranchMerge>();
+  readonly #nodes = new Map<string, ConversationNode>();
+  readonly #nodeIdsByLine = new Map<string, string[]>();
+  readonly #lineHeads = new Map<string, ConversationLineHead>();
+  readonly #snapshots = new Map<string, ConversationContextSnapshot>();
+  readonly #snapshotIdsByLine = new Map<string, string[]>();
 
   readonly #sessionCreateOps = new Map<string, IdempotentRecord<ConversationSession>>();
   readonly #sessionCreateSignatures = new Map<string, unknown>();
@@ -108,8 +121,11 @@ export class InMemoryConversationStore implements ConversationStore {
   readonly #taskTransitionOps = new Map<string, IdempotentRecord<ConversationTask>>();
   readonly #resultCreateOps = new Map<string, IdempotentRecord<BranchResult>>();
   readonly #mergeOps = new Map<string, IdempotentRecord<BranchMerge>>();
+  readonly #nodeCreateOps = new Map<string, IdempotentRecord<ConversationNode>>();
+  readonly #snapshotCreateOps = new Map<string, IdempotentRecord<ConversationContextSnapshot>>();
 
   #nextOrdinal = 1;
+  #nextNodeOrdinal = 1;
 
   async acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent> {
     validateAcceptNormalizedEventInput(input);
@@ -869,6 +885,173 @@ export class InMemoryConversationStore implements ConversationStore {
     return cloneValue(merge);
   }
 
+  async createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
+    validateCreateConversationNodeInput(input);
+    const safeInput = cloneValue(input);
+    const signature = cloneValue(safeInput);
+    const operationKey = scopedKey(lineId, safeInput.idempotencyKey);
+    const existingOperation = this.#nodeCreateOps.get(operationKey);
+    if (existingOperation !== undefined) {
+      assertSameRequest(existingOperation.signature, signature, "conversation node creation", safeInput.idempotencyKey);
+      return cloneValue(existingOperation.value);
+    }
+
+    const line = this.#requiredLine(lineId);
+    const parentIds =
+      safeInput.parentIds === undefined
+        ? this.#lineHeads.get(line.id) === undefined
+          ? []
+          : [this.#lineHeads.get(line.id)!.nodeId]
+        : uniqueIds(safeInput.parentIds, "parentIds");
+    for (const parentId of parentIds) {
+      const parent = this.#requiredNode(parentId);
+      if (parent.sessionId !== line.sessionId) {
+        throw ownershipMismatch(`Conversation node parent "${parent.id}" must belong to session "${line.sessionId}".`);
+      }
+    }
+    const sourceEventIds = uniqueIds(safeInput.sourceEventIds ?? [], "sourceEventIds");
+    for (const eventId of sourceEventIds) {
+      const event = this.#requiredEvent(eventId);
+      if (event.sessionId !== line.sessionId) {
+        throw ownershipMismatch(
+          `Conversation node source event "${event.id}" must belong to session "${line.sessionId}".`
+        );
+      }
+    }
+    const sourceTaskIds = uniqueIds(safeInput.sourceTaskIds ?? [], "sourceTaskIds");
+    for (const taskId of sourceTaskIds) {
+      const task = this.#requiredTask(taskId);
+      if (task.sessionId !== line.sessionId) {
+        throw ownershipMismatch(
+          `Conversation node source task "${task.id}" must belong to session "${line.sessionId}".`
+        );
+      }
+    }
+    const sourceResultIds = uniqueIds(safeInput.sourceResultIds ?? [], "sourceResultIds");
+    for (const resultId of sourceResultIds) {
+      const result = required(this.#results, resultId, "branch result");
+      if (result.sessionId !== line.sessionId) {
+        throw ownershipMismatch(
+          `Conversation node source result "${result.id}" must belong to session "${line.sessionId}".`
+        );
+      }
+    }
+
+    const nodeId = safeInput.id ?? `conversation-node-${randomUUID()}`;
+    if (this.#nodes.has(nodeId)) {
+      throw conflict(`Conversation node "${nodeId}" already exists.`);
+    }
+    const createdAt = safeInput.createdAt ?? new Date().toISOString();
+    const node: ConversationNode = {
+      id: nodeId,
+      ordinal: this.#nextNodeOrdinal,
+      sequence: (this.#nodeIdsByLine.get(line.id)?.length ?? 0) + 1,
+      sessionId: line.sessionId,
+      lineId: line.id,
+      parentIds,
+      kind: safeInput.kind,
+      title: safeInput.title,
+      statePatch: safeInput.statePatch,
+      sourceEventIds,
+      sourceTaskIds,
+      sourceResultIds,
+      createdBy: safeInput.createdBy,
+      idempotencyKey: safeInput.idempotencyKey,
+      createdAt
+    };
+    this.#nextNodeOrdinal += 1;
+    this.#nodes.set(node.id, cloneValue(node));
+    appendIndex(this.#nodeIdsByLine, line.id, node.id);
+    this.#lineHeads.set(line.id, {
+      lineId: line.id,
+      nodeId: node.id,
+      updatedAt: createdAt
+    });
+    this.#nodeCreateOps.set(operationKey, { signature, value: cloneValue(node) });
+    return cloneValue(node);
+  }
+
+  async getNode(nodeId: string): Promise<ConversationNode | undefined> {
+    return cloneOptional(this.#nodes.get(nodeId));
+  }
+
+  async listNodes(lineId: string, options: ListConversationNodesOptions = {}): Promise<readonly ConversationNode[]> {
+    validateListConversationNodesOptions(options);
+    this.#requiredLine(lineId);
+    const kinds = options.kinds === undefined ? undefined : new Set(options.kinds);
+    const matches = (this.#nodeIdsByLine.get(lineId) ?? [])
+      .map((nodeId) => required(this.#nodes, nodeId, "conversation node"))
+      .filter((node) => options.afterOrdinal === undefined || node.ordinal > options.afterOrdinal)
+      .filter((node) => options.beforeOrdinal === undefined || node.ordinal < options.beforeOrdinal)
+      .filter((node) => kinds === undefined || kinds.has(node.kind));
+    return cloneValue(options.limit === undefined ? matches : matches.slice(-options.limit));
+  }
+
+  async getLineHead(lineId: string): Promise<ConversationLineHead | undefined> {
+    this.#requiredLine(lineId);
+    return cloneOptional(this.#lineHeads.get(lineId));
+  }
+
+  async createContextSnapshot(
+    lineId: string,
+    input: CreateConversationContextSnapshotInput
+  ): Promise<ConversationContextSnapshot> {
+    validateIdempotencyKey(input.idempotencyKey);
+    const safeInput = cloneValue(input);
+    const operationKey = scopedKey(lineId, safeInput.idempotencyKey);
+    const currentHead = this.#lineHeads.get(lineId);
+    const nodeId = safeInput.nodeId ?? currentHead?.nodeId;
+    if (nodeId === undefined) {
+      throw validationError(`Line "${lineId}" has no semantic node to snapshot.`);
+    }
+    const signature = { ...safeInput, nodeId };
+    const existingOperation = this.#snapshotCreateOps.get(operationKey);
+    if (existingOperation !== undefined) {
+      assertSameRequest(
+        existingOperation.signature,
+        signature,
+        "conversation context snapshot creation",
+        safeInput.idempotencyKey
+      );
+      return cloneValue(existingOperation.value);
+    }
+
+    const line = this.#requiredLine(lineId);
+    const node = this.#requiredNode(nodeId);
+    if (node.sessionId !== line.sessionId || node.lineId !== line.id) {
+      throw ownershipMismatch(`Snapshot node "${node.id}" must belong to line "${line.id}".`);
+    }
+    const reconstructed = this.#reconstructLineState(line.id, node.id);
+    const snapshotId = safeInput.id ?? `conversation-snapshot-${randomUUID()}`;
+    if (this.#snapshots.has(snapshotId)) {
+      throw conflict(`Conversation context snapshot "${snapshotId}" already exists.`);
+    }
+    const snapshot: ConversationContextSnapshot = {
+      id: snapshotId,
+      sessionId: line.sessionId,
+      lineId: line.id,
+      nodeId: node.id,
+      nodeOrdinal: node.ordinal,
+      state: reconstructed.state,
+      idempotencyKey: safeInput.idempotencyKey,
+      createdAt: safeInput.createdAt ?? new Date().toISOString()
+    };
+    this.#snapshots.set(snapshot.id, cloneValue(snapshot));
+    appendIndex(this.#snapshotIdsByLine, line.id, snapshot.id);
+    this.#snapshotCreateOps.set(operationKey, { signature, value: cloneValue(snapshot) });
+    return cloneValue(snapshot);
+  }
+
+  async getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined> {
+    this.#requiredLine(lineId);
+    const id = last(this.#snapshotIdsByLine.get(lineId));
+    return id === undefined ? undefined : cloneValue(required(this.#snapshots, id, "conversation context snapshot"));
+  }
+
+  async reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState> {
+    return cloneValue(this.#reconstructLineState(lineId, headNodeId));
+  }
+
   async getBranchContext(branchId: string): Promise<BranchContext> {
     const branch = this.#requiredBranch(branchId);
     const session = this.#requiredSession(branch.sessionId);
@@ -1224,6 +1407,58 @@ export class InMemoryConversationStore implements ConversationStore {
     }
   }
 
+  #reconstructLineState(lineId: string, headNodeId?: string): ReconstructedConversationState {
+    const line = this.#requiredLine(lineId);
+    const resolvedHeadId = headNodeId ?? this.#lineHeads.get(line.id)?.nodeId;
+    if (resolvedHeadId === undefined) {
+      return {
+        sessionId: line.sessionId,
+        lineId: line.id,
+        state: {},
+        appliedNodeIds: []
+      };
+    }
+    const head = this.#requiredNode(resolvedHeadId);
+    if (head.lineId !== line.id) {
+      throw ownershipMismatch(`Conversation node "${head.id}" is not a head candidate for line "${line.id}".`);
+    }
+
+    const ancestry = this.#collectNodeAncestry(head);
+    const ancestryIds = new Set(ancestry.map((node) => node.id));
+    const snapshot = [...this.#snapshots.values()]
+      .filter((candidate) => ancestryIds.has(candidate.nodeId))
+      .sort((left, right) => right.nodeOrdinal - left.nodeOrdinal)[0];
+    let state: Readonly<Record<string, unknown>> = snapshot?.state ?? {};
+    const nodesToApply = ancestry.filter((node) => snapshot === undefined || node.ordinal > snapshot.nodeOrdinal);
+    for (const node of nodesToApply) {
+      state = applyConversationStatePatch(state, node.statePatch);
+    }
+
+    return {
+      sessionId: line.sessionId,
+      lineId: line.id,
+      headNodeId: head.id,
+      ...(snapshot === undefined ? {} : { snapshot }),
+      state,
+      appliedNodeIds: nodesToApply.map((node) => node.id)
+    };
+  }
+
+  #collectNodeAncestry(head: ConversationNode): readonly ConversationNode[] {
+    const visited = new Set<string>();
+    const visit = (node: ConversationNode): void => {
+      if (visited.has(node.id)) {
+        return;
+      }
+      for (const parentId of node.parentIds) {
+        visit(this.#requiredNode(parentId));
+      }
+      visited.add(node.id);
+    };
+    visit(head);
+    return [...visited].map((nodeId) => this.#requiredNode(nodeId)).sort((left, right) => left.ordinal - right.ordinal);
+  }
+
   #requiredSession(sessionId: string): ConversationSession {
     return required(this.#sessions, sessionId, "session");
   }
@@ -1258,6 +1493,10 @@ export class InMemoryConversationStore implements ConversationStore {
 
   #requiredTask(taskId: string): ConversationTask {
     return required(this.#tasks, taskId, "task");
+  }
+
+  #requiredNode(nodeId: string): ConversationNode {
+    return required(this.#nodes, nodeId, "conversation node");
   }
 }
 
@@ -1471,6 +1710,30 @@ function validateCreateBranchResultInput(input: CreateBranchResultInput): void {
   }
 }
 
+function validateCreateConversationNodeInput(input: CreateConversationNodeInput): void {
+  validateNonEmpty("node kind", input.kind);
+  validateNonEmpty("title", input.title);
+  validateNonEmpty("createdBy", input.createdBy);
+  validateIdempotencyKey(input.idempotencyKey);
+  if (input.statePatch === null || typeof input.statePatch !== "object" || Array.isArray(input.statePatch)) {
+    throw validationError("Conversation node statePatch must be an object.");
+  }
+}
+
+function validateListConversationNodesOptions(options: ListConversationNodesOptions): void {
+  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
+    throw validationError("Node list limit must be a positive safe integer.");
+  }
+  for (const [name, value] of [
+    ["afterOrdinal", options.afterOrdinal],
+    ["beforeOrdinal", options.beforeOrdinal]
+  ] as const) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+      throw validationError(`${name} must be a non-negative safe integer.`);
+    }
+  }
+}
+
 function validateListOptions(options: ListLineEventsOptions): void {
   if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
     throw validationError("Event list limit must be a positive safe integer.");
@@ -1519,6 +1782,17 @@ function appendIndex(map: Map<string, string[]>, key: string, id: string): void 
   } else {
     values.push(id);
   }
+}
+
+function uniqueIds(values: readonly string[], name: string): readonly string[] {
+  const unique = [...new Set(values)];
+  if (unique.length !== values.length) {
+    throw validationError(`${name} must not contain duplicates.`);
+  }
+  for (const value of unique) {
+    validateNonEmpty(name, value);
+  }
+  return unique;
 }
 
 function last<T>(values: readonly T[] | undefined): T | undefined {

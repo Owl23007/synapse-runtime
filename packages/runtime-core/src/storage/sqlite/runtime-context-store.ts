@@ -12,24 +12,31 @@ import type {
   BranchResult,
   BranchResultTrace,
   ConversationBranch,
+  ConversationContextSnapshot,
   ConversationLine,
+  ConversationLineHead,
   ConversationMainline,
+  ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
   ConversationStore,
   ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
+  CreateConversationContextSnapshotInput,
+  CreateConversationNodeInput,
   CreateSessionInput,
   CreateTaskInput,
   EventTrace,
   LineEvent,
   ListBranchesOptions,
+  ListConversationNodesOptions,
   ListLineEventsOptions,
   ListLinesOptions,
   ListTasksOptions,
   MergeBranchResultInput,
   NormalizedEvent,
+  ReconstructedConversationState,
   TaskTrace,
   TransitionBranchInput,
   TransitionSessionInput,
@@ -213,6 +220,37 @@ export class SqliteRuntimeContextStore
 
   mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge> {
     return this.#conversation.mergeBranchResult(branchId, mainlineId, input);
+  }
+
+  createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
+    return this.#conversation.createNode(lineId, input);
+  }
+
+  getNode(nodeId: string): Promise<ConversationNode | undefined> {
+    return this.#conversation.getNode(nodeId);
+  }
+
+  listNodes(lineId: string, options?: ListConversationNodesOptions): Promise<readonly ConversationNode[]> {
+    return this.#conversation.listNodes(lineId, options);
+  }
+
+  getLineHead(lineId: string): Promise<ConversationLineHead | undefined> {
+    return this.#conversation.getLineHead(lineId);
+  }
+
+  createContextSnapshot(
+    lineId: string,
+    input: CreateConversationContextSnapshotInput
+  ): Promise<ConversationContextSnapshot> {
+    return this.#conversation.createContextSnapshot(lineId, input);
+  }
+
+  getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined> {
+    return this.#conversation.getLatestContextSnapshot(lineId);
+  }
+
+  reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState> {
+    return this.#conversation.reconstructLineState(lineId, headNodeId);
   }
 
   getBranchContext(branchId: string): Promise<BranchContext> {
