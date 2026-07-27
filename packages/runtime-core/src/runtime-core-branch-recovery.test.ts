@@ -169,6 +169,7 @@ describe("RuntimeCore branch isolation and recovery", () => {
     const mainline = await conversationStore.getMainline(SESSION_ID);
     expect((await conversationStore.listEvents(mainline.id)).map((item) => item.type)).toEqual([
       "user_message",
+      "context_attributed",
       "agent_run_started",
       "agent_run_failed"
     ]);
@@ -919,6 +920,7 @@ describe("RuntimeCore branch isolation and recovery", () => {
     expect(branchEvents.map((item) => item.type)).toEqual([
       "branch_created",
       "user_message",
+      "context_attributed",
       "branch_status_changed",
       "agent_run_started",
       "tool_call",

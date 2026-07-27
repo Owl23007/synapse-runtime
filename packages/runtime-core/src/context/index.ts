@@ -9,3 +9,14 @@ export {
   type WorkspaceStore
 } from "./workspace.js";
 export { ContextComposer, type ContextComposerOptions } from "./composer.js";
+export {
+  ContextAttributorLite,
+  classifyInteractionNature,
+  type ContextAttributionAction,
+  type ContextAttributionCandidate,
+  type ContextAttributionDecision,
+  type ContextAttributionInput,
+  type ContextAttributor,
+  type ContextAttributorLiteOptions,
+  type InteractionNature
+} from "./attribution.js";

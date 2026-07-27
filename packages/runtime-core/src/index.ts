@@ -17,6 +17,7 @@ import {
   buildSourceEventId,
   commandResponse,
   ContextComposer,
+  ContextAttributorLite,
   conversationTypeFromEvent,
   defaultWorkspace,
   IdentityResolverLite,
@@ -30,6 +31,8 @@ import {
   type AcceptedNormalizedEvent,
   type ConversationBranch,
   type ConversationStore,
+  type ContextAttributionDecision,
+  type ContextAttributor,
   type CreateBranchInput,
   type LineEvent,
   type IdentityResolver,
@@ -56,6 +59,7 @@ export interface RuntimeCoreOptions {
     readonly enabled?: boolean;
     readonly providerByChannelId?: Readonly<Record<string, string>>;
     readonly conversationStore?: ConversationStore;
+    readonly attributor?: ContextAttributor;
     readonly transcriptStore?: TranscriptStore;
     readonly eventProcessStore?: EventProcessStore;
     readonly identityResolver?: IdentityResolver;
@@ -98,6 +102,7 @@ export class RuntimeCore {
   readonly #identityResolver: IdentityResolver;
   readonly #workspaceResolver: WorkspaceResolver;
   readonly #contextComposer: ContextComposer;
+  readonly #contextAttributor: ContextAttributor;
   readonly #outputPolicyResolver = new OutputPolicyResolver();
   readonly #responsePolicy = new ResponsePolicy();
   readonly #eventProcessStore: EventProcessStore;
@@ -144,6 +149,12 @@ export class RuntimeCore {
       options.context?.transcriptStore ??
       transcriptStoreFromUnknown(this.#conversationStore) ??
       new InMemoryTranscriptStore();
+    this.#contextAttributor =
+      options.context?.attributor ??
+      new ContextAttributorLite({
+        conversationStore: this.#conversationStore,
+        transcriptStore: this.#transcriptStore
+      });
     this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
     this.#identityResolver = options.context?.identityResolver ?? new IdentityResolverLite();
     const workspaceStore =
@@ -222,9 +233,29 @@ export class RuntimeCore {
   ): Promise<void> {
     const provider = providerOverride ?? this.#providerByChannelId[event.channelId] ?? "unknown";
     let accepted: AcceptedNormalizedEvent;
+    let attribution: ContextAttributionDecision | undefined;
+
+    if (this.#contextEnabled) {
+      try {
+        attribution = await this.#contextAttributor.attribute({
+          event,
+          provider,
+          sessionId: buildSessionId(event, provider),
+          ...(targetLineId === undefined ? {} : { explicitTargetLineId: targetLineId })
+        });
+      } catch (error) {
+        this.#logger?.warn("Runtime context attribution failed; falling back to the requested or main line.", {
+          eventId: event.id,
+          error: error instanceof Error ? error.message : "Unknown context attribution error."
+        });
+      }
+    }
 
     try {
-      accepted = await this.#acceptChannelEvent(event, provider, targetLineId);
+      accepted = await this.#acceptChannelEvent(event, provider, attribution?.targetLineId ?? targetLineId);
+      if (attribution !== undefined && accepted.created) {
+        await this.#recordContextAttribution(accepted, attribution);
+      }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Unknown conversation persistence error.";
       this.#traces.push({ eventId: event.id, status: "failed", reason: `persistence_failed: ${reason}` });
@@ -234,6 +265,18 @@ export class RuntimeCore {
         error: reason
       });
       return;
+    }
+
+    if (attribution !== undefined) {
+      this.#logger?.info("Runtime attributed channel event context.", {
+        eventId: event.id,
+        sessionId: attribution.sessionId,
+        lineId: accepted.lineEvent.lineId,
+        action: attribution.action,
+        nature: attribution.nature,
+        confidence: attribution.confidence,
+        reasons: attribution.reasons
+      });
     }
 
     if (this.#contextEnabled && accepted.lineEvent.type === "user_message" && event.message !== undefined) {
@@ -1201,6 +1244,29 @@ export class RuntimeCore {
       sessionMetadata: {
         ...(event.conversation.title === undefined ? {} : { conversationTitle: event.conversation.title })
       }
+    });
+  }
+
+  async #recordContextAttribution(
+    conversation: AcceptedNormalizedEvent,
+    decision: ContextAttributionDecision
+  ): Promise<void> {
+    await this.#conversationStore.appendEvent(conversation.lineEvent.lineId, {
+      type: "context_attributed",
+      idempotencyKey: `context-attribution:${conversation.event.id}`,
+      sourceEventId: conversation.lineEvent.id,
+      causationEventId: conversation.lineEvent.id,
+      correlationId: conversation.event.id,
+      actorId: "runtime",
+      payload: {
+        action: decision.action,
+        nature: decision.nature,
+        targetLineId: conversation.lineEvent.lineId,
+        confidence: decision.confidence,
+        reasons: decision.reasons,
+        candidates: decision.candidates
+      },
+      createdAt: conversation.event.acceptedAt
     });
   }
 

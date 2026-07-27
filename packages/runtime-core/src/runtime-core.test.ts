@@ -332,6 +332,113 @@ describe("RuntimeCore", () => {
     ]);
   });
 
+  it("attributes an incoming event before persistence and records the routing decision", async () => {
+    const channel = new MockChannelAdapter();
+    const conversationStore = new RecordingConversationStore();
+    const transcriptStore = new InMemoryTranscriptStore();
+    const sessionId = "qq:napcat:qq-local:private:user-1";
+    const seed = await conversationStore.acceptNormalizedEvent({
+      sessionId,
+      platform: "qq",
+      provider: "napcat",
+      channelId: "qq-local",
+      conversationType: "private",
+      conversationId: "user-1",
+      sourceEventId: "seed-message",
+      sourceEventType: "message.created",
+      senderId: "user-1",
+      text: "创建分支",
+      receivedAt: "2026-07-27T12:00:00.000Z",
+      idempotencyKey: "accept-seed-message"
+    });
+    const branch = await conversationStore.createBranch({
+      id: "branch-runtime-attribution",
+      sessionId,
+      sourceEventId: seed.lineEvent.id,
+      title: "运行时归属",
+      goal: "验证消息先归属再执行",
+      reason: "入口路由测试",
+      createdBy: "agent",
+      idempotencyKey: "create-branch-runtime-attribution"
+    });
+    let observedLineId: string | undefined;
+    const agent: Agent = {
+      id: "attribution-agent",
+      async run(request): Promise<AgentRun> {
+        observedLineId = request.lineId;
+        return {
+          id: "run-attribution",
+          agentId: "attribution-agent",
+          sessionId: request.sessionId,
+          status: "succeeded",
+          input: request.input,
+          steps: [],
+          output: textMessage("ok")
+        };
+      }
+    };
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "always" },
+        privateTrigger: { mode: "always" }
+      }),
+      agent,
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" })),
+      context: {
+        conversationStore,
+        transcriptStore,
+        attributor: {
+          async attribute() {
+            return {
+              sessionId,
+              nature: "task_followup",
+              action: "resume",
+              targetLineId: branch.id,
+              confidence: 0.97,
+              reasons: ["test_target"],
+              candidates: [
+                {
+                  lineId: branch.id,
+                  score: 0.97,
+                  signals: ["test_target"]
+                }
+              ]
+            };
+          }
+        }
+      }
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit({
+      ...privateMessage("event-attribution", "继续"),
+      receivedAt: "2026-07-27T12:01:00.000Z"
+    });
+
+    expect(observedLineId).toBe(branch.id);
+    expect(conversationStore.accepted.at(-1)?.targetLineId).toBe(branch.id);
+    expect(await conversationStore.listEvents(branch.id, { types: ["context_attributed"] })).toEqual([
+      expect.objectContaining({
+        sourceEventId: expect.any(String),
+        payload: {
+          action: "resume",
+          nature: "task_followup",
+          targetLineId: branch.id,
+          confidence: 0.97,
+          reasons: ["test_target"],
+          candidates: [
+            {
+              lineId: branch.id,
+              score: 0.97,
+              signals: ["test_target"]
+            }
+          ]
+        }
+      })
+    ]);
+  });
+
   it("blocks channel replies when the send permission is not allowed", async () => {
     const channel = new MockChannelAdapter();
     const agent: Agent = {
