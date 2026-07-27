@@ -36,6 +36,7 @@ import type {
   ListTasksOptions,
   MergeBranchResultInput,
   NormalizedEvent,
+  PublishBranchResultInput,
   ReconstructedConversationState,
   TaskTrace,
   TransitionBranchInput,
@@ -216,6 +217,13 @@ export class SqliteRuntimeContextStore
 
   listBranchResults(branchId: string): Promise<readonly BranchResult[]> {
     return this.#conversation.listBranchResults(branchId);
+  }
+
+  /**
+   * 将阶段结果发布到主线并保留原分支生命周期
+   */
+  publishBranchResult(branchId: string, mainlineId: string, input?: PublishBranchResultInput): Promise<BranchMerge> {
+    return this.#conversation.publishBranchResult(branchId, mainlineId, input);
   }
 
   mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge> {

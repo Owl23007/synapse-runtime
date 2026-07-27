@@ -57,7 +57,7 @@ describe("InMemoryConversationStore", () => {
     expect(await store.listNormalizedEvents(accepted.session.id)).toHaveLength(2);
   });
 
-  it("keeps branch execution isolated and merges only a structured result reference", async () => {
+  it("keeps branch execution isolated and publishes only a structured result reference", async () => {
     const store = new InMemoryConversationStore();
     const accepted = await store.acceptNormalizedEvent(normalizedInput());
     const branch = await store.createBranch({
@@ -104,13 +104,29 @@ describe("InMemoryConversationStore", () => {
       sourceTaskIds: [task.id],
       idempotencyKey: "result-1"
     });
+    const resultNodes = await store.listNodes(branch.id, { kinds: ["task_result"] });
+    expect(resultNodes).toContainEqual(
+      expect.objectContaining({
+        sourceEventIds: [expect.any(String)],
+        sourceTaskIds: [task.id],
+        sourceResultIds: [result.id]
+      })
+    );
+    expect(await store.reconstructLineState(branch.id)).toMatchObject({
+      state: {
+        latestResult: {
+          id: result.id,
+          summary: "Repeated buffer concatenation is the bottleneck."
+        }
+      }
+    });
 
     const branchEventsBeforeMerge = await store.listEvents(branch.id);
     const mainlineEventsBeforeMerge = await store.listEvents(accepted.mainline.id);
     expect(mainlineEventsBeforeMerge).toHaveLength(1);
     expect(mainlineEventsBeforeMerge.some((event) => event.id === toolEvent.id)).toBe(false);
 
-    const firstMerge = await store.mergeBranchResult(branch.id, accepted.mainline.id, {
+    const firstMerge = await store.publishBranchResult(branch.id, accepted.mainline.id, {
       resultId: result.id
     });
     const duplicateMerge = await store.mergeBranchResult(branch.id, accepted.mainline.id, {
@@ -126,7 +142,20 @@ describe("InMemoryConversationStore", () => {
     expect(duplicateMerge).toEqual(firstMerge);
     expect(mergedResults).toHaveLength(1);
     expect((await store.listEvents(branch.id)).length).toBeGreaterThan(branchEventsBeforeMerge.length);
-    expect(await store.getBranch(branch.id)).toMatchObject({ status: "merged" });
+    expect(await store.listEvents(branch.id)).toContainEqual(
+      expect.objectContaining({ type: "branch_result_published" })
+    );
+    expect(await store.getBranch(branch.id)).toMatchObject({
+      status: "active",
+      mergedAt: expect.any(String)
+    });
+    await expect(
+      store.createTask(branch.id, {
+        executor: "repository-analyzer",
+        input: { path: "src/parser.ts", focus: "validate the proposed fix" },
+        idempotencyKey: "task-follow-up-after-publication"
+      })
+    ).resolves.toMatchObject({ status: "pending", branchId: branch.id });
     expect((await store.getBranchContext(branch.id)).events).toEqual(await store.listEvents(branch.id));
   });
 
@@ -170,7 +199,7 @@ describe("InMemoryConversationStore", () => {
     });
   });
 
-  it("requires terminal tasks before results or terminal branch states and keeps task events on their branch", async () => {
+  it("requires referenced tasks before results and keeps branch lifecycle independent", async () => {
     const store = new InMemoryConversationStore();
     const accepted = await store.acceptNormalizedEvent(normalizedInput());
     const branch = await store.createBranch({
@@ -233,10 +262,10 @@ describe("InMemoryConversationStore", () => {
         idempotencyKey: "result-guards-completed"
       })
     ).resolves.toMatchObject({ version: 1, status: "completed" });
-    await expect(store.getBranch(branch.id)).resolves.toMatchObject({ status: "completed" });
+    await expect(store.getBranch(branch.id)).resolves.toMatchObject({ status: "active" });
   });
 
-  it("recovers only the latest completed branch result and refuses to merge an older version", async () => {
+  it("recovers and publishes each completed branch result independently", async () => {
     const store = new InMemoryConversationStore();
     const accepted = await store.acceptNormalizedEvent(normalizedInput());
     const branch = await store.createBranch({
@@ -263,21 +292,24 @@ describe("InMemoryConversationStore", () => {
       idempotencyKey: "result-version-2"
     });
 
-    expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([latestResult]);
+    expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([firstResult, latestResult]);
     await expect(
-      store.mergeBranchResult(branch.id, accepted.mainline.id, {
+      store.publishBranchResult(branch.id, accepted.mainline.id, {
         resultId: firstResult.id,
-        idempotencyKey: "merge-old-result"
+        idempotencyKey: "publish-first-result"
       })
-    ).rejects.toMatchObject({ code: "invalid_state_transition" });
+    ).resolves.toMatchObject({ resultId: firstResult.id });
+    expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([latestResult]);
 
     await expect(
-      store.mergeBranchResult(branch.id, accepted.mainline.id, {
+      store.publishBranchResult(branch.id, accepted.mainline.id, {
         resultId: latestResult.id,
-        idempotencyKey: "merge-latest-result"
+        idempotencyKey: "publish-latest-result"
       })
     ).resolves.toMatchObject({ resultId: latestResult.id });
     expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
+    expect(await store.listNodes(branch.id, { kinds: ["task_result"] })).toHaveLength(2);
   });
 
   it("recovers an unmerged completed result after its branch is archived", async () => {

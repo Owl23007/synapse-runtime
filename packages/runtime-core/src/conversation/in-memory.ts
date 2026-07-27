@@ -34,6 +34,7 @@ import type {
   ListTasksOptions,
   MergeBranchResultInput,
   NormalizedEvent,
+  PublishBranchResultInput,
   ReconstructedConversationState,
   SessionStatus,
   TaskStatus,
@@ -657,12 +658,15 @@ export class InMemoryConversationStore implements ConversationStore {
     const existingOperation = this.#resultCreateOps.get(operationKey);
     if (existingOperation !== undefined) {
       assertSameRequest(existingOperation.signature, signature, "branch result creation", safeInput.idempotencyKey);
+      await this.#ensureResultNode(
+        existingOperation.value,
+        required(this.#resultEventIds, existingOperation.value.id, "branch result event")
+      );
       return cloneValue(existingOperation.value);
     }
 
     const branch = this.#requiredBranch(branchId);
     assertBranchCanCreateResult(branch, safeInput.status);
-    this.#assertBranchTasksTerminal(branch.id, `create a "${safeInput.status}" result`);
     const sourceTaskIds = [...new Set(safeInput.sourceTaskIds ?? [])];
     if (sourceTaskIds.length !== (safeInput.sourceTaskIds?.length ?? 0)) {
       throw validationError("sourceTaskIds must not contain duplicates.");
@@ -671,6 +675,12 @@ export class InMemoryConversationStore implements ConversationStore {
       const task = this.#requiredTask(taskId);
       if (task.sessionId !== branch.sessionId || task.branchId !== branch.id) {
         throw ownershipMismatch(`Result task "${task.id}" must belong to branch "${branch.id}".`);
+      }
+      if (!isTerminalTaskStatus(task.status)) {
+        throw new ConversationStoreError(
+          "invalid_state_transition",
+          `Result task "${task.id}" must be terminal before its output can be recorded.`
+        );
       }
     }
     if (safeInput.sourceEventId !== undefined) {
@@ -734,10 +744,8 @@ export class InMemoryConversationStore implements ConversationStore {
     });
     this.#resultEventIds.set(result.id, resultEvent.id);
 
-    const projectedStatus = branchStatusForResult(result.status);
-    const nextBranch = branchWithStatus(branch, projectedStatus, now);
-    this.#lines.set(branch.id, cloneValue(nextBranch));
     this.#resultCreateOps.set(operationKey, { signature, value: cloneValue(result) });
+    await this.#ensureResultNode(result, resultEvent.id);
     return cloneValue(result);
   }
 
@@ -754,10 +762,13 @@ export class InMemoryConversationStore implements ConversationStore {
     );
   }
 
-  async mergeBranchResult(
+  /**
+   * 将阶段结果发布到主线并保留原分支生命周期
+   */
+  async publishBranchResult(
     branchId: string,
     mainlineId: string,
-    input: MergeBranchResultInput = {}
+    input: PublishBranchResultInput = {}
   ): Promise<BranchMerge> {
     const safeInput = cloneValue(input);
     const branch = this.#requiredBranch(branchId);
@@ -775,15 +786,6 @@ export class InMemoryConversationStore implements ConversationStore {
     if (result.branchId !== branch.id || result.sessionId !== branch.sessionId) {
       throw ownershipMismatch(`Result "${result.id}" does not belong to branch "${branch.id}".`);
     }
-    const latestResult = this.#latestResult(branch.id);
-    if (latestResult.id !== result.id) {
-      throw new ConversationStoreError(
-        "invalid_state_transition",
-        `Only the latest result for branch "${branch.id}" can be merged.`
-      );
-    }
-    this.#assertBranchTasksTerminal(branch.id, "merge its result");
-
     const idempotencyKey = safeInput.idempotencyKey ?? `result:${result.id}`;
     validateIdempotencyKey(idempotencyKey);
     const signature = cloneValue({ branchId, mainlineId, ...safeInput, resultId: result.id, idempotencyKey });
@@ -799,10 +801,10 @@ export class InMemoryConversationStore implements ConversationStore {
       this.#mergeOps.set(operationKey, { signature, value: cloneValue(existingMerge) });
       return cloneValue(existingMerge);
     }
-    if (result.status !== "completed" || (branch.status !== "completed" && branch.status !== "archived")) {
+    if (result.status !== "completed" || branch.status === "failed" || branch.status === "cancelled") {
       throw new ConversationStoreError(
         "invalid_state_transition",
-        `Only a completed result on a completed or archived branch can be merged; branch="${branch.status}", result="${result.status}".`
+        `Only a completed result on a usable branch can be published; branch="${branch.status}", result="${result.status}".`
       );
     }
 
@@ -848,7 +850,7 @@ export class InMemoryConversationStore implements ConversationStore {
       branch.id,
       {
         ...(safeInput.branchEventId === undefined ? {} : { id: safeInput.branchEventId }),
-        type: "branch_merged",
+        type: "branch_result_published",
         idempotencyKey: `internal:merge-result:${result.id}:branch`,
         sourceEventId: resultEventId,
         causationEventId: mainlineEvent.id,
@@ -874,15 +876,20 @@ export class InMemoryConversationStore implements ConversationStore {
       idempotencyKey,
       createdAt: now
     };
-    const nextBranch =
-      branch.status === "archived"
-        ? { ...branch, updatedAt: now, mergedAt: branch.mergedAt ?? now }
-        : branchWithStatus(branch, "merged", now);
+    const nextBranch = { ...branch, updatedAt: now, mergedAt: branch.mergedAt ?? now };
     this.#lines.set(branch.id, cloneValue(nextBranch));
     this.#merges.set(merge.id, cloneValue(merge));
     this.#mergesByResult.set(result.id, cloneValue(merge));
     this.#mergeOps.set(operationKey, { signature, value: cloneValue(merge) });
     return cloneValue(merge);
+  }
+
+  async mergeBranchResult(
+    branchId: string,
+    mainlineId: string,
+    input: MergeBranchResultInput = {}
+  ): Promise<BranchMerge> {
+    return this.publishBranchResult(branchId, mainlineId, input);
   }
 
   async createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
@@ -1092,9 +1099,9 @@ export class InMemoryConversationStore implements ConversationStore {
       return (
         activeSessionIds.has(result.sessionId) &&
         branch?.kind === "branch" &&
-        (branch.status === "completed" || branch.status === "archived") &&
+        branch.status !== "failed" &&
+        branch.status !== "cancelled" &&
         result.status === "completed" &&
-        last(this.#resultIdsByBranch.get(result.branchId)) === result.id &&
         !this.#mergesByResult.has(result.id)
       );
     });
@@ -1169,7 +1176,7 @@ export class InMemoryConversationStore implements ConversationStore {
       session,
       ...(sourceEvent === undefined ? {} : { sourceEvent }),
       tasks,
-      ...(merge === undefined ? {} : { merge }),
+      ...(merge === undefined ? {} : { publication: merge, merge }),
       ...(mainlineEvent === undefined ? {} : { mainlineEvent })
     });
   }
@@ -1377,6 +1384,31 @@ export class InMemoryConversationStore implements ConversationStore {
     return required(this.#results, resultId, "branch result");
   }
 
+  async #ensureResultNode(result: BranchResult, resultEventId: string): Promise<void> {
+    await this.createNode(result.branchId, {
+      id: `conversation-node:result:${result.id}`,
+      kind: "task_result",
+      title: `记录分支结果 v${result.version}`,
+      statePatch: {
+        latestResult: {
+          id: result.id,
+          version: result.version,
+          status: result.status,
+          summary: result.summary,
+          nextActions: result.nextActions,
+          sourceTaskIds: result.sourceTaskIds,
+          createdAt: result.createdAt
+        }
+      },
+      sourceEventIds: [resultEventId],
+      sourceTaskIds: result.sourceTaskIds,
+      sourceResultIds: [result.id],
+      createdBy: "system",
+      idempotencyKey: `branch-result:${result.id}:semantic-node`,
+      createdAt: result.createdAt
+    });
+  }
+
   #assertBranchTasksTerminal(branchId: string, action: string): void {
     const unfinishedTasks = (this.#taskIdsByBranch.get(branchId) ?? [])
       .map((taskId) => this.#requiredTask(taskId))
@@ -1576,10 +1608,6 @@ function sessionIdFromInput(input: CreateSessionInput): string {
     throw validationError("createSession id and sessionId aliases must match when both are provided.");
   }
   return id;
-}
-
-function branchStatusForResult(status: BranchResult["status"]): BranchStatus {
-  return status;
 }
 
 function branchWithStatus(branch: ConversationBranch, status: BranchStatus, at: string): ConversationBranch {

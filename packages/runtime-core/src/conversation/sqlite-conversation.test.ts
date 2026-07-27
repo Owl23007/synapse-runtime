@@ -227,6 +227,12 @@ describe("SqliteRuntimeContextStore conversation model", () => {
       const result = await store.createBranchResult(resultBranch.id, resultInput);
       expect(await store.createBranchResult(resultBranch.id, resultInput)).toEqual(result);
       resultId = result.id;
+      expect(await store.listNodes(resultBranch.id, { kinds: ["task_result"] })).toContainEqual(
+        expect.objectContaining({
+          sourceTaskIds: [completedTask.id],
+          sourceResultIds: [result.id]
+        })
+      );
 
       const mainlineBeforeMerge = await store.listEvents(mainlineId);
       expect(mainlineBeforeMerge.map((event) => event.type)).toEqual(["user_message"]);
@@ -254,6 +260,14 @@ describe("SqliteRuntimeContextStore conversation model", () => {
       expect((await store.transitionTask(completedTaskId, completedTaskTransitionInput)).status).toBe("completed");
       expect(await store.createBranchResult(resultBranchId, resultInput)).toEqual(result);
       expect((await store.listEvents(resultBranchId)).map((event) => event.id)).toEqual(branchHistoryBeforeMerge);
+      expect(await store.reconstructLineState(resultBranchId)).toMatchObject({
+        state: {
+          latestResult: {
+            id: result.id,
+            summary: "The main bottleneck is repeated Buffer concatenation."
+          }
+        }
+      });
 
       const recovery = await store.getRecoveryState(sessionId);
       expect(recovery.activeBranches.map((branch) => branch.id)).toContain(activeBranchId);
@@ -415,7 +429,7 @@ describe("SqliteRuntimeContextStore conversation model", () => {
     }
   });
 
-  it("recovers and merges only the latest SQLite branch result version", async () => {
+  it("recovers and publishes each SQLite branch result version", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-core-conversation-sqlite-results-"));
     const databasePath = join(dir, "runtime-context.sqlite");
     const store = new SqliteRuntimeContextStore({ databasePath });
@@ -465,21 +479,31 @@ describe("SqliteRuntimeContextStore conversation model", () => {
         createdAt: "2026-07-26T10:03:00.000Z"
       });
 
-      expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([latestResult]);
+      expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([firstResult, latestResult]);
       await expect(
-        store.mergeBranchResult(branch.id, accepted.mainline.id, {
+        store.publishBranchResult(branch.id, accepted.mainline.id, {
           resultId: firstResult.id,
-          idempotencyKey: "merge-old-sqlite-result"
+          idempotencyKey: "publish-first-sqlite-result"
         })
-      ).rejects.toMatchObject({ code: "invalid_state_transition" });
+      ).resolves.toMatchObject({ resultId: firstResult.id });
+      expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([latestResult]);
 
       await expect(
-        store.mergeBranchResult(branch.id, accepted.mainline.id, {
+        store.publishBranchResult(branch.id, accepted.mainline.id, {
           resultId: latestResult.id,
-          idempotencyKey: "merge-latest-sqlite-result"
+          idempotencyKey: "publish-latest-sqlite-result"
         })
       ).resolves.toMatchObject({ resultId: latestResult.id });
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
+      expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
+      await expect(
+        store.createTask(branch.id, {
+          executor: "sub-agent",
+          input: { goal: "Follow up on the published refinements" },
+          idempotencyKey: "create-sqlite-follow-up-task"
+        })
+      ).resolves.toMatchObject({ status: "pending", branchId: branch.id });
+      expect(await store.listNodes(branch.id, { kinds: ["task_result"] })).toHaveLength(2);
 
       const archivedBranch = await store.createBranch({
         id: "sqlite-archived-result-branch",

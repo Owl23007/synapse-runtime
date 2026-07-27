@@ -36,6 +36,7 @@ import {
   type ListTasksOptions,
   type MergeBranchResultInput,
   type NormalizedEvent,
+  type PublishBranchResultInput,
   type ReconstructedConversationState,
   type TaskTrace,
   type TransitionBranchInput,
@@ -1185,7 +1186,7 @@ export class SqliteConversationRepository implements ConversationStore {
     encodeRequiredJson(input.artifacts ?? [], "branch result artifacts");
     encodeRequiredJson(input.citations ?? [], "branch result citations");
 
-    return this.#write(() => {
+    const result = this.#write(() => {
       const existingRow = this.#db
         .prepare(`
           SELECT *
@@ -1202,7 +1203,6 @@ export class SqliteConversationRepository implements ConversationStore {
 
       const branch = this.#requireBranch(branchId);
       assertBranchCanCreateResult(branch, input.status);
-      this.#assertBranchTasksTerminal(branch.id, `create a "${input.status}" result`);
       assertWritableSession(this.#requireSession(branch.sessionId));
       const sourceTaskIds = [...(input.sourceTaskIds ?? [])];
       if (new Set(sourceTaskIds).size !== sourceTaskIds.length) {
@@ -1214,6 +1214,12 @@ export class SqliteConversationRepository implements ConversationStore {
           throw new ConversationStoreError(
             "ownership_mismatch",
             `Result task "${task.id}" must belong to branch "${branch.id}".`
+          );
+        }
+        if (!isTerminalTaskStatus(task.status)) {
+          throw new ConversationStoreError(
+            "invalid_state_transition",
+            `Result task "${task.id}" must be terminal before its output can be recorded.`
           );
         }
       }
@@ -1277,20 +1283,25 @@ export class SqliteConversationRepository implements ConversationStore {
       for (const taskId of sourceTaskIds) {
         insertTask.run(resultId, taskId);
       }
-      const result = this.#requireBranchResult(resultId);
+      const createdResult = this.#requireBranchResult(resultId);
       const causationEventId = input.sourceEventId ?? this.#lastEventId(branch.id);
       this.#appendLineEvent(branch, {
         type: "branch_result",
-        idempotencyKey: `internal:branch-result:${result.id}`,
+        idempotencyKey: `internal:branch-result:${createdResult.id}`,
         ...(input.sourceEventId === undefined ? {} : { sourceEventId: input.sourceEventId }),
         ...(causationEventId === undefined ? {} : { causationEventId }),
         correlationId: branch.id,
-        payload: branchResultPayload(branch, result),
+        payload: branchResultPayload(branch, createdResult),
         createdAt
       });
-      this.#updateBranchStatus(branch.id, result.status, createdAt);
-      return result;
+      return createdResult;
     });
+    const resultEvent = this.#getEventByLineAndRequest(branchId, `internal:branch-result:${result.id}`);
+    if (resultEvent === undefined) {
+      throw new ConversationStoreError("not_found", `Branch result event for "${result.id}" does not exist.`);
+    }
+    await this.#ensureResultNode(result, resultEvent.id);
+    return result;
   }
 
   async getBranchResult(resultId: string): Promise<BranchResult | undefined> {
@@ -1315,10 +1326,13 @@ export class SqliteConversationRepository implements ConversationStore {
     return rows.map((row) => this.#resultFromRow(row));
   }
 
-  async mergeBranchResult(
+  /**
+   * 将阶段结果发布到主线并保留原分支生命周期
+   */
+  async publishBranchResult(
     branchId: string,
     mainlineId: string,
-    input: MergeBranchResultInput = {}
+    input: PublishBranchResultInput = {}
   ): Promise<BranchMerge> {
     validateId(branchId, "branch id");
     validateId(mainlineId, "mainline id");
@@ -1341,15 +1355,6 @@ export class SqliteConversationRepository implements ConversationStore {
           `Result "${result.id}" does not belong to branch "${branch.id}".`
         );
       }
-      const latestResult = this.#latestResult(branch.id);
-      if (latestResult.id !== result.id) {
-        throw new ConversationStoreError(
-          "invalid_state_transition",
-          `Only the latest result for branch "${branch.id}" can be merged.`
-        );
-      }
-      this.#assertBranchTasksTerminal(branch.id, "merge its result");
-
       const idempotencyKey = input.idempotencyKey ?? `result:${result.id}`;
       const existingByRequest = this.#db
         .prepare(`
@@ -1380,10 +1385,10 @@ export class SqliteConversationRepository implements ConversationStore {
       if (naturalMerge !== undefined) {
         return mergeFromRow(naturalMerge);
       }
-      if (result.status !== "completed" || (branch.status !== "completed" && branch.status !== "archived")) {
+      if (result.status !== "completed" || branch.status === "failed" || branch.status === "cancelled") {
         throw new ConversationStoreError(
           "invalid_state_transition",
-          `Only a completed result on a completed or archived branch can be merged; branch="${branch.status}", result="${result.status}".`
+          `Only a completed result on a usable branch can be published; branch="${branch.status}", result="${result.status}".`
         );
       }
       assertWritableSession(this.#requireSession(branch.sessionId));
@@ -1407,7 +1412,7 @@ export class SqliteConversationRepository implements ConversationStore {
         branch,
         {
           ...(input.branchEventId === undefined ? {} : { id: input.branchEventId }),
-          type: "branch_merged",
+          type: "branch_result_published",
           idempotencyKey: `internal:merge-result:${result.id}:branch`,
           sourceEventId: resultEvent.id,
           causationEventId: mainlineEvent.id,
@@ -1441,20 +1446,24 @@ export class SqliteConversationRepository implements ConversationStore {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(mergeId, result.id, branch.id, mainline.id, mainlineEvent.id, branchEvent.id, idempotencyKey, createdAt);
-      if (branch.status === "archived") {
-        this.#db
-          .prepare(`
-            UPDATE conversation_lines
-            SET updated_at = ?,
-                merged_at = COALESCE(merged_at, ?)
-            WHERE id = ?
-          `)
-          .run(createdAt, createdAt, branch.id);
-      } else {
-        this.#updateBranchStatus(branch.id, "merged", createdAt);
-      }
+      this.#db
+        .prepare(`
+          UPDATE conversation_lines
+          SET updated_at = ?,
+              merged_at = COALESCE(merged_at, ?)
+          WHERE id = ?
+        `)
+        .run(createdAt, createdAt, branch.id);
       return this.#requireMerge(mergeId);
     });
+  }
+
+  async mergeBranchResult(
+    branchId: string,
+    mainlineId: string,
+    input: MergeBranchResultInput = {}
+  ): Promise<BranchMerge> {
+    return this.publishBranchResult(branchId, mainlineId, input);
   }
 
   async createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
@@ -2025,6 +2034,31 @@ export class SqliteConversationRepository implements ConversationStore {
     return this.#resultFromRow(row);
   }
 
+  async #ensureResultNode(result: BranchResult, resultEventId: string): Promise<void> {
+    await this.createNode(result.branchId, {
+      id: `conversation-node:result:${result.id}`,
+      kind: "task_result",
+      title: `记录分支结果 v${result.version}`,
+      statePatch: {
+        latestResult: {
+          id: result.id,
+          version: result.version,
+          status: result.status,
+          summary: result.summary,
+          nextActions: result.nextActions,
+          sourceTaskIds: result.sourceTaskIds,
+          createdAt: result.createdAt
+        }
+      },
+      sourceEventIds: [resultEventId],
+      sourceTaskIds: result.sourceTaskIds,
+      sourceResultIds: [result.id],
+      createdBy: "system",
+      idempotencyKey: `branch-result:${result.id}:semantic-node`,
+      createdAt: result.createdAt
+    });
+  }
+
   #assertBranchTasksTerminal(branchId: string, action: string): void {
     const rows = this.#db
       .prepare(`
@@ -2217,12 +2251,7 @@ export class SqliteConversationRepository implements ConversationStore {
           LEFT JOIN branch_merges ON branch_merges.result_id = branch_results.id
           WHERE branch_merges.id IS NULL
             AND branch_results.status = 'completed'
-            AND conversation_lines.status IN ('completed', 'archived')
-            AND branch_results.version = (
-              SELECT MAX(latest.version)
-              FROM branch_results AS latest
-              WHERE latest.branch_line_id = branch_results.branch_line_id
-            )
+            AND conversation_lines.status NOT IN ('failed', 'cancelled')
             AND conversation_sessions.status = 'active'
             ${sessionId === undefined ? "" : " AND branch_results.session_id = ?"}
           ORDER BY branch_results.created_at, branch_results.rowid
@@ -2345,7 +2374,7 @@ export class SqliteConversationRepository implements ConversationStore {
         session,
         ...(sourceEvent === undefined ? {} : { sourceEvent }),
         tasks,
-        ...(merge === undefined ? {} : { merge }),
+        ...(merge === undefined ? {} : { publication: merge, merge }),
         ...(mainlineEvent === undefined ? {} : { mainlineEvent })
       };
     });

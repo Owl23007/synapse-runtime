@@ -47,6 +47,7 @@ export type LineEventType =
   | "task_status_changed"
   | "branch_result"
   | "branch_merged"
+  | "branch_result_published"
   | "correction"
   | "session_status_changed"
   | "delivery_uncertain"
@@ -190,6 +191,11 @@ export interface BranchMerge {
   readonly idempotencyKey: string;
   readonly createdAt: string;
 }
+
+/**
+ * 分支结果向主线发布后的持久化引用
+ */
+export type BranchPublication = BranchMerge;
 
 /**
  * 不可变的会话语义节点
@@ -383,6 +389,11 @@ export interface MergeBranchResultInput {
 }
 
 /**
+ * 发布分支结果时使用的输入
+ */
+export type PublishBranchResultInput = MergeBranchResultInput;
+
+/**
  * 创建语义节点时使用的输入
  */
 export interface CreateConversationNodeInput {
@@ -487,6 +498,13 @@ export interface BranchResultTrace {
   readonly session: ConversationSession;
   readonly sourceEvent?: LineEvent;
   readonly tasks: readonly ConversationTask[];
+  /**
+   * 分支结果向主线发布后的引用
+   */
+  readonly publication?: BranchPublication;
+  /**
+   * 发布引用的兼容字段
+   */
   readonly merge?: BranchMerge;
   readonly mainlineEvent?: LineEvent;
 }
@@ -540,6 +558,14 @@ export interface ConversationStore {
   createBranchResult(branchId: string, input: CreateBranchResultInput): Promise<BranchResult>;
   getBranchResult(resultId: string): Promise<BranchResult | undefined>;
   listBranchResults(branchId: string): Promise<readonly BranchResult[]>;
+  publishBranchResult(
+    branchId: string,
+    mainlineId: string,
+    input?: PublishBranchResultInput
+  ): Promise<BranchPublication>;
+  /**
+   * 发布分支结果的兼容入口
+   */
   mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge>;
 
   createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode>;
