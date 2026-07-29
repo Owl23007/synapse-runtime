@@ -35,8 +35,6 @@ import type {
   NormalizedEvent,
   PublishBranchResultInput,
   ReconstructedConversationState,
-  SessionStatus,
-  TaskStatus,
   TaskTrace,
   TransitionBranchInput,
   TransitionSessionInput,
@@ -46,42 +44,40 @@ import type { ConversationStore } from "./store.js";
 import { ConversationStoreError } from "./errors.js";
 import { collectRelatedEvents } from "./trace.js";
 import { applyConversationStatePatch } from "./state.js";
+import {
+  ACTIVE_BRANCH_STATUSES,
+  assertBranchCanCreateResult,
+  assertBranchCanCreateTask,
+  assertWritableSession,
+  BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS,
+  invalidTransition,
+  isBranchTransitionAllowed,
+  isSessionTransitionAllowed,
+  isTaskTransitionAllowed,
+  isTerminalTaskStatus,
+  payloadContainsTaskId,
+  SESSION_ARCHIVABLE_BRANCH_STATUSES,
+  UNFINISHED_TASK_STATUSES
+} from "./rules.js";
+import {
+  sessionIdFromInput,
+  validateAcceptNormalizedEventInput,
+  validateAppendLineEventInput,
+  validateCreateBranchInput,
+  validateCreateBranchResultInput,
+  validateCreateConversationNodeInput,
+  validateCreateSessionInput,
+  validateCreateTaskInput,
+  validateIdempotencyKey,
+  validateListConversationNodesOptions,
+  validateListOptions,
+  validateNonEmpty
+} from "./in-memory-validation.js";
 
 interface IdempotentRecord<T> {
   readonly signature: unknown;
   readonly value: T;
 }
-
-const ACTIVE_BRANCH_STATUSES = new Set<BranchStatus>(["created", "active", "blocked", "inactive", "completed"]);
-const UNFINISHED_TASK_STATUSES = new Set<TaskStatus>(["pending", "running", "blocked"]);
-const BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS = new Set<BranchStatus>([
-  "completed",
-  "failed",
-  "cancelled",
-  "archived"
-]);
-const SESSION_ARCHIVABLE_BRANCH_STATUSES = new Set<BranchStatus>(["merged", "failed", "cancelled", "archived"]);
-
-const BRANCH_TRANSITIONS: Readonly<Record<BranchStatus, ReadonlySet<BranchStatus>>> = {
-  created: new Set(["active", "blocked", "inactive", "failed", "cancelled", "archived"]),
-  active: new Set(["blocked", "inactive", "completed", "failed", "cancelled", "archived"]),
-  blocked: new Set(["active", "inactive", "completed", "failed", "cancelled", "archived"]),
-  inactive: new Set(["active", "blocked", "failed", "cancelled", "archived"]),
-  completed: new Set(["archived"]),
-  merged: new Set(["archived"]),
-  failed: new Set(["archived"]),
-  cancelled: new Set(["archived"]),
-  archived: new Set()
-};
-
-const TASK_TRANSITIONS: Readonly<Record<TaskStatus, ReadonlySet<TaskStatus>>> = {
-  pending: new Set(["running", "blocked", "cancelled"]),
-  running: new Set(["blocked", "completed", "failed", "cancelled"]),
-  blocked: new Set(["running", "failed", "cancelled"]),
-  completed: new Set(),
-  failed: new Set(),
-  cancelled: new Set()
-};
 
 /**
  * 追加式会话模型的内存参考实现
@@ -461,7 +457,7 @@ export class InMemoryConversationStore implements ConversationStore {
         `Branch "${branch.id}" can enter "merged" only through mergeBranchResult().`
       );
     }
-    if (!BRANCH_TRANSITIONS[branch.status].has(safeInput.status)) {
+    if (!isBranchTransitionAllowed(branch.status, safeInput.status)) {
       throw invalidTransition("branch", branch.id, branch.status, safeInput.status);
     }
     if (BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS.has(safeInput.status)) {
@@ -604,7 +600,7 @@ export class InMemoryConversationStore implements ConversationStore {
     }
 
     const task = this.#requiredTask(taskId);
-    if (!TASK_TRANSITIONS[task.status].has(safeInput.status)) {
+    if (!isTaskTransitionAllowed(task.status, safeInput.status)) {
       throw invalidTransition("task", task.id, task.status, safeInput.status);
     }
     const branch = this.#requiredBranch(task.branchId);
@@ -1597,17 +1593,6 @@ function sessionCreateEntitySignature(input: CreateSessionInput, sessionId: stri
   });
 }
 
-function sessionIdFromInput(input: CreateSessionInput): string {
-  const id = input.id ?? input.sessionId;
-  if (id === undefined || id.trim().length === 0) {
-    throw validationError("createSession requires a non-empty id or sessionId.");
-  }
-  if (input.id !== undefined && input.sessionId !== undefined && input.id !== input.sessionId) {
-    throw validationError("createSession id and sessionId aliases must match when both are provided.");
-  }
-  return id;
-}
-
 function branchWithStatus(branch: ConversationBranch, status: BranchStatus, at: string): ConversationBranch {
   return {
     ...branch,
@@ -1619,168 +1604,9 @@ function branchWithStatus(branch: ConversationBranch, status: BranchStatus, at: 
   };
 }
 
-function isSessionTransitionAllowed(from: SessionStatus, to: SessionStatus): boolean {
-  return from === "active" && to === "archived";
-}
-
-function isTerminalTaskStatus(status: TaskStatus): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
-}
-
-function assertBranchCanCreateTask(branch: ConversationBranch): void {
-  if (!new Set<BranchStatus>(["created", "active", "blocked", "inactive"]).has(branch.status)) {
-    throw new ConversationStoreError(
-      "invalid_state_transition",
-      `Cannot create a task on branch "${branch.id}" while it is "${branch.status}".`
-    );
-  }
-}
-
-function assertBranchCanCreateResult(branch: ConversationBranch, resultStatus: BranchResult["status"]): void {
-  const permitted: Readonly<Record<BranchResult["status"], ReadonlySet<BranchStatus>>> = {
-    completed: new Set(["created", "active", "blocked", "inactive", "completed"]),
-    failed: new Set(["created", "active", "blocked", "inactive", "failed"]),
-    cancelled: new Set(["created", "active", "blocked", "inactive", "cancelled"])
-  };
-  if (!permitted[resultStatus].has(branch.status)) {
-    throw new ConversationStoreError(
-      "invalid_state_transition",
-      `Cannot create a "${resultStatus}" result while branch "${branch.id}" is "${branch.status}".`
-    );
-  }
-}
-
-function assertWritableSession(session: ConversationSession): void {
-  if (session.status !== "active") {
-    throw new ConversationStoreError("invalid_state_transition", `Cannot write to archived session "${session.id}".`);
-  }
-}
-
 function assertLineSession(line: ConversationLine, sessionId: string): void {
   if (line.sessionId !== sessionId) {
     throw ownershipMismatch(`Line "${line.id}" does not belong to session "${sessionId}".`);
-  }
-}
-
-function payloadContainsTaskId(payload: unknown, taskId: string): boolean {
-  if (typeof payload !== "object" || payload === null) {
-    return false;
-  }
-  if ("taskId" in payload && (payload as { readonly taskId?: unknown }).taskId === taskId) {
-    return true;
-  }
-  if ("sourceTaskIds" in payload) {
-    const sourceTaskIds = (payload as { readonly sourceTaskIds?: unknown }).sourceTaskIds;
-    return Array.isArray(sourceTaskIds) && sourceTaskIds.includes(taskId);
-  }
-  return false;
-}
-
-function validateCreateSessionInput(input: CreateSessionInput): void {
-  sessionIdFromInput(input);
-  if (input.mainlineId !== undefined) {
-    validateNonEmpty("mainlineId", input.mainlineId);
-  }
-  if (input.idempotencyKey !== undefined) {
-    validateIdempotencyKey(input.idempotencyKey);
-  }
-}
-
-function validateAcceptNormalizedEventInput(input: AcceptNormalizedEventInput): void {
-  for (const [name, value] of [
-    ["sessionId", input.sessionId],
-    ["platform", input.platform],
-    ["provider", input.provider],
-    ["channelId", input.channelId],
-    ["conversationType", input.conversationType],
-    ["conversationId", input.conversationId],
-    ["sourceEventId", input.sourceEventId],
-    ["sourceEventType", input.sourceEventType],
-    ["senderId", input.senderId],
-    ["receivedAt", input.receivedAt]
-  ] as const) {
-    validateNonEmpty(name, value);
-  }
-  validateIdempotencyKey(input.idempotencyKey);
-}
-
-function validateCreateBranchInput(input: CreateBranchInput): void {
-  for (const [name, value] of [
-    ["sessionId", input.sessionId],
-    ["sourceEventId", input.sourceEventId],
-    ["title", input.title],
-    ["goal", input.goal],
-    ["reason", input.reason],
-    ["createdBy", input.createdBy]
-  ] as const) {
-    validateNonEmpty(name, value);
-  }
-  validateIdempotencyKey(input.idempotencyKey);
-}
-
-function validateAppendLineEventInput(input: AppendLineEventInput): void {
-  validateNonEmpty("event type", input.type);
-  validateIdempotencyKey(input.idempotencyKey);
-}
-
-function validateCreateTaskInput(input: CreateTaskInput): void {
-  validateNonEmpty("executor", input.executor);
-  validateIdempotencyKey(input.idempotencyKey);
-}
-
-function validateCreateBranchResultInput(input: CreateBranchResultInput): void {
-  validateNonEmpty("summary", input.summary);
-  validateIdempotencyKey(input.idempotencyKey);
-  if (input.version !== undefined && (!Number.isSafeInteger(input.version) || input.version <= 0)) {
-    throw validationError("Branch result version must be a positive safe integer.");
-  }
-}
-
-function validateCreateConversationNodeInput(input: CreateConversationNodeInput): void {
-  validateNonEmpty("node kind", input.kind);
-  validateNonEmpty("title", input.title);
-  validateNonEmpty("createdBy", input.createdBy);
-  validateIdempotencyKey(input.idempotencyKey);
-  if (input.statePatch === null || typeof input.statePatch !== "object" || Array.isArray(input.statePatch)) {
-    throw validationError("Conversation node statePatch must be an object.");
-  }
-}
-
-function validateListConversationNodesOptions(options: ListConversationNodesOptions): void {
-  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
-    throw validationError("Node list limit must be a positive safe integer.");
-  }
-  for (const [name, value] of [
-    ["afterOrdinal", options.afterOrdinal],
-    ["beforeOrdinal", options.beforeOrdinal]
-  ] as const) {
-    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-      throw validationError(`${name} must be a non-negative safe integer.`);
-    }
-  }
-}
-
-function validateListOptions(options: ListLineEventsOptions): void {
-  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
-    throw validationError("Event list limit must be a positive safe integer.");
-  }
-  for (const [name, value] of [
-    ["afterSequence", options.afterSequence],
-    ["beforeSequence", options.beforeSequence]
-  ] as const) {
-    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-      throw validationError(`${name} must be a non-negative safe integer.`);
-    }
-  }
-}
-
-function validateIdempotencyKey(value: string): void {
-  validateNonEmpty("idempotencyKey", value);
-}
-
-function validateNonEmpty(name: string, value: string): void {
-  if (value.trim().length === 0) {
-    throw validationError(`${name} must not be empty.`);
   }
 }
 
@@ -1858,13 +1684,6 @@ function validationError(message: string): ConversationStoreError {
 
 function ownershipMismatch(message: string): ConversationStoreError {
   return new ConversationStoreError("ownership_mismatch", message);
-}
-
-function invalidTransition(kind: string, id: string, from: string, to: string): ConversationStoreError {
-  return new ConversationStoreError(
-    "invalid_state_transition",
-    `${capitalize(kind)} "${id}" cannot transition from "${from}" to "${to}".`
-  );
 }
 
 function capitalize(value: string): string {

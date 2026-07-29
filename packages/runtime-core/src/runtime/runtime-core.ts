@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
-import type { ChannelAdapter, ChannelRegistry, ChannelTarget } from "@synapse/runtime-channel";
+import type { ChannelAdapter, ChannelRegistry } from "@synapse/runtime-channel";
 import type { AgentRequest, ConversationRouter } from "@synapse/runtime-conversation";
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import {
@@ -40,10 +40,24 @@ import {
   type OutputPolicy,
   type TranscriptStore,
   type WorkspaceRef,
-  type WorkspaceResolver,
-  type WorkspaceStore
+  type WorkspaceResolver
 } from "../context.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeTrace } from "./types.js";
+import {
+  conversationStoreFromUnknown,
+  transcriptStoreFromUnknown,
+  workspaceStoreFromUnknown
+} from "./store-resolution.js";
+import {
+  channelSendAction,
+  conservativeResponse,
+  getText,
+  summarizeEvent,
+  summarizeMessage,
+  targetFromEvent,
+  textMessage,
+  withReplyContext
+} from "./message-utils.js";
 
 /**
  * 编排频道事件持久化、上下文构建、智能体执行与消息投递
@@ -1416,103 +1430,6 @@ export class RuntimeCore {
   }
 }
 
-function targetFromEvent(event: SynapseChannelEvent): ChannelTarget {
-  if (event.conversation.kind === "private") {
-    return { type: "private", userId: event.conversation.id };
-  }
-
-  if (event.conversation.kind === "group") {
-    return { type: "group", groupId: event.conversation.id };
-  }
-
-  return { type: "channel", channelId: event.conversation.id };
-}
-
-function channelSendAction(target: ChannelTarget): string {
-  if (target.type === "private") {
-    return "channel.qq.send_private_message";
-  }
-
-  if (target.type === "group") {
-    return "channel.qq.send_group_message";
-  }
-
-  return "channel.qq.send_channel_message";
-}
-
-function withReplyContext(message: SynapseMessage, event: SynapseChannelEvent): SynapseMessage {
-  return {
-    ...message,
-    replyTo: {
-      ...(event.message?.id === undefined ? {} : { messageId: event.message.id }),
-      eventId: event.id
-    }
-  };
-}
-
-function summarizeEvent(event: SynapseChannelEvent): Readonly<Record<string, unknown>> {
-  return {
-    eventId: event.id,
-    platform: event.platform,
-    channelId: event.channelId,
-    eventType: event.eventType,
-    conversation: event.conversation,
-    sender: event.sender,
-    receivedAt: event.receivedAt,
-    message: event.message === undefined ? undefined : summarizeMessage(event.message)
-  };
-}
-
-function summarizeMessage(message: SynapseMessage): Readonly<Record<string, unknown>> {
-  const text = message.segments
-    .filter(
-      (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
-    )
-    .map((segment) => segment.text)
-    .join("");
-
-  return {
-    id: message.id,
-    type: message.type,
-    segmentTypes: message.segments.map((segment) => segment.type),
-    textLength: text.length,
-    textPreview: previewText(text),
-    replyTo: message.replyTo
-  };
-}
-
-function previewText(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length <= 160 ? normalized : `${normalized.slice(0, 157)}...`;
-}
-
-function getText(message: SynapseMessage | undefined): string {
-  if (message === undefined) {
-    return "";
-  }
-
-  return message.segments
-    .filter(
-      (segment): segment is Extract<SynapseMessage["segments"][number], { type: "text" }> => segment.type === "text"
-    )
-    .map((segment) => segment.text)
-    .join("");
-}
-
-function textMessage(text: string): SynapseMessage {
-  return {
-    type: "text",
-    segments: [{ type: "text", text }]
-  };
-}
-
-function conservativeResponse(message: SynapseMessage, policy: OutputPolicy): SynapseMessage {
-  return {
-    ...message,
-    segments: [{ type: "text", text: getText(message).slice(0, policy.maxChars) }]
-  };
-}
-
 function maxMessagesForConversation(
   conversationType: ReturnType<typeof conversationTypeFromEvent>,
   fallback: number,
@@ -1676,47 +1593,4 @@ function serializeError(error: unknown): unknown {
     };
   }
   return error;
-}
-
-function conversationStoreFromUnknown(value: unknown): ConversationStore | undefined {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("acceptNormalizedEvent" in value) ||
-    !("ensureSession" in value) ||
-    !("appendEvent" in value)
-  ) {
-    return undefined;
-  }
-
-  const candidate = value as {
-    readonly acceptNormalizedEvent?: unknown;
-    readonly ensureSession?: unknown;
-    readonly appendEvent?: unknown;
-  };
-  return typeof candidate.acceptNormalizedEvent === "function" &&
-    typeof candidate.ensureSession === "function" &&
-    typeof candidate.appendEvent === "function"
-    ? (value as ConversationStore)
-    : undefined;
-}
-
-function transcriptStoreFromUnknown(value: unknown): TranscriptStore | undefined {
-  if (typeof value !== "object" || value === null || !("append" in value) || !("listRecent" in value)) {
-    return undefined;
-  }
-
-  const candidate = value as { readonly append?: unknown; readonly listRecent?: unknown };
-  return typeof candidate.append === "function" && typeof candidate.listRecent === "function"
-    ? (value as TranscriptStore)
-    : undefined;
-}
-
-function workspaceStoreFromUnknown(value: unknown): WorkspaceStore | undefined {
-  if (typeof value !== "object" || value === null || !("resolveWorkspace" in value)) {
-    return undefined;
-  }
-
-  const candidate = value as { readonly resolveWorkspace?: unknown };
-  return typeof candidate.resolveWorkspace === "function" ? (value as WorkspaceStore) : undefined;
 }

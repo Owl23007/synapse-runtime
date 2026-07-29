@@ -45,205 +45,32 @@ import type { ConversationStore } from "../../conversation/store.js";
 import { ConversationStoreError } from "../../conversation/errors.js";
 import { collectRelatedEvents } from "../../conversation/trace.js";
 import { applyConversationStatePatch } from "../../conversation/state.js";
+import {
+  assertBranchCanCreateResult,
+  assertBranchCanCreateTask,
+  assertWritableSession,
+  BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS,
+  invalidTransition,
+  isBranchTransitionAllowed,
+  isTaskTransitionAllowed,
+  isTerminalTaskStatus,
+  payloadContainsTaskId,
+  SESSION_ARCHIVABLE_BRANCH_STATUSES
+} from "../../conversation/rules.js";
+import { decodeJson, encodeOptionalJson, encodeRequiredJson, jsonValuesEqual } from "./json-codec.js";
+import type {
+  LineEventRow,
+  LineRow,
+  MergeRow,
+  NodeRow,
+  NormalizedEventRow,
+  ResultRow,
+  SessionRow,
+  SnapshotRow,
+  TaskRow
+} from "./conversation-rows.js";
 
-interface SessionRow {
-  readonly id: string;
-  readonly platform: string | null;
-  readonly provider: string | null;
-  readonly channel_id: string | null;
-  readonly conversation_type: string | null;
-  readonly conversation_id: string | null;
-  readonly status: ConversationSession["status"];
-  readonly mainline_id: string;
-  readonly workspace_id: string | null;
-  readonly metadata_json: string | null;
-  readonly idempotency_key: string | null;
-  readonly created_at: string;
-  readonly updated_at: string;
-}
-
-interface LineRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly kind: ConversationLine["kind"];
-  readonly status: ConversationLine["status"];
-  readonly parent_mainline_id: string | null;
-  readonly source_line_event_id: string | null;
-  readonly create_request_id: string | null;
-  readonly title: string | null;
-  readonly goal: string | null;
-  readonly reason: string | null;
-  readonly created_by: string | null;
-  readonly context_snapshot_json: string | null;
-  readonly created_at: string;
-  readonly updated_at: string;
-  readonly completed_at: string | null;
-  readonly merged_at: string | null;
-  readonly archived_at: string | null;
-}
-
-interface NormalizedEventRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly line_event_id: string;
-  readonly platform: string;
-  readonly provider: string;
-  readonly channel_id: string;
-  readonly conversation_type: string;
-  readonly conversation_id: string;
-  readonly source_event_id: string;
-  readonly source_message_id: string | null;
-  readonly source_event_type: string;
-  readonly sender_id: string;
-  readonly text: string;
-  readonly message_json: string | null;
-  readonly segments_json: string | null;
-  readonly trigger_hint_json: string | null;
-  readonly raw_payload_json: string | null;
-  readonly received_at: string;
-  readonly ingested_at: string;
-  readonly idempotency_key: string;
-}
-
-interface LineEventRow {
-  readonly ordinal: number;
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly sequence: number;
-  readonly type: LineEventType;
-  readonly actor_id: string | null;
-  readonly payload_json: string | null;
-  readonly raw_payload_json: string | null;
-  readonly source_normalized_event_id: string | null;
-  readonly source_event_id: string | null;
-  readonly idempotency_key: string;
-  readonly causation_event_id: string | null;
-  readonly correlation_id: string | null;
-  readonly task_id: string | null;
-  readonly created_at: string;
-}
-
-interface TaskRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly branch_line_id: string;
-  readonly workspace_id: string | null;
-  readonly executor: string;
-  readonly status: ConversationTask["status"];
-  readonly input_json: string;
-  readonly output_json: string | null;
-  readonly error_json: string | null;
-  readonly artifacts_json: string;
-  readonly create_request_id: string;
-  readonly source_event_id: string | null;
-  readonly created_at: string;
-  readonly started_at: string | null;
-  readonly finished_at: string | null;
-  readonly updated_at: string;
-}
-
-interface ResultRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly branch_line_id: string;
-  readonly version: number;
-  readonly status: BranchResult["status"];
-  readonly summary: string;
-  readonly artifacts_json: string;
-  readonly citations_json: string;
-  readonly next_actions_json: string;
-  readonly create_request_id: string;
-  readonly source_event_id: string | null;
-  readonly created_at: string;
-}
-
-interface MergeRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly result_id: string;
-  readonly branch_line_id: string;
-  readonly mainline_id: string;
-  readonly mainline_event_id: string;
-  readonly branch_event_id: string;
-  readonly create_request_id: string;
-  readonly merged_at: string;
-}
-
-interface NodeRow {
-  readonly ordinal: number;
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly sequence: number;
-  readonly parent_ids_json: string;
-  readonly kind: ConversationNode["kind"];
-  readonly title: string;
-  readonly state_patch_json: string;
-  readonly source_event_ids_json: string;
-  readonly source_task_ids_json: string;
-  readonly source_result_ids_json: string;
-  readonly created_by: string;
-  readonly create_request_id: string;
-  readonly created_at: string;
-}
-
-interface SnapshotRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly node_id: string;
-  readonly node_ordinal: number;
-  readonly state_json: string;
-  readonly create_request_id: string;
-  readonly created_at: string;
-}
-
-type EncodedJson =
-  | readonly ["null"]
-  | readonly ["boolean", boolean]
-  | readonly ["number", number]
-  | readonly ["string", string]
-  | readonly ["bigint", string]
-  | readonly ["array", readonly EncodedJson[]]
-  | readonly ["object", readonly (readonly [string, EncodedJson])[]];
-
-const JSON_CODEC_KEY = "__synapse_runtime_json_v1__";
 const LOCATOR_TYPES = new Set(["private", "group", "channel", "cli", "system"]);
-
-const BRANCH_TRANSITIONS: Readonly<Record<ConversationBranch["status"], ReadonlySet<ConversationBranch["status"]>>> = {
-  created: new Set(["active", "blocked", "inactive", "failed", "cancelled", "archived"]),
-  active: new Set(["blocked", "inactive", "completed", "failed", "cancelled", "archived"]),
-  blocked: new Set(["active", "inactive", "completed", "failed", "cancelled", "archived"]),
-  inactive: new Set(["active", "blocked", "failed", "cancelled", "archived"]),
-  completed: new Set(["archived"]),
-  merged: new Set(["archived"]),
-  failed: new Set(["archived"]),
-  cancelled: new Set(["archived"]),
-  archived: new Set()
-};
-
-const TASK_TRANSITIONS: Readonly<Record<ConversationTask["status"], ReadonlySet<ConversationTask["status"]>>> = {
-  pending: new Set(["running", "blocked", "cancelled"]),
-  running: new Set(["blocked", "completed", "failed", "cancelled"]),
-  blocked: new Set(["running", "failed", "cancelled"]),
-  completed: new Set(),
-  failed: new Set(),
-  cancelled: new Set()
-};
-const BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS = new Set<ConversationBranch["status"]>([
-  "completed",
-  "failed",
-  "cancelled",
-  "archived"
-]);
-const SESSION_ARCHIVABLE_BRANCH_STATUSES = new Set<ConversationBranch["status"]>([
-  "merged",
-  "failed",
-  "cancelled",
-  "archived"
-]);
 
 /**
  * 会话存储的 SQLite 实现
@@ -666,7 +493,7 @@ export class SqliteConversationRepository implements ConversationStore {
           `Branch "${branch.id}" can enter "merged" only through mergeBranchResult().`
         );
       }
-      if (!BRANCH_TRANSITIONS[branch.status].has(input.status)) {
+      if (!isBranchTransitionAllowed(branch.status, input.status)) {
         throw invalidTransition("branch", branch.id, branch.status, input.status);
       }
       if (BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS.has(input.status)) {
@@ -1111,7 +938,7 @@ export class SqliteConversationRepository implements ConversationStore {
         return this.#taskSnapshotAtEvent(task, existingEvent);
       }
 
-      if (!TASK_TRANSITIONS[task.status].has(input.status)) {
+      if (!isTaskTransitionAllowed(task.status, input.status)) {
         throw invalidTransition("task", task.id, task.status, input.status);
       }
       const branch = this.#requireBranch(task.branchId);
@@ -3012,60 +2839,6 @@ function textFromPayload(payload: unknown): string | null {
   return null;
 }
 
-function assertWritableSession(session: ConversationSession): void {
-  if (session.status !== "active") {
-    throw new ConversationStoreError("invalid_state_transition", `Cannot write to archived session "${session.id}".`);
-  }
-}
-
-function assertBranchCanCreateTask(branch: ConversationBranch): void {
-  if (!new Set(["created", "active", "blocked", "inactive"]).has(branch.status)) {
-    throw new ConversationStoreError(
-      "invalid_state_transition",
-      `Cannot create a task on branch "${branch.id}" while it is "${branch.status}".`
-    );
-  }
-}
-
-function assertBranchCanCreateResult(branch: ConversationBranch, status: BranchResult["status"]): void {
-  const permitted: Readonly<Record<BranchResult["status"], ReadonlySet<ConversationBranch["status"]>>> = {
-    completed: new Set(["created", "active", "blocked", "inactive", "completed"]),
-    failed: new Set(["created", "active", "blocked", "inactive", "failed"]),
-    cancelled: new Set(["created", "active", "blocked", "inactive", "cancelled"])
-  };
-  if (!permitted[status].has(branch.status)) {
-    throw new ConversationStoreError(
-      "invalid_state_transition",
-      `Cannot create a "${status}" result while branch "${branch.id}" is "${branch.status}".`
-    );
-  }
-}
-
-function isTerminalTaskStatus(status: ConversationTask["status"]): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
-}
-
-function payloadContainsTaskId(payload: unknown, taskId: string): boolean {
-  if (typeof payload !== "object" || payload === null) {
-    return false;
-  }
-  if ("taskId" in payload && (payload as { readonly taskId?: unknown }).taskId === taskId) {
-    return true;
-  }
-  if ("sourceTaskIds" in payload) {
-    const sourceTaskIds = (payload as { readonly sourceTaskIds?: unknown }).sourceTaskIds;
-    return Array.isArray(sourceTaskIds) && sourceTaskIds.includes(taskId);
-  }
-  return false;
-}
-
-function invalidTransition(kind: string, id: string, from: string, to: string): ConversationStoreError {
-  return new ConversationStoreError(
-    "invalid_state_transition",
-    `${kind[0]?.toUpperCase()}${kind.slice(1)} "${id}" cannot transition from "${from}" to "${to}".`
-  );
-}
-
 function validateCreateSessionInput(input: CreateSessionInput): void {
   if (input.id !== undefined) {
     validateId(input.id, "session id");
@@ -3344,137 +3117,6 @@ function validateTimestamp(value: string | undefined, label: string, required = 
 
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(", ");
-}
-
-function encodeOptionalJson(value: unknown, label: string): string | null {
-  return value === undefined ? null : encodeRequiredJson(value, label);
-}
-
-function encodeRequiredJson(value: unknown, label: string): string {
-  if (value === undefined) {
-    throw new ConversationStoreError("validation_error", `${label} cannot be undefined.`);
-  }
-  const encoded = encodeJsonValue(value, label, new WeakSet<object>());
-  return JSON.stringify({ [JSON_CODEC_KEY]: encoded });
-}
-
-function encodeJsonValue(value: unknown, label: string, ancestors: WeakSet<object>): EncodedJson {
-  if (value === null) {
-    return ["null"];
-  }
-  if (typeof value === "string") {
-    return ["string", value];
-  }
-  if (typeof value === "boolean") {
-    return ["boolean", value];
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new ConversationStoreError("validation_error", `${label} contains a non-finite number.`);
-    }
-    return ["number", value];
-  }
-  if (typeof value === "bigint") {
-    return ["bigint", value.toString()];
-  }
-  if (typeof value !== "object") {
-    throw new ConversationStoreError("validation_error", `${label} contains a value that JSON cannot serialize.`);
-  }
-  if (ancestors.has(value)) {
-    throw new ConversationStoreError("validation_error", `${label} contains a circular reference.`);
-  }
-  ancestors.add(value);
-  try {
-    if (Array.isArray(value)) {
-      const result: EncodedJson[] = [];
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index)) {
-          throw new ConversationStoreError("validation_error", `${label} contains a sparse array.`);
-        }
-        result.push(encodeJsonValue(value[index], label, ancestors));
-      }
-      return ["array", result];
-    }
-
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      throw new ConversationStoreError("validation_error", `${label} contains a non-JSON object.`);
-    }
-    if (Object.getOwnPropertySymbols(value).length > 0) {
-      throw new ConversationStoreError("validation_error", `${label} contains symbol properties.`);
-    }
-    const record = value as Record<string, unknown>;
-    return [
-      "object",
-      Object.keys(record)
-        .toSorted()
-        .map((key) => [key, encodeJsonValue(record[key], label, ancestors)] as const)
-    ];
-  } finally {
-    ancestors.delete(value);
-  }
-}
-
-function decodeJson<T = unknown>(serialized: string, label: string): T {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(serialized);
-  } catch {
-    throw new ConversationStoreError("conflict", `Stored ${label} is not valid JSON.`);
-  }
-  if (typeof parsed === "object" && parsed !== null && Object.hasOwn(parsed, JSON_CODEC_KEY)) {
-    return decodeJsonValue((parsed as Record<string, unknown>)[JSON_CODEC_KEY], label) as T;
-  }
-  // Rows produced by the v1 migration used ordinary JSON. Keep those readable.
-  return parsed as T;
-}
-
-function decodeJsonValue(encoded: unknown, label: string): unknown {
-  if (!Array.isArray(encoded) || typeof encoded[0] !== "string") {
-    throw new ConversationStoreError("conflict", `Stored ${label} uses an invalid JSON encoding.`);
-  }
-  switch (encoded[0]) {
-    case "null":
-      return null;
-    case "boolean":
-    case "number":
-    case "string":
-      return encoded[1];
-    case "bigint":
-      if (typeof encoded[1] !== "string") {
-        break;
-      }
-      try {
-        return BigInt(encoded[1]);
-      } catch {
-        break;
-      }
-    case "array":
-      if (Array.isArray(encoded[1])) {
-        return encoded[1].map((item) => decodeJsonValue(item, label));
-      }
-      break;
-    case "object":
-      if (Array.isArray(encoded[1])) {
-        const result: Record<string, unknown> = {};
-        for (const entry of encoded[1]) {
-          if (!Array.isArray(entry) || typeof entry[0] !== "string") {
-            throw new ConversationStoreError("conflict", `Stored ${label} uses an invalid object encoding.`);
-          }
-          result[entry[0]] = decodeJsonValue(entry[1], label);
-        }
-        return result;
-      }
-      break;
-  }
-  throw new ConversationStoreError("conflict", `Stored ${label} uses an invalid JSON encoding.`);
-}
-
-function jsonValuesEqual(left: unknown, right: unknown): boolean {
-  if (left === undefined || right === undefined) {
-    return left === right;
-  }
-  return encodeRequiredJson(left, "idempotency value") === encodeRequiredJson(right, "idempotency value");
 }
 
 function isSqliteConstraintError(error: unknown): error is Error & { readonly code: string } {

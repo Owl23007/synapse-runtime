@@ -2,7 +2,7 @@
 import { startRuntimeConsole } from "./console.js";
 import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeAdminClient } from "./admin-client.js";
-import { RuntimeServer, loadEnvFile } from "./index.js";
+import { loadEnvFile } from "./env.js";
 import {
   connectProfile,
   getDefaultProfilePath,
@@ -10,6 +10,7 @@ import {
   resolveRuntimeConnection,
   useProfile
 } from "./profile-store.js";
+import { RuntimeServer } from "./server/runtime-server.js";
 
 interface CliOptions {
   readonly command:

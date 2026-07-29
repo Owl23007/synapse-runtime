@@ -1,17 +1,13 @@
 import type { RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeAdminClient } from "../admin-client.js";
-import { loadEnvFile, RuntimeServer } from "../index.js";
+import { loadEnvFile } from "../env.js";
 import { resolveRuntimeConnection } from "../profile-store.js";
+import { RuntimeServer } from "../server/runtime-server.js";
 import { parseAssignments, parseCommandValue, splitCommand, formatError } from "./commands.js";
 import { addChannelConfigFile, updateChannelConfigFile } from "./config-editor.js";
 import { ConsoleLogStore } from "./log-store.js";
-import type {
-  ConsoleLogEntry,
-  ConsoleState,
-  RuntimeConsoleChannelSummary,
-  RuntimeConsoleOptions,
-  StateListener
-} from "./types.js";
+import { isRecord, parseChannelSummaries, parseLogEntries, parseLogLevel } from "./response-parsers.js";
+import type { ConsoleState, RuntimeConsoleOptions, StateListener } from "./types.js";
 
 export class RuntimeConsoleController {
   readonly #options: RuntimeConsoleOptions;
@@ -428,81 +424,4 @@ export class RuntimeConsoleController {
       listener(this.#state);
     }
   }
-}
-
-function parseChannelSummaries(values: readonly unknown[]): RuntimeConsoleChannelSummary[] {
-  return values.filter(isRecord).map((value) => {
-    const summary: {
-      id: string;
-      adapter: string;
-      enabled: boolean;
-      provider?: string;
-      status?: {
-        state?: string;
-        detail?: string;
-        checkedAt?: string;
-      };
-    } = {
-      id: typeof value.id === "string" ? value.id : "-",
-      adapter: typeof value.adapter === "string" ? value.adapter : "-",
-      enabled: value.enabled === true
-    };
-
-    if (typeof value.provider === "string") {
-      summary.provider = value.provider;
-    }
-
-    if (isRecord(value.status)) {
-      summary.status = {};
-
-      if (typeof value.status.state === "string") {
-        summary.status.state = value.status.state;
-      }
-
-      if (typeof value.status.detail === "string") {
-        summary.status.detail = value.status.detail;
-      }
-
-      if (typeof value.status.checkedAt === "string") {
-        summary.status.checkedAt = value.status.checkedAt;
-      }
-    }
-
-    return summary;
-  });
-}
-
-function parseLogEntries(values: readonly unknown[]): ConsoleLogEntry[] {
-  return values.filter(isRecord).map((value, index) => {
-    const entry: {
-      id: number;
-      timestamp: string;
-      level: ConsoleLogEntry["level"];
-      message: string;
-      metadata?: Readonly<Record<string, unknown>>;
-    } = {
-      id: typeof value.id === "number" ? value.id : index + 1,
-      timestamp: typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString(),
-      level: parseLogLevel(value.level),
-      message: typeof value.message === "string" ? value.message : JSON.stringify(value)
-    };
-
-    if (isRecord(value.metadata)) {
-      entry.metadata = value.metadata;
-    }
-
-    return entry;
-  });
-}
-
-function parseLogLevel(value: unknown): "debug" | "info" | "warn" | "error" {
-  if (value === "debug" || value === "warn" || value === "error") {
-    return value;
-  }
-
-  return "info";
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null;
 }
