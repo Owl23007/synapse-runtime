@@ -813,7 +813,7 @@ describe("RuntimeCore", () => {
     expect(channel.sent).toHaveLength(2);
   });
 
-  it("persists and projects untriggered group messages before routing", async () => {
+  it("does not persist or project untriggered group messages", async () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new RecordingTranscriptStore();
     const conversationStore = new RecordingConversationStore();
@@ -845,25 +845,12 @@ describe("RuntimeCore", () => {
     runtime.attachChannel(channel);
     await channel.emit(groupMessage("event-1", "ordinary group message"));
 
-    expect(transcriptStore.appends).toEqual([
-      expect.objectContaining({
-        role: "user",
-        sourceEventId: "event-1",
-        text: "ordinary group message"
-      })
-    ]);
-    expect(conversationStore.accepted).toHaveLength(1);
-    await expect(conversationStore.listNormalizedEvents("qq:napcat:qq-local:group:group-1")).resolves.toMatchObject([
-      {
-        sourceEventId: "event-1",
-        sourceEventType: "message.created",
-        text: "ordinary group message"
-      }
-    ]);
+    expect(transcriptStore.appends).toEqual([]);
+    expect(conversationStore.accepted).toHaveLength(0);
     expect(channel.sent).toEqual([]);
   });
 
-  it("includes an earlier untriggered mainline message when a later group message triggers the agent", async () => {
+  it("excludes earlier untriggered group messages when a later group message triggers the agent", async () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new InMemoryTranscriptStore();
     let observedHistory: readonly { readonly content: string }[] = [];
@@ -896,13 +883,11 @@ describe("RuntimeCore", () => {
     await channel.emit(groupMessage("history-event-1", "ordinary group context"));
     await channel.emit(groupMessage("history-event-2", "Synapse, respond now"));
 
-    expect(observedHistory.map((message) => message.content)).toEqual([
-      expect.stringContaining("ordinary group context")
-    ]);
+    expect(observedHistory).toEqual([]);
     expect(channel.sent).toHaveLength(1);
   });
 
-  it("does not trigger group messages that mention someone else or everyone but preserves their history", async () => {
+  it("does not persist group messages that mention someone else or everyone", async () => {
     const channel = new MockChannelAdapter();
     const transcriptStore = new RecordingTranscriptStore();
     let runCount = 0;
@@ -946,11 +931,7 @@ describe("RuntimeCore", () => {
     );
 
     expect(runCount).toBe(0);
-    expect(transcriptStore.appends).toHaveLength(2);
-    expect(transcriptStore.appends).toEqual([
-      expect.objectContaining({ role: "user", sourceEventId: "event-other" }),
-      expect.objectContaining({ role: "user", sourceEventId: "event-all" })
-    ]);
+    expect(transcriptStore.appends).toEqual([]);
     expect(runtime.traces).toEqual([
       { eventId: "event-other", status: "ignored", reason: "mentioned_other_user" },
       { eventId: "event-all", status: "ignored", reason: "mention_all" }

@@ -20,10 +20,10 @@
 
 ## 具体实现
 
-| Package                                | 职责                                                                  |
-| -------------------------------------- | --------------------------------------------------------------------- |
-| `@synapse/runtime-channel-onebot11`    | OneBot11/NapCat adapter                                               |
-| `@synapse/runtime-channel-qq-official` | QQ Official adapter                                                   |
+| Package                                | 职责                                                            |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `@synapse/runtime-channel-onebot11`    | OneBot11/NapCat adapter                                         |
+| `@synapse/runtime-channel-qq-official` | QQ Official adapter                                             |
 | `@synapse/runtime-agent-api-provider`  | OpenAI-compatible chat completion provider，以及 `ApiChatAgent` |
 
 ## 组合层

@@ -130,7 +130,11 @@ export class RuntimeAdminClient {
     const decoder = new TextDecoder();
     let buffer = "";
 
-    while (!signal.aborted) {
+    const readNext = async (): Promise<void> => {
+      if (signal.aborted) {
+        return;
+      }
+
       const result = await reader.read();
 
       if (result.done) {
@@ -154,7 +158,11 @@ export class RuntimeAdminClient {
 
         onLog(JSON.parse(data));
       }
-    }
+
+      return readNext();
+    };
+
+    return readNext();
   }
 }
 

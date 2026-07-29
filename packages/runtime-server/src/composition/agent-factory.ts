@@ -1,5 +1,9 @@
 import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
-import { ApiChatAgent, OpenAiCompatibleChatProvider, type ChatCompletionProvider } from "@synapse/runtime-agent-api-provider";
+import {
+  ApiChatAgent,
+  OpenAiCompatibleChatProvider,
+  type ChatCompletionProvider
+} from "@synapse/runtime-agent-api-provider";
 import type { AgentProviderConfig, RuntimeConfig } from "@synapse/runtime-config";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 import type { RuntimeFetch } from "../types.js";

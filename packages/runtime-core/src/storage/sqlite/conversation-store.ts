@@ -1687,7 +1687,9 @@ export class SqliteConversationRepository implements ConversationStore {
       visited.add(node.id);
     };
     visit(head);
-    return [...visited].map((nodeId) => this.#requireNode(nodeId)).sort((left, right) => left.ordinal - right.ordinal);
+    return [...visited]
+      .map((nodeId) => this.#requireNode(nodeId))
+      .toSorted((left, right) => left.ordinal - right.ordinal);
   }
 
   #assertNodeRetry(existing: ConversationNode, input: CreateConversationNodeInput): void {

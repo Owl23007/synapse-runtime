@@ -229,75 +229,11 @@ export class RuntimeCore {
     targetLineId?: string
   ): Promise<void> {
     const provider = providerOverride ?? this.#providerByChannelId[event.channelId] ?? "unknown";
-    let accepted: AcceptedNormalizedEvent;
-    let attribution: ContextAttributionDecision | undefined;
-
-    /**
-     * 归属判断必须发生在规范事件落库前以确定写入主线或目标分支
-     */
-    if (this.#contextEnabled) {
-      try {
-        attribution = await this.#contextAttributor.attribute({
-          event,
-          provider,
-          sessionId: buildSessionId(event, provider),
-          ...(targetLineId === undefined ? {} : { explicitTargetLineId: targetLineId })
-        });
-      } catch (error) {
-        this.#logger?.warn("Runtime context attribution failed; falling back to the requested or main line.", {
-          eventId: event.id,
-          error: error instanceof Error ? error.message : "Unknown context attribution error."
-        });
-      }
-    }
-
-    /**
-     * 先持久化规范事件再执行路由与智能体以保证失败后能够恢复
-     */
-    try {
-      accepted = await this.#acceptChannelEvent(event, provider, attribution?.targetLineId ?? targetLineId);
-      if (attribution !== undefined && accepted.created) {
-        await this.#recordContextAttribution(accepted, attribution);
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Unknown conversation persistence error.";
-      this.#traces.push({ eventId: event.id, status: "failed", reason: `persistence_failed: ${reason}` });
-      this.#logger?.error("Runtime rejected channel event because durable acceptance failed.", {
-        ...summarizeEvent(event),
-        provider,
-        error: reason
-      });
-      return;
-    }
-
-    if (attribution !== undefined) {
-      this.#logger?.info("Runtime attributed channel event context.", {
-        eventId: event.id,
-        sessionId: attribution.sessionId,
-        lineId: accepted.lineEvent.lineId,
-        action: attribution.action,
-        nature: attribution.nature,
-        confidence: attribution.confidence,
-        reasons: attribution.reasons
-      });
-    }
-
-    if (this.#contextEnabled && accepted.lineEvent.type === "user_message" && event.message !== undefined) {
-      try {
-        await this.#appendIncomingTranscript(event, provider, accepted);
-      } catch (error) {
-        this.#logger?.warn("Runtime inbound transcript projection failed; canonical event remains available.", {
-          eventId: event.id,
-          error: error instanceof Error ? error.message : "Unknown transcript error."
-        });
-      }
-    }
-
     let enrichedEvent = event;
     try {
       enrichedEvent = await this.#enrichTriggerHints(event, provider);
     } catch (error) {
-      this.#logger?.warn("Runtime reply trigger enrichment failed; continuing with persisted channel event.", {
+      this.#logger?.warn("Runtime reply trigger enrichment failed; continuing with the original channel event.", {
         eventId: event.id,
         error: error instanceof Error ? error.message : "Unknown trigger enrichment error."
       });
@@ -313,6 +249,63 @@ export class RuntimeCore {
         trigger: decision.trigger
       });
       return;
+    }
+
+    let attribution: ContextAttributionDecision | undefined;
+    if (this.#contextEnabled) {
+      try {
+        attribution = await this.#contextAttributor.attribute({
+          event: enrichedEvent,
+          provider,
+          sessionId: buildSessionId(enrichedEvent, provider),
+          ...(targetLineId === undefined ? {} : { explicitTargetLineId: targetLineId })
+        });
+      } catch (error) {
+        this.#logger?.warn("Runtime context attribution failed; falling back to the requested or main line.", {
+          eventId: enrichedEvent.id,
+          error: error instanceof Error ? error.message : "Unknown context attribution error."
+        });
+      }
+    }
+
+    let accepted: AcceptedNormalizedEvent;
+    try {
+      accepted = await this.#acceptChannelEvent(enrichedEvent, provider, attribution?.targetLineId ?? targetLineId);
+      if (attribution !== undefined && accepted.created) {
+        await this.#recordContextAttribution(accepted, attribution);
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Unknown conversation persistence error.";
+      this.#traces.push({ eventId: enrichedEvent.id, status: "failed", reason: `persistence_failed: ${reason}` });
+      this.#logger?.error("Runtime rejected channel event because durable acceptance failed.", {
+        ...summarizeEvent(enrichedEvent),
+        provider,
+        error: reason
+      });
+      return;
+    }
+
+    if (attribution !== undefined) {
+      this.#logger?.info("Runtime attributed channel event context.", {
+        eventId: enrichedEvent.id,
+        sessionId: attribution.sessionId,
+        lineId: accepted.lineEvent.lineId,
+        action: attribution.action,
+        nature: attribution.nature,
+        confidence: attribution.confidence,
+        reasons: attribution.reasons
+      });
+    }
+
+    if (this.#contextEnabled && accepted.lineEvent.type === "user_message" && enrichedEvent.message !== undefined) {
+      try {
+        await this.#appendIncomingTranscript(enrichedEvent, provider, accepted);
+      } catch (error) {
+        this.#logger?.warn("Runtime inbound transcript projection failed; canonical event remains available.", {
+          eventId: enrichedEvent.id,
+          error: error instanceof Error ? error.message : "Unknown transcript error."
+        });
+      }
     }
 
     this.#logger?.info("Runtime accepted channel event.", {

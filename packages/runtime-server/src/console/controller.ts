@@ -381,7 +381,7 @@ export class RuntimeConsoleController {
     }
 
     const existing = this.#state.logs.filter((item) => item.id !== entry.id);
-    this.#setState({ logs: [...existing, entry].sort((left, right) => left.id - right.id).slice(-300) });
+    this.#setState({ logs: [...existing, entry].toSorted((left, right) => left.id - right.id).slice(-300) });
   }
 
   #startRemoteLogStream(): void {

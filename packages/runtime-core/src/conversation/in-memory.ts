@@ -1453,7 +1453,7 @@ export class InMemoryConversationStore implements ConversationStore {
     const ancestryIds = new Set(ancestry.map((node) => node.id));
     const snapshot = [...this.#snapshots.values()]
       .filter((candidate) => ancestryIds.has(candidate.nodeId))
-      .sort((left, right) => right.nodeOrdinal - left.nodeOrdinal)[0];
+      .toSorted((left, right) => right.nodeOrdinal - left.nodeOrdinal)[0];
     let state: Readonly<Record<string, unknown>> = snapshot?.state ?? {};
     const nodesToApply = ancestry.filter((node) => snapshot === undefined || node.ordinal > snapshot.nodeOrdinal);
     for (const node of nodesToApply) {
@@ -1482,7 +1482,9 @@ export class InMemoryConversationStore implements ConversationStore {
       visited.add(node.id);
     };
     visit(head);
-    return [...visited].map((nodeId) => this.#requiredNode(nodeId)).sort((left, right) => left.ordinal - right.ordinal);
+    return [...visited]
+      .map((nodeId) => this.#requiredNode(nodeId))
+      .toSorted((left, right) => left.ordinal - right.ordinal);
   }
 
   #requiredSession(sessionId: string): ConversationSession {
