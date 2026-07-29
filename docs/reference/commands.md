@@ -10,6 +10,8 @@
 | `/whoami`                          | 查看当前身份     |
 | `/workspace info`                  | 查看当前工作区   |
 | `/workspace use project:<id>`      | 切换到项目工作区 |
+| `/branches`                        | 查看当前会话分支 |
+| `/tasks`                           | 查看当前会话任务 |
 | `/memory <remember\|list\|delete>` | 管理长期记忆     |
 
 ## Workspace Scripts

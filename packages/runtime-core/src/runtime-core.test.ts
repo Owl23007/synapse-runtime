@@ -1484,9 +1484,58 @@ describe("RuntimeCore", () => {
         "/whoami - 查看当前身份",
         "/workspace info - 查看当前工作区",
         "/workspace use project:<id> - 切换到项目工作区",
+        "/branches - 查看当前会话分支",
+        "/tasks - 查看当前会话任务",
         "/memory <remember|list|delete> - 管理长期记忆"
       ].join("\n")
     );
+  });
+
+  it("queries current-session branches and tasks through registered commands", async () => {
+    const channel = new MockChannelAdapter();
+    let runCount = 0;
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        groupTrigger: { mode: "always" },
+        privateTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "unused-agent",
+        async run(): Promise<AgentRun> {
+          runCount += 1;
+          throw new Error("agent should not be called");
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" }))
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(privateMessage("event-seed", "/help"));
+    const sessionId = "qq:napcat:qq-local:private:user-1";
+    const mainline = await runtime.conversationStore.getMainline(sessionId);
+    const sourceEvent = (await runtime.conversationStore.listEvents(mainline.id))[0];
+    const branch = await runtime.createBranch({
+      sessionId,
+      sourceEventId: sourceEvent?.id ?? "",
+      title: "Inspect parser",
+      goal: "Find parser bottleneck",
+      reason: "Can run independently",
+      createdBy: "test",
+      idempotencyKey: "branch-command-query"
+    });
+    const task = await runtime.conversationStore.createTask(branch.id, {
+      executor: "repository-analyzer",
+      input: { path: "src/parser.ts" },
+      idempotencyKey: "task-command-query"
+    });
+
+    await channel.emit(privateMessage("event-branches", "/branches"));
+    await channel.emit(privateMessage("event-tasks", "/tasks"));
+
+    expect(runCount).toBe(0);
+    expect(sentText(channel.sent[1]?.message)).toContain(`- ${branch.id} [created] Inspect parser`);
+    expect(sentText(channel.sent[2]?.message)).toContain(`- ${task.id} [pending] executor=repository-analyzer`);
   });
 
   it("returns a disabled durable memory message by default", async () => {

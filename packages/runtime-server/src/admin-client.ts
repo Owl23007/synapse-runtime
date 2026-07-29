@@ -47,6 +47,28 @@ export class RuntimeAdminClient {
     return this.#get("/admin/channels");
   }
 
+  branches(sessionId?: string): Promise<unknown> {
+    const query = sessionId === undefined ? "" : `?sessionId=${encodeURIComponent(sessionId)}`;
+    return this.#get(`/admin/branches${query}`);
+  }
+
+  branch(branchId: string): Promise<unknown> {
+    return this.#get(`/admin/branches/${encodeURIComponent(branchId)}`);
+  }
+
+  tasks(branchId?: string): Promise<unknown> {
+    const query = branchId === undefined ? "" : `?branchId=${encodeURIComponent(branchId)}`;
+    return this.#get(`/admin/tasks${query}`);
+  }
+
+  task(taskId: string): Promise<unknown> {
+    return this.#get(`/admin/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  cancelTask(taskId: string): Promise<unknown> {
+    return this.#request(`/admin/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+  }
+
   /** 更新频道启用状态 */
   updateChannel(channelId: string, patch: { readonly enabled?: boolean }): Promise<unknown> {
     return this.#request(`/admin/channels/${encodeURIComponent(channelId)}`, {

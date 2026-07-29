@@ -76,33 +76,39 @@ export class QqOfficialChannelAdapter implements ChannelAdapter {
   }
 
   async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
-    const content = renderTextMessage(message);
-    const accessToken = await this.#tokenClient.getAccessToken();
-    const url = this.#sendMessageUrl(target);
-    const body = createQqOfficialSendBody(target, message, content);
-    const response = await this.#fetch(url, {
-      method: "POST",
-      headers: {
-        authorization: `QQBot ${accessToken}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    const responseBody = await response.json();
+    try {
+      const content = renderTextMessage(message);
+      const accessToken = await this.#tokenClient.getAccessToken();
+      const url = this.#sendMessageUrl(target);
+      const body = createQqOfficialSendBody(target, message, content);
+      const response = await this.#fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `QQBot ${accessToken}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      const responseBody = await response.json();
 
-    if (!response.ok) {
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: `QQ official send failed with HTTP ${response.status}: ${safeJson(responseBody)}`
+        };
+      }
+
+      const messageId = extractMessageId(responseBody);
+      return {
+        ok: true,
+        ...(messageId === undefined ? {} : { messageId })
+      };
+    } catch (error) {
       return {
         ok: false,
-        error: `QQ official send failed with HTTP ${response.status}: ${safeJson(responseBody)}`
+        error: error instanceof Error ? error.message : String(error)
       };
     }
-
-    const messageId = extractMessageId(responseBody);
-
-    return {
-      ok: true,
-      ...(messageId === undefined ? {} : { messageId })
-    };
   }
 
   onEvent(handler: ChannelEventHandler): void {

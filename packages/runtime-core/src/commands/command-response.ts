@@ -1,9 +1,12 @@
 import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
+import type { ConversationStore } from "../conversation/index.js";
 import type { RuntimeActor, WorkspaceRef } from "../context/types.js";
 
 interface CommandContext {
   readonly actor: RuntimeActor;
   readonly workspace: WorkspaceRef;
+  readonly sessionId: string;
+  readonly conversationStore: ConversationStore;
   readonly options: { readonly enableDurableMemory?: boolean };
 }
 
@@ -11,7 +14,7 @@ interface CommandDefinition {
   readonly usage: string;
   readonly description: string;
   matches(text: string): boolean;
-  execute(context: CommandContext): SynapseMessage | undefined;
+  execute(context: CommandContext): SynapseMessage | undefined | Promise<SynapseMessage | undefined>;
 }
 
 const commands: readonly CommandDefinition[] = [
@@ -52,6 +55,33 @@ const commands: readonly CommandDefinition[] = [
     execute: () => textResponse("Project workspace is not supported in P0.")
   },
   {
+    usage: "/branches",
+    description: "查看当前会话分支",
+    matches: (text) => text === "/branches",
+    execute: async ({ conversationStore, sessionId }) => {
+      const branches = await conversationStore.listBranches(sessionId);
+      return textResponse(
+        branches.length === 0
+          ? "当前会话没有分支。"
+          : ["分支：", ...branches.map((branch) => `- ${branch.id} [${branch.status}] ${branch.title}`)].join("\n")
+      );
+    }
+  },
+  {
+    usage: "/tasks",
+    description: "查看当前会话任务",
+    matches: (text) => text === "/tasks",
+    execute: async ({ conversationStore, sessionId }) => {
+      const branches = await conversationStore.listBranches(sessionId);
+      const tasks = (await Promise.all(branches.map((branch) => conversationStore.listTasks(branch.id)))).flat();
+      return textResponse(
+        tasks.length === 0
+          ? "当前会话没有任务。"
+          : ["任务：", ...tasks.map((task) => `- ${task.id} [${task.status}] executor=${task.executor}`)].join("\n")
+      );
+    }
+  },
+  {
     usage: "/memory <remember|list|delete>",
     description: "管理长期记忆",
     matches: isMemoryCommand,
@@ -65,15 +95,17 @@ const commands: readonly CommandDefinition[] = [
 /**
  * 根据频道事件生成内置命令响应
  */
-export function commandResponse(
+export async function commandResponse(
   event: SynapseChannelEvent,
   actor: RuntimeActor,
   workspace: WorkspaceRef,
+  sessionId: string,
+  conversationStore: ConversationStore,
   options: { readonly enableDurableMemory?: boolean } = {}
-): SynapseMessage | undefined {
+): Promise<SynapseMessage | undefined> {
   const text = event.message === undefined ? "" : getTextContent(event.message).trim();
   const command = commands.find((candidate) => candidate.matches(text));
-  return command?.execute({ actor, workspace, options });
+  return command?.execute({ actor, workspace, sessionId, conversationStore, options });
 }
 
 function isMemoryCommand(text: string): boolean {

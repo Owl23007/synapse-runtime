@@ -24,13 +24,12 @@ port = 3766
 
 ## 权限边界
 
-Channel send 和 tool call 都会经过 permission engine。静态权限引擎支持：
+Channel send 和 tool call 都会经过 permission engine。生产配置当前公开：
 
 - `allow`
-- `confirm`
 - `deny`
-- `sandbox`
-- `rate_limit`
+
+内部类型仍保留 `confirm`、`sandbox` 和 `rate_limit` 供后续工作流实现使用，但生产配置会拒绝这些尚不可恢复的策略。
 
 当前 runtime send actions：
 

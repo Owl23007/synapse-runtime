@@ -112,6 +112,19 @@ describe("renderOneBot11Message", () => {
 });
 
 describe("OneBot11ChannelAdapter", () => {
+  it("does not advertise management operations absent from the adapter contract", () => {
+    const adapter = new OneBot11ChannelAdapter({
+      id: "qq-local",
+      endpoint: "ws://127.0.0.1:3001"
+    });
+
+    expect(adapter.getCapabilities()).toMatchObject({
+      sendMedia: true,
+      manageGroup: false,
+      recallMessage: false
+    });
+  });
+
   it("connects to NapCat WebSocket and sends group messages", async () => {
     const socket = new FakeWebSocket("ws://127.0.0.1:3001", {
       headers: { authorization: "Bearer token-1" }

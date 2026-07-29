@@ -17,6 +17,7 @@ describe("runtime-core export surface", () => {
       "ResponsePolicy",
       "RuntimeCore",
       "SqliteRuntimeContextStore",
+      "TaskRunner",
       "WorkspaceResolverLite",
       "anonymousActor",
       "applyConversationStatePatch",

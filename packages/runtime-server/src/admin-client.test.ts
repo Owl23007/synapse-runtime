@@ -60,4 +60,35 @@ describe("RuntimeAdminClient", () => {
       }
     ]);
   });
+
+  it("queries branch tasks and sends cancellation requests", async () => {
+    const requests: Array<{ url: string; method?: string }> = [];
+    const client = new RuntimeAdminClient({
+      endpoint: "http://127.0.0.1:3766",
+      fetch: async (url, init) => {
+        requests.push({ url, ...(init?.method === undefined ? {} : { method: init.method }) });
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { ok: true };
+          }
+        };
+      }
+    });
+
+    await client.branches("session/1");
+    await client.branch("branch/1");
+    await client.tasks("branch/1");
+    await client.task("task/1");
+    await client.cancelTask("task/1");
+
+    expect(requests).toEqual([
+      { url: "http://127.0.0.1:3766/admin/branches?sessionId=session%2F1", method: "GET" },
+      { url: "http://127.0.0.1:3766/admin/branches/branch%2F1", method: "GET" },
+      { url: "http://127.0.0.1:3766/admin/tasks?branchId=branch%2F1", method: "GET" },
+      { url: "http://127.0.0.1:3766/admin/tasks/task%2F1", method: "GET" },
+      { url: "http://127.0.0.1:3766/admin/tasks/task%2F1/cancel", method: "POST" }
+    ]);
+  });
 });

@@ -457,7 +457,7 @@ export class RuntimeCore {
         }
       }
 
-      const commandOutput = commandResponse(event, actor, workspace, {
+      const commandOutput = await commandResponse(event, actor, workspace, sessionId, this.#conversationStore, {
         enableDurableMemory: this.#enableDurableMemory
       });
       let recoveredOutput =

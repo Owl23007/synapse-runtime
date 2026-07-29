@@ -240,6 +240,31 @@ describe("QqOfficialChannelAdapter", () => {
       })
     });
   });
+
+  it("returns transport and unsupported-media failures through SendResult", async () => {
+    const adapter = new QqOfficialChannelAdapter({
+      id: "qq-official",
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async () => {
+        throw new Error("network unavailable");
+      }
+    });
+
+    await expect(
+      adapter.sendMessage({ type: "private", userId: "user-openid" }, textMessage("hello"))
+    ).resolves.toEqual({ ok: false, error: "network unavailable" });
+    await expect(
+      adapter.sendMessage(
+        { type: "private", userId: "user-openid" },
+        { type: "image", segments: [{ type: "image", url: "https://example.test/image.png" }] }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      error: "QQ official adapter can only send messages with text content in this MVP."
+    });
+  });
 });
 
 function jsonResponse(body: unknown) {

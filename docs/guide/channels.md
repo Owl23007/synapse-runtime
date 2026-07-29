@@ -37,6 +37,8 @@ enabled = false
 riskLevel = "high"
 ```
 
+当前只公开已实现的 `websocket` transport；`http` 和 `http-websocket` 不会通过配置校验。
+
 当前能力重点：
 
 - 接收私聊消息
@@ -61,6 +63,8 @@ webhookPath = "/webhooks/qq-official/qq-official"
 enabled = true
 riskLevel = "low"
 ```
+
+当前只公开已实现的 `webhook` mode；尚未启动 gateway loop 的 `websocket` mode 不会通过配置校验。
 
 当前能力重点：
 

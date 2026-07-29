@@ -131,8 +131,8 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       sendPrivateMessage: true,
       sendGroupMessage: true,
       sendMedia: true,
-      manageGroup: true,
-      recallMessage: true,
+      manageGroup: false,
+      recallMessage: false,
       complianceLevel: "unofficial",
       riskLevel: "high"
     };

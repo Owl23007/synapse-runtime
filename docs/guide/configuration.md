@@ -106,13 +106,12 @@ maxMessages = 20
 "channel.qq.send_channel_message" = "allow"
 "channel.qq.send_private_message" = "allow"
 "channel.qq.manage_group" = "allow"
-"channel.qq.send_media" = "confirm"
+"channel.qq.send_media" = "deny"
 ```
 
 权限策略：
 
 - `allow`
-- `confirm`
 - `deny`
-- `sandbox`
-- `rate_limit`
+
+`confirm`、`sandbox` 和 `rate_limit` 尚未具备可恢复工作流，因此当前公开配置会拒绝这些值，而不是把它们静默当作 `deny`。

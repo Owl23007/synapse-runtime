@@ -125,7 +125,7 @@ Channel id 必须以字母或数字开头，并且只能包含字母、数字、
 | ------------- | ---------- | -------- | --------------- | ----------- |
 | `adapter`     | `onebot11` | required |
 | `provider`    | string     | `napcat` |
-| `transport`   | `websocket | http     | http-websocket` | `websocket` |
+| `transport`   | `websocket` | `websocket` |
 | `endpoint`    | string     | required |
 | `accessToken` | string     | optional |
 | `enabled`     | boolean    | `true`   |
@@ -138,7 +138,7 @@ Channel id 必须以字母或数字开头，并且只能包含字母、数字、
 | `adapter`       | `qq-official` | required   |
 | `appId`         | string        | required   |
 | `appSecret`     | string        | required   |
-| `mode`          | `webhook      | websocket` | `webhook` |
+| `mode`          | `webhook`     | `webhook` |
 | `apiBaseUrl`    | URL string    | optional   |
 | `tokenEndpoint` | URL string    | optional   |
 | `webhookPath`   | string        | optional   |
@@ -150,10 +150,9 @@ Channel id 必须以字母或数字开头，并且只能包含字母、数字、
 Permission policy values：
 
 - `allow`
-- `confirm`
 - `deny`
-- `sandbox`
-- `rate_limit`
+
+只有已经实现的 `allow` 和 `deny` 会被配置解析器接受。需要持久化恢复的 `confirm`、`sandbox` 和 `rate_limit` 暂不公开。
 
 默认策略包含以下 channel send actions：
 

@@ -1,4 +1,5 @@
 import { redactConfig, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
+import type { ConversationBranch, ConversationTask } from "@synapse/runtime-core";
 import type { Handler, Nova, NovaRequest, NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
 import type { RuntimeServerLogger } from "../../types.js";
@@ -23,6 +24,11 @@ export interface AdminRouteDeps {
   ) => Promise<void>;
   readonly reloadConfig: () => Promise<void>;
   readonly shutdown: () => Promise<void>;
+  readonly listBranches: (sessionId?: string) => Promise<readonly ConversationBranch[]>;
+  readonly getBranch: (branchId: string) => Promise<ConversationBranch | undefined>;
+  readonly listTasks: (branchId?: string) => Promise<readonly ConversationTask[]>;
+  readonly getTask: (taskId: string) => Promise<ConversationTask | undefined>;
+  readonly cancelTask: (taskId: string) => Promise<ConversationTask>;
 }
 
 export function registerAdminRoutes(deps: AdminRouteDeps): void {
@@ -73,6 +79,65 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
         ok: true,
         channels: await deps.getChannelSummaries()
       });
+    })
+  );
+  deps.app.get(
+    "/admin/branches",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      sendJson(response, 200, {
+        ok: true,
+        branches: await deps.listBranches(request.query.get("sessionId") ?? undefined)
+      });
+    })
+  );
+  deps.app.get(
+    "/admin/branches/:id",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      const branch = request.params.id === undefined ? undefined : await deps.getBranch(request.params.id);
+      sendJson(
+        response,
+        branch === undefined ? 404 : 200,
+        branch === undefined ? { ok: false, error: "branch_not_found" } : { ok: true, branch }
+      );
+    })
+  );
+  deps.app.get(
+    "/admin/tasks",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      sendJson(response, 200, {
+        ok: true,
+        tasks: await deps.listTasks(request.query.get("branchId") ?? undefined)
+      });
+    })
+  );
+  deps.app.get(
+    "/admin/tasks/:id",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      const task = request.params.id === undefined ? undefined : await deps.getTask(request.params.id);
+      sendJson(
+        response,
+        task === undefined ? 404 : 200,
+        task === undefined ? { ok: false, error: "task_not_found" } : { ok: true, task }
+      );
+    })
+  );
+  deps.app.post(
+    "/admin/tasks/:id/cancel",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      if (request.params.id === undefined) {
+        sendJson(response, 400, { ok: false, error: "missing_task_id" });
+        return;
+      }
+      try {
+        sendJson(response, 200, { ok: true, task: await deps.cancelTask(request.params.id) });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        sendJson(response, message.includes("was not found") ? 404 : 409, {
+          ok: false,
+          error: message.includes("was not found") ? "task_not_found" : "task_cancel_failed",
+          message
+        });
+      }
     })
   );
   deps.app.patch(

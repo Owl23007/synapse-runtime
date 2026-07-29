@@ -88,6 +88,30 @@ accessToken = "$\{NAPCAT_TOKEN}"
       riskLevel: "high"
     });
     expect(config.permissions["channel.qq.manage_group"]).toBe("deny");
+    expect(config.permissions["channel.qq.send_private_message"]).toBe("deny");
+  });
+
+  it("rejects channel transports and permission workflows that are not implemented", () => {
+    expect(() =>
+      parseConfigObject({
+        channels: {
+          local: { adapter: "onebot11", endpoint: "ws://127.0.0.1:3001", transport: "http" }
+        }
+      })
+    ).toThrow();
+    expect(() =>
+      parseConfigObject({
+        channels: {
+          official: {
+            adapter: "qq-official",
+            appId: "app",
+            appSecret: "secret",
+            mode: "websocket"
+          }
+        }
+      })
+    ).toThrow();
+    expect(() => parseConfigObject({ permissions: { "tool.write": "confirm" } })).toThrow();
   });
 
   it("supports explicit openai-compatible providers in toml configs", () => {

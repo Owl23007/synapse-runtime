@@ -1,6 +1,6 @@
 import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
 import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
-import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
+import { RuntimeCore, SqliteRuntimeContextStore, TaskRunner } from "@synapse/runtime-core";
 import { bodyParser, createApp, type Nova } from "nova-http";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
@@ -27,6 +27,7 @@ export class RuntimeServer {
   readonly #webhookRegistry: QqOfficialWebhookRegistry;
   readonly #channelManager: RuntimeChannelManager;
   #runtime: RuntimeCore;
+  #taskRunner: TaskRunner;
   #contextStore: SqliteRuntimeContextStore | undefined;
   #lifecycleTail: Promise<void> = Promise.resolve();
   #startPromise: Promise<RuntimeServerStartResult> | undefined;
@@ -60,6 +61,7 @@ export class RuntimeServer {
     });
     this.#runtime = runtimeResult.runtime;
     this.#contextStore = runtimeResult.contextStore;
+    this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
     this.#channelManager = new RuntimeChannelManager({
       channels: this.#channels,
       webhookRegistry: this.#webhookRegistry,
@@ -111,6 +113,10 @@ export class RuntimeServer {
       });
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#channelManager.connectAll();
+      const recovery = await this.#taskRunner.recover();
+      if (recovery.resumedTaskIds.length > 0 || recovery.failedTaskIds.length > 0) {
+        this.#logger.warn("Recovered persisted branch tasks.", { ...recovery });
+      }
 
       await this.#app.listen(this.#config.server.port, this.#config.server.host);
       const adminResult = await startAdminApp({
@@ -144,6 +150,7 @@ export class RuntimeServer {
     this.#webhookRegistry.clear();
     await this.#cleanupStep("drain webhook dispatch", () => this.#webhookRegistry.drain());
     await this.#cleanupStep("drain runtime operations", () => this.#runtime.dispose());
+    await this.#cleanupStep("drain branch tasks", () => this.#taskRunner.dispose());
     await this.#cleanupStep("disconnect channels", () => this.#channelManager.disconnectAll());
     await this.#cleanupStep("close runtime context store", async () => {
       this.#closeContextStore();
@@ -171,7 +178,18 @@ export class RuntimeServer {
       applyChannelPatch: (channelId, channelConfig, patch) =>
         this.#channelManager.applyChannelPatch(channelId, channelConfig, patch),
       reloadConfig: () => this.#reloadConfig(),
-      shutdown: () => this.stop()
+      shutdown: () => this.stop(),
+      listBranches: async (sessionId) =>
+        sessionId === undefined
+          ? (await this.#runtime.conversationStore.getRecoveryState()).activeBranches
+          : this.#runtime.conversationStore.listBranches(sessionId),
+      getBranch: (branchId) => this.#runtime.conversationStore.getBranch(branchId),
+      listTasks: async (branchId) =>
+        branchId === undefined
+          ? (await this.#runtime.conversationStore.getRecoveryState()).unfinishedTasks
+          : this.#runtime.conversationStore.listTasks(branchId),
+      getTask: (taskId) => this.#runtime.conversationStore.getTask(taskId),
+      cancelTask: (taskId) => this.#taskRunner.cancel(taskId)
     });
   }
 
@@ -201,6 +219,7 @@ export class RuntimeServer {
     this.#webhookRegistry.clear();
     await this.#webhookRegistry.drain();
     await this.#runtime.dispose();
+    await this.#taskRunner.dispose();
     await this.#channelManager.disconnectAll();
     this.#closeContextStore();
     this.#config = nextConfig;
@@ -213,6 +232,8 @@ export class RuntimeServer {
       });
       this.#runtime = runtimeResult.runtime;
       this.#contextStore = runtimeResult.contextStore;
+      this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
+      await this.#taskRunner.recover();
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#channelManager.connectAll();
       this.#webhookRegistry.resume();

@@ -4,7 +4,14 @@ import { z } from "zod";
 
 export const DEFAULT_RUNTIME_DATA_DIR = join(homedir(), ".synapse", "runtime");
 
-export const PermissionPolicySchema = z.enum(["allow", "confirm", "deny", "sandbox", "rate_limit"]);
+/**
+ * Policies accepted by the production configuration surface.
+ *
+ * The permission package still models future workflow states, but the runtime
+ * does not yet persist and resume them. Exposing those values here would turn
+ * `confirm`, `sandbox`, and `rate_limit` into indistinguishable denials.
+ */
+export const PermissionPolicySchema = z.enum(["allow", "deny"]);
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
 
@@ -17,9 +24,9 @@ const OptionalSecretSchema = z.preprocess((value) => (value === "" ? undefined :
 export const DEFAULT_PERMISSIONS = {
   "channel.qq.send_group_message": "allow",
   "channel.qq.send_channel_message": "allow",
-  "channel.qq.send_private_message": "confirm",
+  "channel.qq.send_private_message": "deny",
   "channel.qq.manage_group": "deny",
-  "channel.qq.send_media": "confirm",
+  "channel.qq.send_media": "deny",
   "network.web.search": "allow",
   "network.web.fetch": "allow"
 } as const;
@@ -207,7 +214,7 @@ export const OneBot11ChannelConfigSchema = z
   .object({
     adapter: z.literal("onebot11"),
     provider: z.string().min(1).default("napcat"),
-    transport: z.enum(["websocket", "http", "http-websocket"]).default("websocket"),
+    transport: z.literal("websocket").default("websocket"),
     endpoint: z.string().min(1),
     accessToken: OptionalSecretSchema,
     enabled: z.boolean().default(true),
@@ -220,7 +227,7 @@ export const QqOfficialChannelConfigSchema = z
     adapter: z.literal("qq-official"),
     appId: z.string().min(1),
     appSecret: z.string().min(1),
-    mode: z.enum(["webhook", "websocket"]).default("webhook"),
+    mode: z.literal("webhook").default("webhook"),
     apiBaseUrl: z.string().url().optional(),
     tokenEndpoint: z.string().url().optional(),
     webhookPath: z.string().min(1).optional(),

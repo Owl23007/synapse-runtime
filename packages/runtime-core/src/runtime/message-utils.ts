@@ -25,7 +25,20 @@ export function channelSendAction(target: ChannelTarget): string {
 }
 
 /** 为输出消息补充回复上下文 */
-export function withReplyContext(message: SynapseMessage, event: SynapseChannelEvent): SynapseMessage {
+export function withReplyContext(
+  message: SynapseMessage,
+  event: SynapseChannelEvent,
+  now: number = Date.now()
+): SynapseMessage {
+  const passiveWindowSeconds = event.adapterCapabilities?.passiveReplyWindowSeconds;
+  if (passiveWindowSeconds !== undefined) {
+    const receivedAt = Date.parse(event.receivedAt);
+    if (!Number.isFinite(receivedAt) || now - receivedAt >= passiveWindowSeconds * 1000) {
+      const { replyTo: _expiredReply, ...withoutReply } = message;
+      return withoutReply;
+    }
+  }
+
   return {
     ...message,
     replyTo: {
