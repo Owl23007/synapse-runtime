@@ -1,6 +1,7 @@
 import type { ConversationTrigger, PromptContext, PromptContextMessage } from "@synapse/runtime-conversation";
 import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
-import type { ConversationStore, LineEvent } from "../conversation/types.js";
+import type { LineEvent } from "../conversation/types.js";
+import type { ConversationStore } from "../conversation/store.js";
 import type { OutputPolicy } from "../output/policy.js";
 import type { TranscriptStore } from "../transcript/types.js";
 import { trimHistory, isWithinHistoryTtl } from "./history.js";
@@ -24,6 +25,9 @@ export class ContextComposer {
   readonly #maxHistoryChars: number;
   readonly #timezone: string;
 
+  /**
+   * 创建上下文组合器
+   */
   constructor(options: ContextComposerOptions) {
     this.#transcriptStore = options.transcriptStore;
     this.#conversationStore = options.conversationStore;
@@ -40,6 +44,9 @@ export class ContextComposer {
     this.#timezone = options.timezone ?? "UTC";
   }
 
+  /**
+   * 组合当前输入、历史记录与分支投影
+   */
   async compose(input: {
     readonly event: SynapseChannelEvent;
     readonly actor: RuntimeActor;

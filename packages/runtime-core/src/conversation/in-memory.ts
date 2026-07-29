@@ -17,7 +17,6 @@ import type {
   ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
-  ConversationStore,
   ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
@@ -43,7 +42,8 @@ import type {
   TransitionSessionInput,
   TransitionTaskInput
 } from "./types.js";
-import { ConversationStoreError } from "./types.js";
+import type { ConversationStore } from "./store.js";
+import { ConversationStoreError } from "./errors.js";
 import { collectRelatedEvents } from "./trace.js";
 import { applyConversationStatePatch } from "./state.js";
 
@@ -84,11 +84,9 @@ const TASK_TRANSITIONS: Readonly<Record<TaskStatus, ReadonlySet<TaskStatus>>> = 
 };
 
 /**
- * In-memory reference implementation of the append-only conversation model.
+ * 追加式会话模型的内存参考实现
  *
- * Every value crossing the store boundary is structured-cloned. This is
- * important here because readonly TypeScript types alone cannot prevent a
- * caller from mutating an object after it has been appended.
+ * 所有跨越存储边界的值都会执行结构化克隆以避免调用方修改已追加对象
  */
 export class InMemoryConversationStore implements ConversationStore {
   readonly #sessions = new Map<string, ConversationSession>();

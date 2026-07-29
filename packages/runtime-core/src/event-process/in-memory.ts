@@ -7,6 +7,9 @@ import type {
   EventProcessStore
 } from "./types.js";
 
+/**
+ * 事件处理检查点存储的内存实现
+ */
 export class InMemoryEventProcessStore implements EventProcessStore {
   readonly #states = new Map<string, EventProcessState>();
 

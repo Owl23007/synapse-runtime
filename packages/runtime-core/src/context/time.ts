@@ -1,3 +1,6 @@
+/**
+ * 将时间戳格式化为指定时区的可读文本
+ */
 export function formatZonedTimestamp(timestamp: string, timezone: string): string {
   const date = new Date(timestamp);
   const effectiveDate = Number.isNaN(date.getTime()) ? new Date() : date;

@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
 import { RUNTIME_CONTEXT_POST_MIGRATION_SQL, RUNTIME_CONTEXT_SCHEMA_SQL } from "./schema.js";
 
+/**
+ * 幂等迁移运行时上下文数据库
+ */
 export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
   const migrate = db.transaction(() => {
     db.exec(RUNTIME_CONTEXT_SCHEMA_SQL);
@@ -27,6 +30,9 @@ export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
   migrate.immediate();
 }
 
+/**
+ * 在字段缺失时为 SQLite 表追加字段
+ */
 export function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ readonly name: string }>;
   if (rows.some((row) => row.name === column)) {

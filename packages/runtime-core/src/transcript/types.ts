@@ -48,8 +48,11 @@ export interface TranscriptAppendInput {
 }
 
 export interface TranscriptStore {
+  /** 幂等追加一条转录消息 */
   append(input: TranscriptAppendInput): Promise<TranscriptMessage>;
+  /** 读取会话最近的转录消息 */
   listRecent(sessionId: string, options?: TranscriptListRecentOptions): Promise<readonly TranscriptMessage[]>;
+  /** 按外部消息标识查找转录消息 */
   findByExternalMessageId?(input: TranscriptExternalMessageLookup): Promise<TranscriptMessage | undefined>;
 }
 

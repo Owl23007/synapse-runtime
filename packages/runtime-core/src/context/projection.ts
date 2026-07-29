@@ -2,10 +2,10 @@ import type {
   BranchResult,
   ConversationBranch,
   ConversationNode,
-  ConversationStore,
   ConversationTask,
   LineEvent
 } from "../conversation/types.js";
+import type { ConversationStore } from "../conversation/store.js";
 import type { TranscriptMessage, TranscriptStore } from "../transcript/types.js";
 
 /**
@@ -69,12 +69,18 @@ export class BranchContextProjector {
   readonly #transcriptStore: TranscriptStore;
   readonly #defaultMaxChars: number;
 
+  /**
+   * 创建分支上下文投影器
+   */
   constructor(options: BranchContextProjectorOptions) {
     this.#conversationStore = options.conversationStore;
     this.#transcriptStore = options.transcriptStore;
     this.#defaultMaxChars = options.defaultMaxChars ?? 6000;
   }
 
+  /**
+   * 按字符预算生成分支上下文投影
+   */
   async project(input: BranchContextProjectionInput): Promise<BranchContextProjection> {
     const branch = await this.#conversationStore.getBranch(input.branchId);
     if (branch === undefined) {

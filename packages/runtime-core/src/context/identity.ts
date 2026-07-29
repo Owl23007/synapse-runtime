@@ -2,16 +2,26 @@ import type { SynapseChannelEvent } from "@synapse/runtime-protocol";
 import type { PlatformIdentity, RuntimeActor } from "./types.js";
 
 export interface IdentityResolver {
+  /** 将平台发送者解析为运行时角色 */
   resolve(event: SynapseChannelEvent, provider: string): Promise<RuntimeActor>;
 }
 
+/**
+ * 基于平台发送者与所有者列表解析运行时角色
+ */
 export class IdentityResolverLite implements IdentityResolver {
   readonly #owners: ReadonlySet<string>;
 
+  /**
+   * 创建轻量身份解析器
+   */
   constructor(options: { readonly ownerPlatformUserIds?: readonly string[] } = {}) {
     this.#owners = new Set(options.ownerPlatformUserIds ?? []);
   }
 
+  /**
+   * 解析频道事件发送者的运行时身份
+   */
   async resolve(event: SynapseChannelEvent, provider: string): Promise<RuntimeActor> {
     const platformIdentity: PlatformIdentity = {
       platform: event.platform,
@@ -41,6 +51,9 @@ export class IdentityResolverLite implements IdentityResolver {
   }
 }
 
+/**
+ * 为无法解析身份的事件创建匿名运行角色
+ */
 export function anonymousActor(event: SynapseChannelEvent, provider: string): RuntimeActor {
   const platformUserId = event.sender.id.length > 0 ? event.sender.id : "unknown";
 

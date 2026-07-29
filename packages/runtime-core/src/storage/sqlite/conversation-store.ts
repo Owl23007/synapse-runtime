@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import {
-  ConversationStoreError,
   type AcceptNormalizedEventInput,
   type AcceptedNormalizedEvent,
   type AppendLineEventInput,
@@ -18,7 +17,6 @@ import {
   type ConversationRecoveryState,
   type ConversationSession,
   type ConversationSessionLocator,
-  type ConversationStore,
   type ConversationTask,
   type CreateBranchInput,
   type CreateBranchResultInput,
@@ -43,6 +41,8 @@ import {
   type TransitionSessionInput,
   type TransitionTaskInput
 } from "../../conversation/types.js";
+import type { ConversationStore } from "../../conversation/store.js";
+import { ConversationStoreError } from "../../conversation/errors.js";
 import { collectRelatedEvents } from "../../conversation/trace.js";
 import { applyConversationStatePatch } from "../../conversation/state.js";
 
@@ -246,11 +246,9 @@ const SESSION_ARCHIVABLE_BRANCH_STATUSES = new Set<ConversationBranch["status"]>
 ]);
 
 /**
- * SQLite-backed implementation of the conversation repository.
+ * 会话存储的 SQLite 实现
  *
- * The repository borrows the supplied connection. It neither migrates nor
- * closes it, so it can share one transaction boundary with the other runtime
- * context repositories.
+ * 仓储借用传入连接且不负责迁移和关闭以便与其他上下文仓储共享事务边界
  */
 export class SqliteConversationRepository implements ConversationStore {
   readonly #db: Database.Database;

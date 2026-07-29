@@ -7,6 +7,9 @@ import type {
   TranscriptStore
 } from "./types.js";
 
+/**
+ * 转录消息存储的内存实现
+ */
 export class InMemoryTranscriptStore implements TranscriptStore {
   readonly #messages: TranscriptMessage[] = [];
   readonly #sourceIndex = new Map<string, TranscriptMessage>();

@@ -9,7 +9,13 @@ export interface OutputPolicy {
   readonly appendExpandHint: boolean;
 }
 
+/**
+ * 根据工作区类型选择输出策略
+ */
 export class OutputPolicyResolver {
+  /**
+   * 解析工作区对应的输出策略
+   */
   resolve(workspace: WorkspaceRef): OutputPolicy {
     if (workspace.type === "group") {
       return { mode: "concise", maxChars: 600, allowMarkdown: false, allowCodeBlock: false, appendExpandHint: true };
@@ -23,13 +29,22 @@ export class OutputPolicyResolver {
   }
 }
 
+/**
+ * 将输出策略应用到结构化消息
+ */
 export class ResponsePolicy {
+  /**
+   * 返回应用输出策略后的新消息
+   */
   apply(message: SynapseMessage, policy: OutputPolicy): SynapseMessage {
     const text = applyTextPolicy(getTextContent(message), policy);
     return { ...message, segments: [{ type: "text", text }] };
   }
 }
 
+/**
+ * 按输出策略清理并截断文本
+ */
 export function applyTextPolicy(text: string, policy: OutputPolicy): string {
   let output = text;
 

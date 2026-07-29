@@ -19,7 +19,6 @@ import type {
   ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
-  ConversationStore,
   ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
@@ -43,6 +42,7 @@ import type {
   TransitionSessionInput,
   TransitionTaskInput
 } from "../../conversation/types.js";
+import type { ConversationStore } from "../../conversation/store.js";
 import { eventProcessKey, normalizeMessageId } from "../../context/session.js";
 import type { WorkspaceResolveInput, WorkspaceStore } from "../../context/workspace.js";
 import type {
@@ -63,6 +63,9 @@ import type {
 import { SqliteConversationRepository } from "./conversation-store.js";
 import { migrateSqliteRuntimeContextStore } from "./migrations.js";
 
+/**
+ * SQLite 运行时上下文存储配置
+ */
 export interface SqliteRuntimeContextStoreOptions {
   readonly databasePath: string;
 }
@@ -103,6 +106,9 @@ interface EventProcessStateRow {
   readonly error_json: string | null;
 }
 
+/**
+ * 聚合会话、转录、事件处理与工作区能力的 SQLite 上下文存储
+ */
 export class SqliteRuntimeContextStore
   implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore
 {

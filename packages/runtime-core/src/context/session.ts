@@ -2,14 +2,23 @@ import { createHash } from "node:crypto";
 import { getTextContent, type SynapseChannelEvent } from "@synapse/runtime-protocol";
 import type { ConversationType } from "./types.js";
 
+/**
+ * 从频道事件读取会话类型
+ */
 export function conversationTypeFromEvent(event: SynapseChannelEvent): ConversationType {
   return event.conversation.kind;
 }
 
+/**
+ * 为频道会话生成稳定的运行时会话标识
+ */
 export function buildSessionId(event: SynapseChannelEvent, provider: string): string {
   return `${event.platform}:${provider}:${event.channelId}:${conversationTypeFromEvent(event)}:${event.conversation.id}`;
 }
 
+/**
+ * 为来源事件生成稳定标识并兼容缺失平台标识的事件
+ */
 export function buildSourceEventId(event: SynapseChannelEvent, provider: string): string {
   const messageId = normalizeStableId(event.message?.id);
   if (messageId !== undefined) {
@@ -45,6 +54,9 @@ export function buildSourceEventId(event: SynapseChannelEvent, provider: string)
   return `best-effort:${digest}`;
 }
 
+/**
+ * 规范化外部消息标识
+ */
 export function normalizeMessageId(id: unknown): string | undefined {
   if (typeof id !== "string" && typeof id !== "number" && typeof id !== "bigint") {
     return undefined;
@@ -54,6 +66,9 @@ export function normalizeMessageId(id: unknown): string | undefined {
   return normalized.length === 0 ? undefined : normalized;
 }
 
+/**
+ * 生成事件处理状态的幂等键
+ */
 export function eventProcessKey(input: {
   readonly platform: string;
   readonly provider: string;

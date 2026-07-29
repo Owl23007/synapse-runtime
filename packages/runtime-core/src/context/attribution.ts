@@ -1,5 +1,6 @@
 import { getTextContent, type SynapseChannelEvent } from "@synapse/runtime-protocol";
-import type { ConversationBranch, ConversationStore, NormalizedEvent } from "../conversation/types.js";
+import type { ConversationBranch, NormalizedEvent } from "../conversation/types.js";
+import type { ConversationStore } from "../conversation/store.js";
 import { conversationTypeFromEvent, normalizeMessageId } from "./session.js";
 import type { TranscriptStore } from "../transcript/types.js";
 
@@ -58,6 +59,7 @@ export interface ContextAttributionInput {
  * 在消息落到 Line 前解析其语义归属
  */
 export interface ContextAttributor {
+  /** 判断频道事件应归属的会话线 */
   attribute(input: ContextAttributionInput): Promise<ContextAttributionDecision>;
 }
 
@@ -82,6 +84,9 @@ export class ContextAttributorLite implements ContextAttributor {
   readonly #semanticThreshold: number;
   readonly #ambiguityMargin: number;
 
+  /**
+   * 创建轻量上下文归属器
+   */
   constructor(options: ContextAttributorLiteOptions) {
     this.#conversationStore = options.conversationStore;
     this.#transcriptStore = options.transcriptStore;
@@ -90,6 +95,9 @@ export class ContextAttributorLite implements ContextAttributor {
     this.#ambiguityMargin = options.ambiguityMargin ?? 0.12;
   }
 
+  /**
+   * 基于强关联信号与语义评分判断上下文归属
+   */
   async attribute(input: ContextAttributionInput): Promise<ContextAttributionDecision> {
     const text = input.event.message === undefined ? "" : getTextContent(input.event.message).trim();
     const nature = classifyInteractionNature(text, input.event);

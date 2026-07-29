@@ -41,7 +41,10 @@ export interface EventProcessClaim {
 }
 
 export interface EventProcessStore {
+  /** 获取或创建来源事件的处理状态 */
   begin(input: EventProcessBeginInput): Promise<EventProcessState>;
+  /** 以乐观并发方式声明事件处理权 */
   claim?(id: string, input: EventProcessClaimInput): Promise<EventProcessClaim>;
+  /** 更新事件处理检查点 */
   update(id: string, patch: Partial<Omit<EventProcessState, "id" | "updatedAt">>): Promise<EventProcessState>;
 }

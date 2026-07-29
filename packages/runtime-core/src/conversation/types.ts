@@ -517,71 +517,7 @@ export type ConversationStoreErrorCode =
   | "ownership_mismatch"
   | "invalid_state_transition";
 
-export class ConversationStoreError extends Error {
-  readonly code: ConversationStoreErrorCode;
-
-  constructor(code: ConversationStoreErrorCode, message: string) {
-    super(message);
-    this.name = "ConversationStoreError";
-    this.code = code;
-  }
-}
-
-export interface ConversationStore {
-  acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent>;
-  getNormalizedEvent(eventId: string): Promise<NormalizedEvent | undefined>;
-  listNormalizedEvents(sessionId: string): Promise<readonly NormalizedEvent[]>;
-
-  createSession(input: CreateSessionInput): Promise<ConversationSession>;
-  ensureSession(input: CreateSessionInput): Promise<ConversationSession>;
-  getSession(sessionId: string): Promise<ConversationSession | undefined>;
-  transitionSession(sessionId: string, input: TransitionSessionInput): Promise<ConversationSession>;
-
-  getLine(lineId: string): Promise<ConversationLine | undefined>;
-  getMainline(sessionId: string): Promise<ConversationMainline>;
-  listLines(sessionId: string, options?: ListLinesOptions): Promise<readonly ConversationLine[]>;
-
-  createBranch(input: CreateBranchInput): Promise<ConversationBranch>;
-  getBranch(branchId: string): Promise<ConversationBranch | undefined>;
-  listBranches(sessionId: string, options?: ListBranchesOptions): Promise<readonly ConversationBranch[]>;
-  transitionBranch(branchId: string, input: TransitionBranchInput): Promise<ConversationBranch>;
-
-  appendEvent(lineId: string, input: AppendLineEventInput): Promise<LineEvent>;
-  getEvent(eventId: string): Promise<LineEvent | undefined>;
-  listEvents(lineId: string, options?: ListLineEventsOptions): Promise<readonly LineEvent[]>;
-
-  createTask(branchId: string, input: CreateTaskInput): Promise<ConversationTask>;
-  getTask(taskId: string): Promise<ConversationTask | undefined>;
-  listTasks(branchId: string, options?: ListTasksOptions): Promise<readonly ConversationTask[]>;
-  transitionTask(taskId: string, input: TransitionTaskInput): Promise<ConversationTask>;
-
-  createBranchResult(branchId: string, input: CreateBranchResultInput): Promise<BranchResult>;
-  getBranchResult(resultId: string): Promise<BranchResult | undefined>;
-  listBranchResults(branchId: string): Promise<readonly BranchResult[]>;
-  publishBranchResult(
-    branchId: string,
-    mainlineId: string,
-    input?: PublishBranchResultInput
-  ): Promise<BranchPublication>;
-  /**
-   * 发布分支结果的兼容入口
-   */
-  mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge>;
-
-  createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode>;
-  getNode(nodeId: string): Promise<ConversationNode | undefined>;
-  listNodes(lineId: string, options?: ListConversationNodesOptions): Promise<readonly ConversationNode[]>;
-  getLineHead(lineId: string): Promise<ConversationLineHead | undefined>;
-  createContextSnapshot(
-    lineId: string,
-    input: CreateConversationContextSnapshotInput
-  ): Promise<ConversationContextSnapshot>;
-  getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined>;
-  reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState>;
-
-  getBranchContext(branchId: string): Promise<BranchContext>;
-  getRecoveryState(sessionId?: string): Promise<ConversationRecoveryState>;
-  getTaskTrace(taskId: string): Promise<TaskTrace>;
-  getEventTrace(eventId: string): Promise<EventTrace>;
-  getBranchResultTrace(resultId: string): Promise<BranchResultTrace>;
-}
+/**
+ * 保留旧类型入口的兼容导出
+ */
+export type { ConversationStore } from "./store.js";

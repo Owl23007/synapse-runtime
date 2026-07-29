@@ -1,5 +1,8 @@
 import type { LineEvent } from "./types.js";
 
+/**
+ * 收集与目标事件存在因果或关联关系的事件
+ */
 export function collectRelatedEvents(
   events: readonly LineEvent[],
   target: LineEvent,

@@ -62,6 +62,9 @@ const commands: readonly CommandDefinition[] = [
   }
 ];
 
+/**
+ * 根据频道事件生成内置命令响应
+ */
 export function commandResponse(
   event: SynapseChannelEvent,
   actor: RuntimeActor,

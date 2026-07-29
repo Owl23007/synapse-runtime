@@ -1,5 +1,8 @@
 import type { PromptContextMessage } from "@synapse/runtime-conversation";
 
+/**
+ * 按字符预算保留最近的上下文消息
+ */
 export function trimHistory(
   messages: readonly PromptContextMessage[],
   maxChars: number
@@ -15,6 +18,9 @@ export function trimHistory(
   return result;
 }
 
+/**
+ * 判断历史消息是否仍在有效时间范围内
+ */
 export function isWithinHistoryTtl(createdAt: string, referenceMs: number, ttlMinutes: number | undefined): boolean {
   if (ttlMinutes === undefined) {
     return true;
