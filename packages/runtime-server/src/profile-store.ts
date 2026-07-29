@@ -1,37 +1,28 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type {
+  RuntimeCliProfile,
+  RuntimeCliProfileConfig,
+  RuntimeConnection,
+  RuntimeConnectionOptions
+} from "./profile-types.js";
 
-export interface RuntimeCliProfile {
-  readonly endpoint: string;
-  readonly token?: string;
-}
-
-export interface RuntimeCliProfileConfig {
-  readonly current?: string;
-  readonly profiles: Readonly<Record<string, RuntimeCliProfile>>;
-}
-
-export interface RuntimeConnection {
-  readonly endpoint: string;
-  readonly token?: string;
-  readonly profile?: string;
-}
-
-export interface RuntimeConnectionOptions {
-  readonly endpoint?: string;
-  readonly token?: string;
-  readonly profile?: string;
-  readonly profilePath?: string;
-  readonly env?: NodeJS.ProcessEnv;
-}
+export type {
+  RuntimeCliProfile,
+  RuntimeCliProfileConfig,
+  RuntimeConnection,
+  RuntimeConnectionOptions
+} from "./profile-types.js";
 
 export const DEFAULT_RUNTIME_ENDPOINT = "http://127.0.0.1:3766";
 
+/** 返回 CLI 配置文件默认路径 */
 export function getDefaultProfilePath(env: NodeJS.ProcessEnv = process.env): string {
   return env.SYNAPSE_CLI_CONFIG ?? join(homedir(), ".synapse", "cli.json");
 }
 
+/** 加载 CLI profile 配置 */
 export async function loadProfileConfig(profilePath = getDefaultProfilePath()): Promise<RuntimeCliProfileConfig> {
   let content: string;
 
@@ -49,6 +40,7 @@ export async function loadProfileConfig(profilePath = getDefaultProfilePath()): 
   return parseProfileConfig(parsed);
 }
 
+/** 保存 CLI profile 配置 */
 export async function saveProfileConfig(
   config: RuntimeCliProfileConfig,
   profilePath = getDefaultProfilePath()
@@ -57,6 +49,7 @@ export async function saveProfileConfig(
   await writeFile(profilePath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
+/** 新增或更新运行时连接 profile */
 export async function connectProfile(options: {
   readonly endpoint: string;
   readonly token?: string;
@@ -80,6 +73,7 @@ export async function connectProfile(options: {
   return next;
 }
 
+/** 切换当前使用的 profile */
 export async function useProfile(profileName: string, profilePath?: string): Promise<RuntimeCliProfileConfig> {
   assertProfileName(profileName);
   const config = await loadProfileConfig(profilePath);
@@ -96,6 +90,7 @@ export async function useProfile(profileName: string, profilePath?: string): Pro
   return next;
 }
 
+/** 解析命令行、环境变量和 profile 得到运行时连接 */
 export async function resolveRuntimeConnection(options: RuntimeConnectionOptions = {}): Promise<RuntimeConnection> {
   const env = options.env ?? process.env;
   const profilePath = options.profilePath ?? getDefaultProfilePath(env);

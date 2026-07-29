@@ -1,25 +1,21 @@
-import type { ConsoleLevel, ConsoleLogEntry } from "./types.js";
+import type { ConsoleLogEntry } from "./types.js";
+import type {
+  StructuredLogEntry,
+  StructuredLogField,
+  StructuredLogKind,
+  StructuredLogStatus
+} from "./log-view-model-types.js";
 
-export type StructuredLogKind = "channel" | "routing" | "agent" | "event" | "admin" | "server" | "console" | "unknown";
+export type {
+  StructuredLogEntry,
+  StructuredLogField,
+  StructuredLogKind,
+  StructuredLogStatus
+} from "./log-view-model-types.js";
 
-export type StructuredLogStatus = "received" | "accepted" | "ignored" | "started" | "succeeded" | "failed" | "info";
-
-export interface StructuredLogEntry {
-  readonly id: number;
-  readonly timestamp: string;
-  readonly level: ConsoleLevel;
-  readonly kind: StructuredLogKind;
-  readonly status: StructuredLogStatus;
-  readonly title: string;
-  readonly summary: string;
-  readonly fields: readonly StructuredLogField[];
-}
-
-export interface StructuredLogField {
-  readonly label: string;
-  readonly value: string;
-}
-
+/**
+ * 将运行日志转换为控制台结构化视图
+ */
 export function toStructuredLog(entry: ConsoleLogEntry): StructuredLogEntry {
   const metadata = entry.metadata ?? {};
   const message = entry.message;

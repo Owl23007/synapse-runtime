@@ -1,52 +1,53 @@
-export interface RuntimeAdminClientOptions {
-  readonly endpoint: string;
-  readonly token?: string;
-  readonly fetch?: AdminFetch;
-}
+import type {
+  AdminFetch,
+  AdminFetchInit,
+  AdminFetchResponse,
+  RuntimeAdminClientOptions
+} from "./admin-client-types.js";
 
-export type AdminFetch = (url: string, init?: AdminFetchInit) => Promise<AdminFetchResponse>;
+export type {
+  AdminFetch,
+  AdminFetchInit,
+  AdminFetchResponse,
+  RuntimeAdminClientOptions
+} from "./admin-client-types.js";
 
-export interface AdminFetchInit {
-  readonly method?: string;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly body?: string;
-  readonly signal?: AbortSignal;
-}
-
-export interface AdminFetchResponse {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly body?: ReadableStream<Uint8Array> | null;
-  json(): Promise<unknown>;
-}
-
+/**
+ * Runtime Admin HTTP 客户端
+ */
 export class RuntimeAdminClient {
   readonly #endpoint: string;
   readonly #token: string | undefined;
   readonly #fetch: AdminFetch;
 
+  /** 创建 Admin HTTP 客户端 */
   constructor(options: RuntimeAdminClientOptions) {
     this.#endpoint = options.endpoint.replace(/\/$/, "");
     this.#token = options.token;
     this.#fetch = options.fetch ?? defaultFetch;
   }
 
+  /** 检查 Admin 服务健康状态 */
   health(): Promise<unknown> {
     return this.#get("/admin/health");
   }
 
+  /** 读取运行时状态 */
   status(): Promise<unknown> {
     return this.#get("/admin/status");
   }
 
+  /** 读取脱敏配置 */
   config(): Promise<unknown> {
     return this.#get("/admin/config");
   }
 
+  /** 读取频道状态 */
   channels(): Promise<unknown> {
     return this.#get("/admin/channels");
   }
 
+  /** 更新频道启用状态 */
   updateChannel(channelId: string, patch: { readonly enabled?: boolean }): Promise<unknown> {
     return this.#request(`/admin/channels/${encodeURIComponent(channelId)}`, {
       method: "PATCH",
@@ -54,19 +55,23 @@ export class RuntimeAdminClient {
     });
   }
 
+  /** 重新加载运行时配置 */
   reload(): Promise<unknown> {
     return this.#request("/admin/reload", { method: "POST" });
   }
 
+  /** 请求关闭运行时 */
   shutdown(): Promise<unknown> {
     return this.#request("/admin/shutdown", { method: "POST" });
   }
 
+  /** 读取最近日志 */
   logs(options: { readonly limit?: number } = {}): Promise<unknown> {
     const query = options.limit === undefined ? "" : `?limit=${encodeURIComponent(String(options.limit))}`;
     return this.#get(`/admin/logs${query}`);
   }
 
+  /** 订阅服务端日志流 */
   streamLogs(onLog: (entry: unknown) => void, onError?: (error: Error) => void): () => void {
     const abort = new AbortController();
     void this.#streamLogs(abort.signal, onLog).catch((error: unknown) => {
