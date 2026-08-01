@@ -75,12 +75,12 @@ catalogPath = "resources/locales.zh-CN.yaml"
 [prompts]
 enabled = true
 catalogPath = "resources/prompts.zh-CN.yaml"
-defaultPromptId = "chat.reasoning"
+defaultPurpose = "reasoning.chat_reply"
 ```
 
-Prompt catalog 是一个包含 `prompts` 数组的 YAML 或 JSON 文件。每个条目必须具有唯一的 `id`、`stage`、`template` 和变量声明；模板中引用的 `{{ variable }}` 必须出现在 `variables` 中。当前可用阶段为 `reasoning`、`internal`、`presentation`、`system` 和 `tool`。
+Prompt Bundle 是包含 `prompts`、`recipes` 和 `skills` 的 YAML 或 JSON 文件。Prompt 条目声明稳定片段，Recipe 按模型调用用途和场景维度选择片段，Skill 声明激活条件、提示词引用和工具依赖。模板中引用的 `{{ variable }}` 必须显式声明。
 
-启用 Prompt Registry 时，必须同时设置 `catalogPath` 和 `defaultPromptId`，且不得再配置 `agent.systemPrompt`。旧 `systemPrompt` 仅用于兼容旧配置；两种方式互斥，避免两份系统规则同时生效。示例 catalog 中的 `chat.reasoning` 只放置稳定推理规则，不放人格、当前消息、时间或检索结果，以利于 Provider 的前缀缓存。
+启用 Prompt Bundle 时必须同时设置 `catalogPath` 和 `defaultPurpose`。`agent.systemPrompt` 与 `prompts.defaultPromptId` 已移除，模型稳定指令只能通过 `Prompt Bundle → Invocation Envelope` 进入 Provider，避免存在两套隐式优先级。时间、当前输入、历史和检索结果属于结构化 Context，不得进入稳定 Prompt 片段。
 
 ## Presentation
 
@@ -113,7 +113,6 @@ Durable Memory 尚未实现，当前仅接受默认值 `false`。显式配置为
 ```toml
 [agent]
 default = "qwen"
-systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."
 
 [agent.providers.qwen]
 type = "openai-compatible"

@@ -213,13 +213,26 @@ P0 只要求 Runtime 默认值和 `zh-CN` Catalog 生效。未知 Locale 回退�
 
 P0 可只实现 Runtime Catalog，但数据模型必须保留覆盖策略字段，避免以后修改格式。
 
+### 7.4 Tools、Skills 与 Invocation Envelope
+
+Prompt、Tools 和 Skills 必须作为不同类型的模型输入治理：
+
+- Prompt Fragment 描述模型应遵守的稳定规则；
+- Tool Definition 描述模型本次可以发起的结构化动作；
+- Skill Manifest 描述特定任务的工作流、Prompt 引用和工具依赖；
+- Context Block 描述本轮事实、状态和外部证据。
+
+Runtime 按以下顺序编译一次模型调用：场景解析、固定工具权限过滤、Skill 激活、Skill 工具依赖检查、有效工具集合求交、Prompt Recipe 合成、Context 合成和 Provider 序列化。Skill 只能收紧有效工具集合，不能授予 Permission Engine 未允许的能力。依赖调用参数的动态工具权限继续在实际调用时最终判断。
+
+完整产物使用 `ModelInvocationEnvelope`，其中至少包含 Prompt 区块和摘要、场景用途及维度、可见 Tool ID 和 Tool Set Digest、已激活 Skill ID/版本和 Skill Set Digest。API Agent 拒绝未携带 Invocation Envelope 的请求，避免绕过编译器形成第二条模型输入路径。
+
 ## 8. 上下文合成
 
 ### 8.1 在现有实现上演进
 
 现有 `ContextComposer` 继续作为入口，`BranchContextProjector` 继续负责 Branch 语义投影。重构重点是把当前 `buildContextSystemPrompt` 中的混合字符串拆成 Context Block，而不是重写数据获取逻辑。
 
-现有 `PromptContext.system` 在一个兼容周期内保留。新路径生成 Prompt Envelope；旧 Agent 或测试仍可由兼容 Renderer 合成为单个 system 字符串。
+`PromptContext.system` 已删除。新路径直接生成 Prompt Envelope 和结构化 Context Sections，不提供扁平 system 字符串 Renderer。
 
 ### 8.2 Context Block 元数据
 
@@ -321,11 +334,11 @@ config/
 
 主配置只新增默认 Locale、资源路径、默认 Context Strategy、缓存开关和 Presentation 模式。Provider、Channel、Permission 等现有配置继续留在主文件。
 
-### 11.2 兼容策略
+### 11.2 单链路策略
 
-- 旧 `agent.systemPrompt` 在一个兼容周期内可独立使用，并标记 deprecated。
-- 新 Prompt Registry 与 `agent.systemPrompt` 不允许同时启用，启动校验直接报错，避免隐式覆盖。
-- 未配置 Registry 时保持现有行为，便于渐进升级和回滚。
+- 删除 `agent.systemPrompt` 和 `prompts.defaultPromptId`，不保留模型提示词兼容入口。
+- 稳定指令只能通过 Prompt Bundle、Recipe 和 Invocation Envelope 进入 Provider。
+- Context Composer 始终产生结构化 Sections，不再生成扁平 `PromptContext.system` 回退文本。
 - 资源路径沿用现有 Loader 的相对路径和 `~` 规范化规则。
 - P0 不引入配置 include；资源文件由专用 Loader 加载，避免扩大主配置重构范围。
 
@@ -379,7 +392,7 @@ config/
 - Prompt 定义、Loader、Registry、Renderer 和启动校验；
 - 首批中文 Reasoning/Internal Prompt；
 - 新增资源路径配置；
-- `agent.systemPrompt` 兼容与弃用告警；
+- 删除 `agent.systemPrompt` 并强制使用结构化 Invocation Envelope；
 - Prompt ID、版本和变量测试。
 
 ### PR-3：结构化 Context 与稳定前缀
@@ -388,7 +401,7 @@ config/
 
 - Context Block、Strategy Router、预算和 Trace；
 - 复用现有 Composer/Projector 的数据收集；
-- Prompt Envelope 与旧 `PromptContext.system` 兼容 Renderer；
+- Prompt Envelope、Capability Envelope 与结构化 Context Sections；
 - 稳定顺序、工具摘要和 Workspace 隔离；
 - Provider cache capability 与 usage 映射。
 
@@ -437,11 +450,10 @@ config/
 | 为缓存优化错误复用权限或私有上下文        | 摘要包含权限域和 Workspace，正确性优先              |
 | 字符预算与真实 Token 偏差                 | P0 双记字符和估算 Token，逐 Provider 接入 tokenizer |
 | Prompt 外置后被任意覆盖                   | 严格 schema、覆盖白名单、版本摘要和启动校验         |
-| 大规模修改 `PromptContext` 破坏现有 Agent | 保留兼容字段与 Renderer，一个兼容周期后再移除       |
+| 大规模修改 `PromptContext` 破坏现有 Agent | 使用一次性强制迁移和完整契约测试，不保留双路径      |
 
 ## 17. 发布与回滚
 
-- 新能力使用功能开关，可按 Error Locale、Prompt Registry、Structured Context 和 Model Presentation 分别启用。
-- 每个阶段均需保留旧路径的对照测试，禁止在同一版本同时删除旧配置和启用强制迁移。
-- 回滚时停用新 Registry 即恢复 `agent.systemPrompt` 路径；数据层只新增结构化字段，不覆盖已有 Task/Event 原始记录。
-- 完成一个兼容周期且迁移率达到 100% 后，另立变更移除 `agent.systemPrompt` 和单一 system 兼容接口。
+- Error Locale 和 Model Presentation 保留独立功能开关；Prompt Bundle 启用时只存在结构化编译链路。
+- 回滚通过回退整个版本或 Prompt Bundle revision 完成，不在同一版本保留旧 system Prompt 路径。
+- 数据迁移与旧持久化状态恢复继续独立维护，不与模型提示词兼容入口绑定。

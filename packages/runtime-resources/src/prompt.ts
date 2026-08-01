@@ -9,11 +9,13 @@ export const PromptDefinitionSchema = z
     locale: z.string().min(1).default("zh-CN"),
     stage: z.enum(["reasoning", "internal", "presentation", "system", "tool"]),
     scene: z.string().min(1).optional(),
+    slot: z.enum(["runtime", "behavior", "capability", "scene", "skill", "workspace", "output"]).default("scene"),
     template: z.string(),
     variables: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/)).default([]),
     enabled: z.boolean().default(true),
     cacheGroup: z.string().min(1).optional(),
     stablePrefix: z.boolean().default(false),
+    cacheScope: z.enum(["global", "workspace", "session", "none"]).default("none"),
     outputContractVersion: z.string().min(1).optional(),
     description: z.string().optional()
   })

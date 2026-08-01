@@ -4,10 +4,9 @@ import { InMemoryTranscriptStore } from "../transcript/in-memory.js";
 import { ContextComposer } from "./composer.js";
 
 describe("ContextComposer structured context", () => {
-  it("separates workspace, session, and turn context while retaining the legacy system prompt", async () => {
+  it("separates workspace, session, and turn context without a flat system fallback", async () => {
     const composer = new ContextComposer({
       transcriptStore: new InMemoryTranscriptStore(),
-      structured: true,
       strategy: "chat.zh-CN",
       timezone: "Asia/Shanghai"
     });
@@ -46,7 +45,7 @@ describe("ContextComposer structured context", () => {
       maxMessages: 20
     });
 
-    expect(context.system).toContain("Time context");
+    expect(context).not.toHaveProperty("system");
     expect(context.metadata.contextStrategy).toBe("chat.zh-CN");
     expect(context.sections?.map((section) => section.id)).toEqual(["workspace", "turn"]);
     expect(context.sections?.[0]?.blocks[0]).toMatchObject({

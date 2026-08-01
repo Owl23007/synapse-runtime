@@ -83,7 +83,6 @@ export interface OpenAiCompatibleChatProviderOptions {
 export interface ApiChatAgentOptions {
   readonly id: string;
   readonly provider: ChatCompletionProvider;
-  readonly systemPrompt?: string;
   /** 单次运行允许的最大模型步数 */
   readonly maxSteps?: number;
   /** 单次运行允许的最大工具调用数 */

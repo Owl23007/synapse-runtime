@@ -1,18 +1,22 @@
 import { join } from "node:path";
 import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
 import type { ChannelConfig, RuntimeConfig } from "@synapse/runtime-config";
-import { ConversationRouter } from "@synapse/runtime-conversation";
+import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools } from "@synapse/runtime-tool-web";
-import { ToolRuntime } from "@synapse/runtime-tool-runtime";
+import { describeToolSet, ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import {
   createLocaleResolverFromConfig,
   createPresentationProfileFromConfig
 } from "../composition/runtime-resources.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
-import type { LocaleResolver } from "@synapse/runtime-resources";
+import {
+  compilePromptBundleFileSync,
+  type LocaleResolver,
+  type PromptBundleCompiler
+} from "@synapse/runtime-resources";
 
 export interface RuntimeFactoryOptions {
   readonly config: RuntimeConfig;
@@ -38,6 +42,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   const conversation = new ConversationRouter(options.config.conversation);
   const tools = new ToolRuntime(new StaticPermissionEngine(options.config.permissions));
   registerBuiltInTools(tools, options.config);
+  const compileInvocation = createInvocationCompiler(options.config, tools);
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
   });
@@ -50,6 +55,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       tools,
       logger: options.logger,
       localize: (key, params) => localeResolver.resolve(key, params, options.config.locale.default),
+      ...(compileInvocation === undefined ? {} : { compileInvocation }),
       memory: {
         enableDurableMemory: durableMemoryEnabled(options.config)
       },
@@ -60,7 +66,6 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         enabled: options.config.context.enabled,
         maxHistoryChars: options.config.context.maxHistoryChars,
         timezone: options.config.context.timezone,
-        structured: options.config.prompts.enabled,
         strategy: options.config.context.strategy,
         cacheEnabled: options.config.context.cache.enabled,
         privateHistoryTtlMinutes: options.config.context.privateHistoryTtlMinutes,
@@ -80,6 +85,70 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
     contextStore.close();
     throw error;
   }
+}
+
+function createInvocationCompiler(
+  config: RuntimeConfig,
+  tools: ToolRuntime
+): ((request: AgentRequest) => Promise<ModelInvocationEnvelope>) | undefined {
+  if (
+    !config.prompts.enabled ||
+    config.prompts.defaultPurpose === undefined ||
+    config.prompts.catalogPath === undefined
+  ) {
+    return undefined;
+  }
+  const compiler = compilePromptBundleFileSync(config.prompts.catalogPath, {
+    locale: config.locale.default,
+    contextStrategy: config.context.strategy,
+    runtimeName: "Synapse Runtime"
+  });
+  if (!compiler.hasPurpose(config.prompts.defaultPurpose)) {
+    throw new Error(`Prompt Bundle does not define the default purpose "${config.prompts.defaultPurpose}".`);
+  }
+  return async (request) => {
+    const visibleTools = (
+      await Promise.all(
+        tools.list().map(async (tool) => {
+          // 动态权限依赖模型生成的参数，只能在实际调用时最终判断
+          if (typeof tool.permission === "function") return tool;
+          const decision = await tools.decidePermission({
+            action: tool.permission.action,
+            resource: tool.permission.resource,
+            subject: request.userId
+          });
+          return decision.decision === "allow" ? tool : undefined;
+        })
+      )
+    ).filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    const toolSet = describeToolSet(visibleTools);
+    const purpose = resolvePurpose(compiler, config.prompts.defaultPurpose!, request);
+    return compiler.compile({
+      purpose,
+      dimensions: {
+        conversationKind: normalizeConversationKind(request.source.conversationKind),
+        lineKind: request.branchId === undefined ? "mainline" : "branch",
+        executionKind: request.taskId === undefined ? "interactive" : "task",
+        toolMode: toolSet.toolIds.length === 0 ? "disabled" : "enabled"
+      },
+      toolIds: toolSet.toolIds,
+      toolSetDigest: toolSet.digest,
+      ...(request.requestedSkillIds === undefined ? {} : { requestedSkillIds: request.requestedSkillIds })
+    });
+  };
+}
+
+function resolvePurpose(compiler: PromptBundleCompiler, fallback: string, request: AgentRequest): string {
+  return request.taskId !== undefined && compiler.hasPurpose("reasoning.task_execute")
+    ? "reasoning.task_execute"
+    : fallback;
+}
+
+function normalizeConversationKind(kind: string): string {
+  const normalized = kind.toLowerCase();
+  if (normalized === "direct") return "private";
+  if (normalized === "private" || normalized === "group" || normalized === "channel") return normalized;
+  return "unknown";
 }
 
 function registerBuiltInTools(tools: ToolRuntime, config: RuntimeConfig): void {

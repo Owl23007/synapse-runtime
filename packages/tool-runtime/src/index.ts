@@ -18,4 +18,5 @@ export type {
   ToolRuntimeView
 } from "./types.js";
 export { ToolCallRecoveryError } from "./errors.js";
+export { describeToolSet, type ToolSetDescriptor } from "./digest.js";
 export { ToolRuntime } from "./runtime.js";

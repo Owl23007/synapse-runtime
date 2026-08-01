@@ -7,14 +7,25 @@ export {
   type LocalizedError
 } from "./errors.js";
 export {
+  compilePromptBundleFileSync,
   loadLocaleCatalogFile,
   loadLocaleCatalogFileSync,
   loadPresentationProfileCatalogFile,
   loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFile,
   loadPromptCatalogFileSync,
+  loadPromptBundleFileSync,
   parsePromptCatalog
 } from "./loaders.js";
+export {
+  PromptBundleCompiler,
+  PromptBundleSchema,
+  PromptRecipeSchema,
+  type InvocationCompileInput,
+  type PromptBundle,
+  type PromptRecipe,
+  type ResolvedPromptRecipe
+} from "./bundle.js";
 export {
   LocaleCatalogSchema,
   LocaleResolver,
@@ -37,3 +48,4 @@ export {
   type PromptDefinition,
   type ResolvedPromptDefinition
 } from "./prompt.js";
+export { SkillActivationSchema, SkillManifestSchema, type ResolvedSkillManifest, type SkillManifest } from "./skill.js";

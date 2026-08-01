@@ -39,11 +39,9 @@ default = "zh-CN"
 catalogPath = "resources/locales.zh-CN.yaml"
 
 [prompts]
-# Keep disabled while agent.systemPrompt is used. Enabling this requires catalogPath and defaultPromptId,
-# and agent.systemPrompt must be removed.
-enabled = false
-# catalogPath = "resources/prompts.zh-CN.yaml"
-# defaultPromptId = "chat.reasoning"
+enabled = true
+catalogPath = "resources/prompts.zh-CN.yaml"
+defaultPurpose = "reasoning.chat_reply"
 
 [presentation]
 # Deterministic presentation does not allow a persona to influence reasoning.
@@ -53,7 +51,6 @@ mode = "deterministic"
 
 [agent]
 default = "qwen"
-systemPrompt = "You are Synapse Runtime, a concise assistant in QQ conversations."
 
 [agent.providers.qwen]
 type = "openai-compatible"

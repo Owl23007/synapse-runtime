@@ -136,6 +136,21 @@ function agentRequest(text: string): AgentRequest {
       conversationKind: "private"
     },
     contextPolicy: { includeHistory: true, maxMessages: 20 },
+    invocation: {
+      prompt: {
+        recipeId: "reasoning.web",
+        recipeVersion: "1",
+        scene: { purpose: "reasoning.chat_reply", dimensions: { toolMode: "enabled" } },
+        blocks: [],
+        digest: "test-prompt"
+      },
+      capabilities: {
+        toolIds: ["web.fetch", "web.search"],
+        toolSetDigest: "test-web-tools",
+        activeSkills: [],
+        skillSetDigest: "test-skills"
+      }
+    },
     event: {
       id: "event-1",
       platform: "qq",

@@ -30,6 +30,17 @@ export const zhCNCoreErrorCatalog: LocaleCatalog = {
     "prompt.duplicate": "提示词配置重复：{id}。",
     "prompt.not_found": "未找到提示词配置：{id}。",
     "prompt.disabled": "提示词配置未启用：{id}。",
-    "prompt.variables_missing": "提示词配置缺少变量：{variables}。"
+    "prompt.variables_missing": "提示词配置缺少变量：{variables}。",
+    "prompt.recipe_not_found": "未找到用途 {purpose} 对应的提示词配方。",
+    "prompt.dimension_variant_not_found": "提示词配方 {recipe} 缺少维度 {dimension} 的场景值：{value}。",
+    "prompt.stage_mismatch": "提示词 {id} 的阶段 {actual} 与配方阶段 {expected} 不一致。",
+    "resource.reference_not_found": "资源 {kind} 引用了不存在的项目：{id}。",
+    "resource.duplicate": "资源 {kind} 存在重复定义：{id}。",
+    "skill.tool_required": "Skill {skill} 缺少必需工具：{tool}。",
+    "skill.conflict": "Skill {left} 与 {right} 不能同时激活。",
+    "skill.exclusive_group": "同一排他组中不能激活多个 Skill：{group}。",
+    "skill.purpose_mismatch": "Skill {skill} 不支持模型调用用途：{purpose}。",
+    "skill.prompt_authority_invalid": "Skill {skill} 无权将提示词 {prompt} 注入 {slot} 区域。",
+    "skill.activation_not_allowed": "Skill {skill} 不允许显式激活。"
   }
 };

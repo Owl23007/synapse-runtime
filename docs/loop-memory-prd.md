@@ -68,7 +68,7 @@ packages/runtime-server
 主要问题包括：
 
 1. `ConversationRouter` 虽然存在 `contextPolicy.includeHistory` 等字段，但没有真实历史读取；
-2. Agent Provider 当前主要消费 `systemPrompt + 当前用户输入`，不消费历史、身份、工作区、输出策略；
+2. Agent Provider 已迁移为消费 Invocation Envelope、结构化 Context、历史和当前输入；
 3. 缺少 TranscriptStore，无法保存和回放最近历史；
 4. 缺少 IdentityResolver，平台 sender id 直接混入业务逻辑；
 5. 缺少 WorkspaceResolver，无法区分私聊、群聊、CLI、系统管理场景；

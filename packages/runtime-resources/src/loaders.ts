@@ -5,6 +5,7 @@ import { z } from "zod";
 import { LocaleCatalogSchema, type LocaleCatalog } from "./locale.js";
 import { PromptDefinitionSchema, PromptRegistry, type PromptDefinition } from "./prompt.js";
 import { PresentationProfileCatalogSchema, type PresentationProfileCatalog } from "./presentation.js";
+import { PromptBundleSchema, PromptBundleCompiler, type PromptBundle } from "./bundle.js";
 
 const PromptCatalogSchema = z.object({ prompts: z.array(PromptDefinitionSchema) });
 
@@ -31,6 +32,19 @@ export async function loadLocaleCatalogFile(filePath: string): Promise<LocaleCat
 /** 异步接口加载并构建 Prompt Registry */
 export async function loadPromptCatalogFile(filePath: string): Promise<PromptRegistry> {
   return loadPromptCatalogFileSync(filePath);
+}
+
+/** 同步加载并校验 Prompt、Recipe 与 Skill 资源包 */
+export function loadPromptBundleFileSync(filePath: string): PromptBundle {
+  return PromptBundleSchema.parse(parseResource(readFileSync(filePath, "utf8"), filePath));
+}
+
+/** 同步加载并编译 Prompt、Recipe 与 Skill 资源包 */
+export function compilePromptBundleFileSync(
+  filePath: string,
+  values: Readonly<Record<string, string>>
+): PromptBundleCompiler {
+  return new PromptBundleCompiler(loadPromptBundleFileSync(filePath), values);
 }
 
 /** 同步加载并校验 Presentation Profile Catalog */

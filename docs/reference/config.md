@@ -77,11 +77,12 @@ Durable Memory 尚未实现。该字段保留用于未来兼容，但当前只�
 
 ## `agent`
 
-| Field          | Type        | Default  |
-| -------------- | ----------- | -------- |
-| `default`      | provider id | optional |
-| `systemPrompt` | string      | optional |
-| `providers`    | record      | `{}`     |
+| Field       | Type        | Default  |
+| ----------- | ----------- | -------- |
+| `default`   | provider id | optional |
+| `providers` | record      | `{}`     |
+
+`agent.systemPrompt` 已移除。稳定模型指令由 Prompt Bundle 编译为 Invocation Envelope 后传递给 Provider。
 
 Provider types：
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
@@ -63,6 +63,37 @@ describe("createRuntimeFromConfig", () => {
       } finally {
         result.contextStore.close();
       }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails at startup when the configured Prompt purpose is absent", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "synapse-runtime-factory-prompt-purpose-"));
+    const catalogPath = join(dataDir, "prompts.yaml");
+    writeFileSync(
+      catalogPath,
+      [
+        "schemaVersion: 1",
+        "prompts:",
+        "  - id: runtime.core",
+        "    stage: reasoning",
+        "    template: core",
+        "recipes:",
+        "  - id: reasoning.other",
+        "    purpose: reasoning.other",
+        "    basePromptIds: [runtime.core]"
+      ].join("\n")
+    );
+    const config = parseConfigObject({
+      runtime: { dataDir },
+      prompts: { enabled: true, catalogPath, defaultPurpose: "reasoning.chat_reply" }
+    });
+
+    try {
+      expect(() =>
+        createRuntimeFromConfig({ config, channels: new InMemoryChannelRegistry(), logger: silentLogger })
+      ).toThrow(/does not define the default purpose/);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }

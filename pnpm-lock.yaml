@@ -136,6 +136,9 @@ importers:
 
   packages/runtime-resources:
     dependencies:
+      '@synapse/runtime-conversation':
+        specifier: workspace:*
+        version: link:../conversation
       yaml:
         specifier: ^2.5.0
         version: 2.9.0

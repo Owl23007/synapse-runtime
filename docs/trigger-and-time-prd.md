@@ -1053,7 +1053,7 @@ QQ Official 的 openid 不应被当成全局用户 ID。
 
 基本不需要改 provider 调用，只需要确认：
 
-1. promptContext.system 仍作为 system message 注入。
+1. 时间上下文通过 `PromptContext.sections` 的单轮区块注入，不进入稳定 Prompt 前缀。
 2. promptContext.messages 中的时间前缀不会被丢弃。
 3. 当前用户输入保持原样。
 

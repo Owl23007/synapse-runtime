@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
 import type { ChannelAdapter, ChannelRegistry } from "@synapse/runtime-channel";
-import type { AgentRequest, ConversationRouter } from "@synapse/runtime-conversation";
+import type { AgentRequest, ConversationRouter, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import {
   ToolCallRecoveryError,
@@ -69,6 +69,9 @@ export class RuntimeCore {
   readonly #tools: ToolRuntime;
   readonly #logger: RuntimeCoreLogger | undefined;
   readonly #localize: (key: string, params?: Readonly<Record<string, string>>) => string;
+  readonly #compileInvocation:
+    | ((request: AgentRequest) => ModelInvocationEnvelope | Promise<ModelInvocationEnvelope>)
+    | undefined;
   readonly #contextEnabled: boolean;
   readonly #providerByChannelId: Readonly<Record<string, string>>;
   readonly #conversationStore: ConversationStore;
@@ -107,6 +110,7 @@ export class RuntimeCore {
     this.#tools = options.tools;
     this.#logger = options.logger;
     this.#localize = options.localize ?? ((key) => key);
+    this.#compileInvocation = options.compileInvocation;
     this.#responsePolicy = new ResponsePolicy(options.presentation?.profile);
     this.#contextEnabled = options.context?.enabled ?? true;
     this.#enableDurableMemory = options.memory?.enableDurableMemory ?? false;
@@ -151,7 +155,6 @@ export class RuntimeCore {
       conversationStore: this.#conversationStore,
       ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars }),
       ...(options.context?.timezone === undefined ? {} : { timezone: options.context.timezone }),
-      ...(options.context?.structured === undefined ? {} : { structured: options.context.structured }),
       ...(options.context?.strategy === undefined ? {} : { strategy: options.context.strategy }),
       ...(options.context?.cacheEnabled === undefined ? {} : { cacheEnabled: options.context.cacheEnabled })
     });
@@ -687,6 +690,13 @@ export class RuntimeCore {
         return;
       }
 
+      if (this.#compileInvocation !== undefined) {
+        enrichedRequest = {
+          ...enrichedRequest,
+          invocation: await this.#compileInvocation(enrichedRequest)
+        };
+      }
+
       const attemptId = `agent-attempt-${randomUUID()}`;
       const context: AgentRuntimeContext = {
         tools: this.#tools.withContext({
@@ -738,7 +748,10 @@ export class RuntimeCore {
         payload: {
           attemptId,
           agentId: this.#agent.id,
-          input: enrichedRequest.input
+          input: enrichedRequest.input,
+          ...(enrichedRequest.invocation === undefined
+            ? {}
+            : { invocation: summarizeInvocation(enrichedRequest.invocation) })
         }
       });
       this.#logger?.info("Runtime agent run started.", {
@@ -746,7 +759,10 @@ export class RuntimeCore {
         agentId: this.#agent.id,
         sessionId: enrichedRequest.sessionId,
         userId: enrichedRequest.userId,
-        input: summarizeMessage(enrichedRequest.input)
+        input: summarizeMessage(enrichedRequest.input),
+        ...(enrichedRequest.invocation === undefined
+          ? {}
+          : { invocation: summarizeInvocation(enrichedRequest.invocation) })
       });
       let run: Awaited<ReturnType<Agent["run"]>>;
       try {
@@ -1470,6 +1486,21 @@ export class RuntimeCore {
       }
     };
   }
+}
+
+function summarizeInvocation(invocation: ModelInvocationEnvelope): Readonly<Record<string, unknown>> {
+  return {
+    recipeId: invocation.prompt.recipeId,
+    recipeVersion: invocation.prompt.recipeVersion,
+    purpose: invocation.prompt.scene.purpose,
+    dimensions: invocation.prompt.scene.dimensions,
+    promptIds: invocation.prompt.blocks.map((block) => `${block.promptId}@${block.version}`),
+    promptDigest: invocation.prompt.digest,
+    toolIds: invocation.capabilities.toolIds,
+    toolSetDigest: invocation.capabilities.toolSetDigest,
+    skills: invocation.capabilities.activeSkills.map((skill) => `${skill.id}@${skill.version}`),
+    skillSetDigest: invocation.capabilities.skillSetDigest
+  };
 }
 
 function maxMessagesForConversation(

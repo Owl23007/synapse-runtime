@@ -10,8 +10,8 @@ import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { describe, expect, it } from "vitest";
 import { createAgentFromConfig } from "./agent-factory.js";
 
-describe("createAgentFromConfig Prompt Registry", () => {
-  it("loads and renders the configured reasoning prompt", async () => {
+describe("createAgentFromConfig", () => {
+  it("keeps prompt compilation out of the provider construction layer", async () => {
     const directory = mkdtempSync(join(tmpdir(), "synapse-prompt-registry-"));
     const catalogPath = join(directory, "prompts.zh-CN.yaml");
     writeFileSync(
@@ -30,7 +30,7 @@ describe("createAgentFromConfig Prompt Registry", () => {
     const config = parseConfigObject({
       runtime: { dataDir: directory },
       locale: { default: "zh-CN" },
-      prompts: { enabled: true, catalogPath, defaultPromptId: "chat.reasoning" },
+      prompts: { enabled: true, catalogPath, defaultPurpose: "reasoning.chat_reply" },
       context: { strategy: "private-chat" },
       agent: {
         default: "test",
@@ -62,10 +62,7 @@ describe("createAgentFromConfig Prompt Registry", () => {
 
       expect(run.status).toBe("succeeded");
       expect(requestBody).toMatchObject({
-        messages: [
-          { role: "system", content: "Synapse Runtime|zh-CN|private-chat" },
-          { role: "user", content: "你好" }
-        ]
+        messages: [{ role: "user", content: "你好" }]
       });
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -85,6 +82,21 @@ function agentRequest(): AgentRequest {
       conversationKind: "private"
     },
     contextPolicy: { includeHistory: false, maxMessages: 1 },
+    invocation: {
+      prompt: {
+        recipeId: "reasoning.chat",
+        recipeVersion: "1",
+        scene: { purpose: "reasoning.chat_reply", dimensions: { conversationKind: "private" } },
+        blocks: [],
+        digest: "test-prompt"
+      },
+      capabilities: {
+        toolIds: [],
+        toolSetDigest: "test-tools",
+        activeSkills: [],
+        skillSetDigest: "test-skills"
+      }
+    },
     event: {
       id: "event-1",
       platform: "qq",

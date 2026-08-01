@@ -872,13 +872,16 @@ describe("RuntimeCore branch isolation and recovery", () => {
         return input;
       }
     });
-    let observedSystemPrompt = "";
+    let observedLineState = "";
     let observedLineId: string | undefined;
     let observedBranchId: string | undefined;
     const agent: Agent = {
       id: "branch-agent",
       async run(request, context): Promise<AgentRun> {
-        observedSystemPrompt = request.promptContext?.system ?? "";
+        observedLineState =
+          request.promptContext?.sections
+            .flatMap((section) => section.blocks)
+            .find((block) => block.id === "line-state")?.content ?? "";
         observedLineId = request.lineId;
         observedBranchId = request.branchId;
         await context.tools.call(
@@ -909,9 +912,9 @@ describe("RuntimeCore branch isolation and recovery", () => {
 
     expect(observedLineId).toBe(branch.id);
     expect(observedBranchId).toBe(branch.id);
-    expect(observedSystemPrompt).toContain('"kind":"branch"');
-    expect(observedSystemPrompt).toContain('"goal":"Inspect a tool result without polluting the mainline"');
-    expect(observedSystemPrompt).toContain('"mainlineSummary":"The user requested an isolated investigation."');
+    expect(observedLineState).toContain('"kind":"branch"');
+    expect(observedLineState).toContain('"goal":"Inspect a tool result without polluting the mainline"');
+    expect(observedLineState).toContain('"mainlineSummary":"The user requested an isolated investigation."');
     expect(toolContext).toMatchObject({
       runId: "branch-run-1",
       attemptId: expect.stringMatching(/^agent-attempt-/),

@@ -177,17 +177,28 @@ describe("OpenAiCompatibleChatProvider", () => {
 });
 
 describe("ApiChatAgent", () => {
+  it("rejects requests that bypass the Invocation compiler", async () => {
+    const agent = new ApiChatAgent({
+      id: "strict-agent",
+      provider: {
+        id: "unused",
+        async complete() {
+          return { content: "unused" };
+        }
+      }
+    });
+    const { invocation: _invocation, ...request } = agentRequest("hello");
+
+    await expect(agent.run(request)).rejects.toThrow(/requires a compiled Model Invocation Envelope/);
+  });
+
   it("turns agent requests into chat completions and returns a text output", async () => {
     const agent = new ApiChatAgent({
       id: "qwen-agent",
-      systemPrompt: "You are concise.",
       provider: {
         id: "test-provider",
         async complete(request) {
-          expect(request.messages).toEqual([
-            { role: "system", content: "You are concise." },
-            { role: "user", content: "hello" }
-          ]);
+          expect(request.messages).toEqual([{ role: "user", content: "hello" }]);
 
           return { content: "hi" };
         }
@@ -203,15 +214,65 @@ describe("ApiChatAgent", () => {
     });
   });
 
-  it("forwards prompt context before the current user input", async () => {
+  it("serializes the Invocation Envelope and exposes only compiled tools", async () => {
     const agent = new ApiChatAgent({
-      id: "qwen-agent",
-      systemPrompt: "You are concise.",
+      id: "compiled-agent",
       provider: {
         id: "test-provider",
         async complete(request) {
           expect(request.messages).toEqual([
-            { role: "system", content: "You are concise." },
+            { role: "system", content: "Runtime rules." },
+            { role: "user", content: "review" }
+          ]);
+          expect(request.tools?.map((tool) => tool.name)).toEqual(["repository.diff"]);
+          return { content: "done" };
+        }
+      }
+    });
+    const request = agentRequest("review");
+
+    await expect(
+      agent.run(
+        {
+          ...request,
+          invocation: {
+            prompt: {
+              recipeId: "reasoning.chat",
+              recipeVersion: "1",
+              scene: { purpose: "reasoning.chat_reply", dimensions: { conversationKind: "private" } },
+              blocks: [
+                {
+                  promptId: "runtime.core",
+                  version: "1",
+                  stage: "reasoning",
+                  slot: "runtime",
+                  content: "Runtime rules.",
+                  stable: true,
+                  cacheScope: "global"
+                }
+              ],
+              digest: "prompt-v1"
+            },
+            capabilities: {
+              toolIds: ["repository.diff"],
+              toolSetDigest: "tools-v1",
+              activeSkills: [],
+              skillSetDigest: "skills-empty"
+            }
+          }
+        },
+        agentContextWithTools(["filesystem.write", "repository.diff"])
+      )
+    ).resolves.toMatchObject({ status: "succeeded", output: textMessage("done") });
+  });
+
+  it("forwards prompt context before the current user input", async () => {
+    const agent = new ApiChatAgent({
+      id: "qwen-agent",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          expect(request.messages).toEqual([
             { role: "system", content: "Use recent session history." },
             { role: "user", content: "previous question" },
             { role: "assistant", content: "previous answer" },
@@ -227,7 +288,6 @@ describe("ApiChatAgent", () => {
       agent.run({
         ...agentRequest("current question"),
         promptContext: {
-          system: "Use recent session history.",
           messages: [
             { role: "user", content: "previous question" },
             { role: "assistant", content: "previous answer" }
@@ -237,7 +297,21 @@ describe("ApiChatAgent", () => {
             workspaceId: "personal:guest:qq:napcat:qq-local:user-1",
             sessionId: "qq:napcat:qq-local:private:user-1"
           },
-          sections: []
+          sections: [
+            {
+              id: "session",
+              blocks: [
+                {
+                  id: "session-guidance",
+                  content: "Use recent session history.",
+                  source: "runtime",
+                  stability: "session",
+                  required: true,
+                  priority: 1
+                }
+              ]
+            }
+          ]
         }
       })
     ).resolves.toMatchObject({
@@ -246,15 +320,13 @@ describe("ApiChatAgent", () => {
     });
   });
 
-  it("prefers structured context over legacy system text and renders a deterministic stable prefix", async () => {
+  it("renders structured context as a deterministic stable prefix", async () => {
     const agent = new ApiChatAgent({
       id: "structured-context-agent",
-      systemPrompt: "Runtime rules.",
       provider: {
         id: "test-provider",
         async complete(request) {
           expect(request.messages).toEqual([
-            { role: "system", content: "Runtime rules." },
             { role: "system", content: "Global high priority." },
             { role: "system", content: "Global low priority." },
             { role: "system", content: "Workspace context." },
@@ -272,7 +344,6 @@ describe("ApiChatAgent", () => {
       agent.run({
         ...agentRequest("current question"),
         promptContext: {
-          system: "Legacy dynamic context.",
           messages: [{ role: "user", content: "previous question" }],
           metadata: {},
           sections: [
@@ -604,6 +675,21 @@ function agentRequest(text: string): AgentRequest {
       conversationKind: "private"
     },
     contextPolicy: { includeHistory: true, maxMessages: 20 },
+    invocation: {
+      prompt: {
+        recipeId: "test.reasoning",
+        recipeVersion: "1",
+        scene: { purpose: "reasoning.chat_reply", dimensions: {} },
+        blocks: [],
+        digest: "test-prompt"
+      },
+      capabilities: {
+        toolIds: ["alpha", "search_repository", "zeta"],
+        toolSetDigest: "test-tools",
+        activeSkills: [],
+        skillSetDigest: "test-skills"
+      }
+    },
     event: {
       id: "event-1",
       platform: "qq",

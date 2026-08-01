@@ -122,7 +122,6 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
 export class ApiChatAgent implements Agent {
   readonly id: string;
   readonly #provider: ChatCompletionProvider;
-  readonly #systemPrompt: string | undefined;
   readonly #maxSteps: number;
   readonly #maxToolCalls: number;
 
@@ -130,18 +129,23 @@ export class ApiChatAgent implements Agent {
   constructor(options: ApiChatAgentOptions) {
     this.id = options.id;
     this.#provider = options.provider;
-    this.#systemPrompt = options.systemPrompt;
     this.#maxSteps = positiveInteger(options.maxSteps ?? 8, "maxSteps");
     this.#maxToolCalls = positiveInteger(options.maxToolCalls ?? 16, "maxToolCalls");
   }
 
   /** 执行一次聊天智能体运行 */
   async run(request: AgentRequest, context?: AgentRuntimeContext): Promise<AgentRun> {
+    if (request.invocation === undefined) {
+      throw new Error("ApiChatAgent requires a compiled Model Invocation Envelope.");
+    }
     const runId = `run-${request.event.id}`;
     const userText = getTextContent(request.input);
     const steps: AgentStep[] = [];
     let toolCallCount = 0;
-    const availableTools = (context?.tools.list() ?? []).toSorted((left, right) => compareText(left.name, right.name));
+    const visibleToolIds = new Set(request.invocation.capabilities.toolIds);
+    const availableTools = (context?.tools.list() ?? [])
+      .filter((tool) => visibleToolIds.has(tool.name))
+      .toSorted((left, right) => compareText(left.name, right.name));
     const toolDefinitions: ChatToolDefinition[] = availableTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -151,12 +155,13 @@ export class ApiChatAgent implements Agent {
       }
     }));
     const structuredContextMessages = renderContextSections(request.promptContext?.sections);
+    const compiledPromptMessages = request.invocation.prompt.blocks.map((block) => ({
+      role: "system" as const,
+      content: block.content
+    }));
     const messages: ChatCompletionMessage[] = [
-      ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
+      ...compiledPromptMessages,
       ...structuredContextMessages,
-      ...(structuredContextMessages.length > 0 || request.promptContext?.system === undefined
-        ? []
-        : [{ role: "system" as const, content: request.promptContext.system }]),
       ...(request.promptContext?.messages.map((message) => ({
         role: message.role,
         content: message.content

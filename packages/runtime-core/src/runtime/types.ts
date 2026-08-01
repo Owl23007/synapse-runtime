@@ -1,6 +1,6 @@
 import type { Agent } from "@synapse/runtime-agent-core";
 import type { ChannelRegistry } from "@synapse/runtime-channel";
-import type { ConversationRouter } from "@synapse/runtime-conversation";
+import type { AgentRequest, ConversationRouter, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import type {
   ContextAttributor,
@@ -43,6 +43,7 @@ export interface RuntimeCoreOptions {
   readonly tools: ToolRuntime;
   readonly logger?: RuntimeCoreLogger;
   readonly localize?: (key: string, params?: Readonly<Record<string, string>>) => string;
+  readonly compileInvocation?: (request: AgentRequest) => ModelInvocationEnvelope | Promise<ModelInvocationEnvelope>;
   readonly memory?: {
     readonly enableDurableMemory?: boolean;
   };
@@ -61,7 +62,6 @@ export interface RuntimeCoreOptions {
     readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;
     readonly timezone?: string;
-    readonly structured?: boolean;
     readonly strategy?: string;
     readonly cacheEnabled?: boolean;
     readonly privateHistoryTtlMinutes?: number;

@@ -4,6 +4,7 @@ import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import {
   ToolCallRecoveryError,
   ToolRuntime,
+  describeToolSet,
   type ToolCallContext,
   type ToolContext,
   type ToolRuntimeEvent,
@@ -15,6 +16,44 @@ const BASE_CONTEXT: ToolContext = {
   sessionId: "session-1",
   userId: "user-1"
 };
+
+describe("describeToolSet", () => {
+  it("is stable across tool and schema property order", () => {
+    const first = describeToolSet([
+      {
+        name: "b",
+        description: "B",
+        inputSchema: { type: "object", properties: { z: { type: "string" }, a: { type: "number" } } },
+        permission: { action: "b", resource: "b" },
+        async handle() {}
+      },
+      {
+        name: "a",
+        description: "A",
+        permission: { action: "a", resource: "a" },
+        async handle() {}
+      }
+    ]);
+    const second = describeToolSet([
+      {
+        name: "a",
+        description: "A",
+        permission: { action: "a", resource: "a" },
+        async handle() {}
+      },
+      {
+        name: "b",
+        description: "B",
+        inputSchema: { properties: { a: { type: "number" }, z: { type: "string" } }, type: "object" },
+        permission: { action: "b", resource: "b" },
+        async handle() {}
+      }
+    ]);
+
+    expect(first.toolIds).toEqual(["a", "b"]);
+    expect(first.digest).toBe(second.digest);
+  });
+});
 
 describe("ToolRuntime contracts", () => {
   it("resolves permission resources from tool input", async () => {

@@ -21,7 +21,6 @@ export interface ContextComposerOptions {
   readonly contextProjector?: BranchContextProjector;
   readonly maxHistoryChars?: number;
   readonly timezone?: string;
-  readonly structured?: boolean;
   readonly strategy?: string;
   readonly cacheEnabled?: boolean;
 }
@@ -32,7 +31,6 @@ export class ContextComposer {
   readonly #contextProjector: BranchContextProjector | undefined;
   readonly #maxHistoryChars: number;
   readonly #timezone: string;
-  readonly #structured: boolean;
   readonly #strategy: string;
   readonly #cacheEnabled: boolean;
 
@@ -53,7 +51,6 @@ export class ContextComposer {
             defaultMaxChars: this.#maxHistoryChars
           }));
     this.#timezone = options.timezone ?? "UTC";
-    this.#structured = options.structured ?? false;
     this.#strategy = options.strategy ?? "default";
     this.#cacheEnabled = options.cacheEnabled ?? true;
   }
@@ -106,38 +103,21 @@ export class ContextComposer {
 
     const conversationState = await this.#composeConversationState(input);
 
-    const legacySystem = buildContextSystemPrompt(
-      input.workspace,
-      input.outputPolicy,
-      {
-        currentTimeIso,
-        currentTimeLocal,
-        eventReceivedAt: input.event.receivedAt,
-        eventReceivedAtLocal,
-        timezone: this.#timezone
-      },
-      conversationState
-    );
     return {
-      system: legacySystem,
       messages,
-      ...(this.#structured
-        ? {
-            sections: buildContextSections({
-              workspace: input.workspace,
-              outputPolicy: input.outputPolicy,
-              timeContext: {
-                currentTimeIso,
-                currentTimeLocal,
-                eventReceivedAt: input.event.receivedAt,
-                eventReceivedAtLocal,
-                timezone: this.#timezone
-              },
-              ...(conversationState === undefined ? {} : { conversationState }),
-              cacheEnabled: this.#cacheEnabled
-            })
-          }
-        : {}),
+      sections: buildContextSections({
+        workspace: input.workspace,
+        outputPolicy: input.outputPolicy,
+        timeContext: {
+          currentTimeIso,
+          currentTimeLocal,
+          eventReceivedAt: input.event.receivedAt,
+          eventReceivedAtLocal,
+          timezone: this.#timezone
+        },
+        ...(conversationState === undefined ? {} : { conversationState }),
+        cacheEnabled: this.#cacheEnabled
+      }),
       metadata: {
         actorId: input.actor.identity.id,
         workspaceId: input.workspace.id,
@@ -263,30 +243,6 @@ function buildContextSections(input: {
     ]
   });
   return sections;
-}
-
-function buildContextSystemPrompt(
-  workspace: WorkspaceRef,
-  policy: OutputPolicy,
-  timeContext: {
-    readonly currentTimeIso: string;
-    readonly currentTimeLocal: string;
-    readonly eventReceivedAt: string;
-    readonly eventReceivedAtLocal: string;
-    readonly timezone: string;
-  },
-  conversationState?: string
-): string {
-  const constraints =
-    workspace.type === "group"
-      ? "Group chat: answer briefly, avoid flooding, and ask whether to expand when the answer is long."
-      : "Private chat: answer normally and use recent session history when relevant.";
-
-  const statePrompt =
-    conversationState === undefined
-      ? ""
-      : `\nConversation line state (authoritative structured context; keep branch details isolated to this line): ${conversationState}`;
-  return `${constraints}\nCurrent input is the primary task. Historical messages are timestamped background only; do not continue an old topic unless the current input clearly asks for it.\nTime context: timezone=${timeContext.timezone}, currentLocal=${timeContext.currentTimeLocal}, currentIso=${timeContext.currentTimeIso}, eventReceivedLocal=${timeContext.eventReceivedAtLocal}, eventReceivedIso=${timeContext.eventReceivedAt}. When the user asks about the current time or date, answer using currentLocal and timezone.\nOutput policy: mode=${policy.mode}, maxChars=${policy.maxChars}, markdown=${policy.allowMarkdown}, codeBlock=${policy.allowCodeBlock}.${statePrompt}`;
 }
 
 function eventForPrompt(event: LineEvent): unknown {

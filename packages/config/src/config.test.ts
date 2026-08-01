@@ -240,13 +240,13 @@ maxHistoryChars = 1200
     });
   });
 
-  it("defaults to the Chinese locale and keeps legacy system prompts compatible", () => {
-    const config = parseConfigObject({ agent: { systemPrompt: "legacy prompt" } });
+  it("defaults to the Chinese locale and disables prompt compilation explicitly", () => {
+    const config = parseConfigObject({});
 
     expect(config.locale).toEqual({ default: "zh-CN" });
     expect(config.prompts).toEqual({ enabled: false });
     expect(config.presentation).toEqual({ mode: "deterministic" });
-    expect(config.agent.systemPrompt).toBe("legacy prompt");
+    expect(config.agent).toEqual({ providers: {} });
   });
 
   it("normalizes external resource paths relative to the config file", () => {
@@ -258,7 +258,7 @@ catalogPath = "resources/locales.zh-CN.yaml"
 [prompts]
 enabled = true
 catalogPath = "~/synapse/prompts.zh-CN.yaml"
-defaultPromptId = "chat.reasoning"
+defaultPurpose = "reasoning.chat_reply"
 
 [presentation]
 profilePath = "resources/presentation-profiles.yaml"
@@ -282,14 +282,14 @@ defaultProfileId = "default"
     );
   });
 
-  it("requires a complete Prompt Registry and rejects a conflicting legacy system prompt", () => {
+  it("requires a complete Prompt Bundle and rejects removed prompt fields", () => {
     expect(() => parseConfigObject({ prompts: { enabled: true } })).toThrow(/prompts\.catalogPath/);
     expect(() =>
       parseConfigObject({
-        prompts: { enabled: true, catalogPath: "prompts.yaml", defaultPromptId: "chat.reasoning" },
-        agent: { systemPrompt: "legacy prompt" }
+        prompts: { enabled: true, catalogPath: "prompts.yaml", defaultPromptId: "chat.reasoning" }
       })
-    ).toThrow(/agent\.systemPrompt cannot be used/);
+    ).toThrow(/prompts\.defaultPromptId/);
+    expect(() => parseConfigObject({ agent: { systemPrompt: "legacy prompt" } })).toThrow(/agent\.systemPrompt/);
   });
 
   it("rejects model presentation until the isolated presentation call is implemented", () => {

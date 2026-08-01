@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LocaleResolver,
+  PromptBundleCompiler,
   PresentationProfileCatalogSchema,
   PromptDefinitionSchema,
   PromptRegistry,
@@ -85,5 +86,83 @@ describe("prompt registry", () => {
     writeFileSync(promptFile, JSON.stringify({ prompts: [prompt] }));
     expect(loadLocaleCatalogFileSync(localeFile).messages.hello).toBe("你好，{name}");
     expect(loadPromptCatalogFileSync(promptFile).render("agent.reply", { task: "加载" })).toBe("任务：加载");
+  });
+});
+
+describe("prompt bundle compiler", () => {
+  const compiler = new PromptBundleCompiler(
+    {
+      prompts: [
+        {
+          id: "runtime.core",
+          stage: "reasoning",
+          slot: "runtime",
+          stablePrefix: true,
+          cacheScope: "global",
+          variables: ["runtimeName"],
+          template: "Runtime={{ runtimeName }}"
+        },
+        { id: "chat.group", stage: "reasoning", slot: "scene", template: "群聊边界" },
+        { id: "skill.review", stage: "reasoning", slot: "skill", template: "执行代码审查流程" }
+      ],
+      recipes: [
+        {
+          id: "reasoning.chat",
+          purpose: "reasoning.chat_reply",
+          basePromptIds: ["runtime.core"],
+          dimensions: { conversationKind: { group: ["chat.group"] } }
+        }
+      ],
+      skills: [
+        {
+          id: "repository.review",
+          description: "审查仓库变更",
+          purposes: ["reasoning.chat_reply"],
+          activation: { mode: "scene", dimensions: { taskKind: ["code_review"] } },
+          promptIds: ["skill.review"],
+          requiredTools: ["repository.diff"],
+          allowedTools: ["repository.diff"]
+        }
+      ]
+    },
+    { runtimeName: "Synapse" }
+  );
+
+  it("composes dimensions and activated skills while narrowing visible tools", () => {
+    const invocation = compiler.compile({
+      purpose: "reasoning.chat_reply",
+      dimensions: { conversationKind: "group", taskKind: "code_review" },
+      toolIds: ["filesystem.write", "repository.diff"],
+      toolSetDigest: "tools-v1"
+    });
+
+    expect(invocation.prompt.blocks.map((block) => block.promptId)).toEqual([
+      "runtime.core",
+      "chat.group",
+      "skill.review"
+    ]);
+    expect(invocation.capabilities.toolIds).toEqual(["repository.diff"]);
+    expect(invocation.capabilities.activeSkills).toEqual([
+      expect.objectContaining({ id: "repository.review", reason: "scene" })
+    ]);
+    expect(
+      compiler.compile({
+        purpose: "reasoning.chat_reply",
+        dimensions: { conversationKind: "group", taskKind: "code_review" },
+        toolIds: ["repository.diff", "filesystem.write"],
+        toolSetDigest: "tools-v1"
+      })
+    ).toBe(invocation);
+  });
+
+  it("fails closed when an activated skill lacks a required tool", () => {
+    expect(() =>
+      compiler.compile({
+        purpose: "reasoning.chat_reply",
+        dimensions: { conversationKind: "group", taskKind: "code_review" },
+        toolIds: [],
+        toolSetDigest: "empty"
+      })
+    ).toThrow(ResourceError);
   });
 });

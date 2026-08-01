@@ -107,14 +107,21 @@ export const LocaleSettingsSchema = z
   .passthrough();
 
 /** Prompt Registry switch and its external catalog location. */
-export const PromptRegistrySettingsSchema = z
+export const PromptBundleSettingsSchema = z
   .object({
     enabled: z.boolean().default(false),
     catalogPath: z.string().min(1).optional(),
-    defaultPromptId: z.string().min(1).optional()
+    defaultPurpose: z.string().min(1).optional()
   })
   .passthrough()
   .superRefine((prompts, ctx) => {
+    if ("defaultPromptId" in prompts) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultPromptId"],
+        message: "prompts.defaultPromptId has been removed; configure prompts.defaultPurpose."
+      });
+    }
     if (!prompts.enabled) {
       return;
     }
@@ -126,11 +133,11 @@ export const PromptRegistrySettingsSchema = z
         message: "Prompt Registry requires prompts.catalogPath when enabled."
       });
     }
-    if (prompts.defaultPromptId === undefined) {
+    if (prompts.defaultPurpose === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["defaultPromptId"],
-        message: "Prompt Registry requires prompts.defaultPromptId when enabled."
+        path: ["defaultPurpose"],
+        message: "Prompt Registry requires prompts.defaultPurpose when enabled."
       });
     }
   });
@@ -273,11 +280,17 @@ export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
 export const AgentSettingsSchema = z
   .object({
     default: AgentProviderIdSchema.optional(),
-    systemPrompt: z.string().min(1).optional(),
     providers: z.record(AgentProviderIdSchema, AgentProviderConfigSchema).default({})
   })
   .passthrough()
   .superRefine((agent, ctx) => {
+    if ("systemPrompt" in agent) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["systemPrompt"],
+        message: "agent.systemPrompt has been removed; configure a Prompt Bundle."
+      });
+    }
     if (agent.default === undefined) {
       return;
     }
@@ -336,7 +349,7 @@ export const RuntimeConfigSchema = z
     admin: AdminSettingsSchema.default({}),
     context: RuntimeContextSettingsSchema.default({}),
     locale: LocaleSettingsSchema.default({}),
-    prompts: PromptRegistrySettingsSchema.default({}),
+    prompts: PromptBundleSettingsSchema.default({}),
     presentation: PresentationSettingsSchema.default({}),
     memory: MemorySettingsSchema.default({}),
     tools: ToolSettingsSchema.default({}),
@@ -347,14 +360,6 @@ export const RuntimeConfigSchema = z
   })
   .passthrough()
   .superRefine((config, ctx) => {
-    if (config.prompts.enabled && config.agent.systemPrompt !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["agent", "systemPrompt"],
-        message: "agent.systemPrompt cannot be used when the Prompt Registry is enabled."
-      });
-    }
-
     if (config.runtime.mode !== "hosted") {
       return;
     }
@@ -382,7 +387,7 @@ export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicy
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
 export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema>;
 export type LocaleSettings = z.infer<typeof LocaleSettingsSchema>;
-export type PromptRegistrySettings = z.infer<typeof PromptRegistrySettingsSchema>;
+export type PromptBundleSettings = z.infer<typeof PromptBundleSettingsSchema>;
 export type PresentationMode = z.infer<typeof PresentationModeSchema>;
 export type PresentationSettings = z.infer<typeof PresentationSettingsSchema>;
 export type MemorySettings = z.infer<typeof MemorySettingsSchema>;

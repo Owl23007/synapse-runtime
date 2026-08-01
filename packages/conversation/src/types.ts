@@ -80,10 +80,56 @@ export interface PromptContextSection {
 }
 
 export interface PromptContext {
-  readonly system?: string;
   readonly messages: readonly PromptContextMessage[];
   readonly metadata: Readonly<Record<string, string>>;
-  readonly sections?: readonly PromptContextSection[];
+  readonly sections: readonly PromptContextSection[];
+}
+
+/** 模型调用使用的结构化场景，维度值必须来自可信运行时状态 */
+export interface PromptScene {
+  readonly purpose: string;
+  readonly dimensions: Readonly<Record<string, string>>;
+}
+
+/** 提示词合成后保留来源和缓存边界的不可变区块 */
+export interface PromptEnvelopeBlock {
+  readonly promptId: string;
+  readonly version: string;
+  readonly stage: "reasoning" | "internal" | "presentation" | "system" | "tool";
+  readonly slot: string;
+  readonly content: string;
+  readonly stable: boolean;
+  readonly cacheScope: "global" | "workspace" | "session" | "none";
+}
+
+/** 一次模型调用采用的结构化提示词结果 */
+export interface PromptEnvelope {
+  readonly recipeId: string;
+  readonly recipeVersion: string;
+  readonly scene: PromptScene;
+  readonly blocks: readonly PromptEnvelopeBlock[];
+  readonly digest: string;
+}
+
+/** 已激活 Skill 的稳定引用 */
+export interface ActivatedSkill {
+  readonly id: string;
+  readonly version: string;
+  readonly reason: string;
+}
+
+/** 模型本次可见的工具与 Skill 能力 */
+export interface CapabilityEnvelope {
+  readonly toolIds: readonly string[];
+  readonly toolSetDigest: string;
+  readonly activeSkills: readonly ActivatedSkill[];
+  readonly skillSetDigest: string;
+}
+
+/** Prompt、Tools 与 Skills 编译后的模型调用契约 */
+export interface ModelInvocationEnvelope {
+  readonly prompt: PromptEnvelope;
+  readonly capabilities: CapabilityEnvelope;
 }
 
 export interface ConversationTrigger {
@@ -96,13 +142,16 @@ export interface AgentRequest {
   readonly sessionId: string;
   readonly lineId?: string;
   readonly branchId?: string;
+  readonly taskId?: string;
   readonly userId: string;
   readonly input: SynapseMessage;
   readonly source: ChannelSource;
   readonly contextPolicy: ContextPolicy;
   readonly event: SynapseChannelEvent;
   readonly trigger?: ConversationTrigger;
+  readonly requestedSkillIds?: readonly string[];
   readonly promptContext?: PromptContext;
+  readonly invocation?: ModelInvocationEnvelope;
 }
 
 export interface ConversationDecision {
