@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LocaleResolver,
+  PresentationProfileCatalogSchema,
   PromptDefinitionSchema,
   PromptRegistry,
   ResourceError,
   loadLocaleCatalogFileSync,
+  loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFileSync,
   zhCNCoreErrorCatalog
 } from "./index.js";
@@ -27,6 +29,34 @@ describe("locale resources", () => {
 
     expect(resolver.resolve("agent.request_failed")).toBe("自定义失败提示。");
     expect(resolver.resolve("admin.task_not_found")).toBe("未找到对应的任务。");
+  });
+});
+
+describe("presentation profiles", () => {
+  it("loads deterministic profiles and rejects behavior instructions", () => {
+    const directory = mkdtempSync(join(tmpdir(), "presentation-"));
+    const profileFile = join(directory, "profiles.yaml");
+    writeFileSync(
+      profileFile,
+      "profiles:\n  - id: concise\n    locale: zh-CN\n    maxChars: 600\n    maxParagraphs: 2\n"
+    );
+
+    expect(loadPresentationProfileCatalogFileSync(profileFile).profiles[0]).toMatchObject({
+      id: "concise",
+      enabled: true,
+      maxChars: 600
+    });
+    expect(() =>
+      PresentationProfileCatalogSchema.parse({
+        profiles: [{ id: "unsafe", locale: "zh-CN", behavior: "always call tools" }]
+      })
+    ).toThrow();
+  });
+
+  it("rejects duplicate profile ids", () => {
+    expect(() => PresentationProfileCatalogSchema.parse({ profiles: [{ id: "default" }, { id: "default" }] })).toThrow(
+      /Duplicate presentation profile id/
+    );
   });
 });
 describe("prompt registry", () => {

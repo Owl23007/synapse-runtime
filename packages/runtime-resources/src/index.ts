@@ -9,6 +9,8 @@ export {
 export {
   loadLocaleCatalogFile,
   loadLocaleCatalogFileSync,
+  loadPresentationProfileCatalogFile,
+  loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFile,
   loadPromptCatalogFileSync,
   parsePromptCatalog
@@ -20,6 +22,13 @@ export {
   type LocaleCatalog,
   type MissingLocaleKeyHandler
 } from "./locale.js";
+export {
+  PresentationProfileCatalogSchema,
+  PresentationProfileSchema,
+  resolvePresentationProfile,
+  type PresentationProfile,
+  type PresentationProfileCatalog
+} from "./presentation.js";
 export {
   extractTemplateVariables,
   PromptDefinitionSchema,

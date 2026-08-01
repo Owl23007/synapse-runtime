@@ -262,6 +262,7 @@ defaultPromptId = "chat.reasoning"
 
 [presentation]
 profilePath = "resources/presentation-profiles.yaml"
+defaultProfileId = "default"
 `,
       "/opt/synapse/config/runtime.config.toml"
     );
@@ -269,6 +270,16 @@ profilePath = "resources/presentation-profiles.yaml"
     expect(config.locale.catalogPath).toBe(resolve("/opt/synapse/config/resources/locales.zh-CN.yaml"));
     expect(config.prompts.catalogPath).toBe(join(homedir(), "synapse", "prompts.zh-CN.yaml"));
     expect(config.presentation.profilePath).toBe(resolve("/opt/synapse/config/resources/presentation-profiles.yaml"));
+    expect(config.presentation.defaultProfileId).toBe("default");
+  });
+
+  it("requires a presentation profile id and path together", () => {
+    expect(() => parseConfigObject({ presentation: { profilePath: "profiles.yaml" } })).toThrow(
+      /presentation\.defaultProfileId/
+    );
+    expect(() => parseConfigObject({ presentation: { defaultProfileId: "default" } })).toThrow(
+      /presentation\.profilePath/
+    );
   });
 
   it("requires a complete Prompt Registry and rejects a conflicting legacy system prompt", () => {

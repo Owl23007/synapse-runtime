@@ -88,9 +88,12 @@ Prompt catalog 是一个包含 `prompts` 数组的 YAML 或 JSON 文件。每个
 [presentation]
 mode = "deterministic"
 # profilePath = "resources/presentation-profiles.yaml"
+# defaultProfileId = "default"
 ```
 
-Presentation 用于最终表达而非推理。`deterministic` 是当前可用模式，会以确定性方式处理呈现；`model` 预留给将来的独立表达模型调用，当前启用会在配置校验阶段被拒绝。人格或表达 profile 不应放入 reasoning Prompt，避免其影响事实判断、规划和工具选择。
+Presentation 用于最终表达而非推理。`deterministic` 是当前可用模式，会在 Agent 产生规范结果后，以确定性方式处理长度、段落、Markdown 和代码块；Profile 只能收紧频道本身的输出边界。`model` 预留给将来的独立表达模型调用，当前启用会在配置校验阶段被拒绝。人格或表达 profile 不应放入 reasoning Prompt，避免其影响事实判断、规划和工具选择。
+
+配置 `profilePath` 时必须同时配置 `defaultProfileId`。Profile Catalog 是包含 `profiles` 数组的 YAML 或 JSON 文件，可使用 `maxChars`、`maxParagraphs`、`allowMarkdown` 和 `allowCodeBlock`；Schema 会拒绝行为、权限、工具指令等未知字段。可参考 `examples/resources/presentation-profiles.yaml`。
 
 ## 资源路径
 

@@ -78,7 +78,7 @@ export class RuntimeCore {
   readonly #contextComposer: ContextComposer;
   readonly #contextAttributor: ContextAttributor;
   readonly #outputPolicyResolver = new OutputPolicyResolver();
-  readonly #responsePolicy = new ResponsePolicy();
+  readonly #responsePolicy: ResponsePolicy;
   readonly #eventProcessStore: EventProcessStore;
   readonly #enableDurableMemory: boolean;
   readonly #contextHistory: {
@@ -107,6 +107,7 @@ export class RuntimeCore {
     this.#tools = options.tools;
     this.#logger = options.logger;
     this.#localize = options.localize ?? ((key) => key);
+    this.#responsePolicy = new ResponsePolicy(options.presentation?.profile);
     this.#contextEnabled = options.context?.enabled ?? true;
     this.#enableDurableMemory = options.memory?.enableDurableMemory ?? false;
     this.#contextHistory = {

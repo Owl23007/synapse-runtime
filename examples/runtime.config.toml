@@ -49,6 +49,7 @@ enabled = false
 # Deterministic presentation does not allow a persona to influence reasoning.
 mode = "deterministic"
 # profilePath = "resources/presentation-profiles.yaml"
+# defaultProfileId = "default"
 
 [agent]
 default = "qwen"

@@ -26,6 +26,7 @@ export const zhCNCoreErrorCatalog: LocaleCatalog = {
     "admin.reload_failed": "重新加载配置失败，请检查配置后重试。",
     "config.invalid": "配置无效：{reason}。",
     "context.compose_failed": "上下文合成失败，请稍后重试。",
+    "presentation.profile_not_found": "未找到可用的表达配置。",
     "prompt.duplicate": "提示词配置重复：{id}。",
     "prompt.not_found": "未找到提示词配置：{id}。",
     "prompt.disabled": "提示词配置未启用：{id}。",

@@ -1,0 +1,7 @@
+profiles:
+  - id: default
+    locale: zh-CN
+    enabled: true
+    maxChars: 4000
+    allowMarkdown: true
+    allowCodeBlock: true

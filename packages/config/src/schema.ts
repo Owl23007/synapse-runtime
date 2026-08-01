@@ -141,7 +141,8 @@ export const PresentationModeSchema = z.enum(["deterministic", "model"]);
 export const PresentationSettingsSchema = z
   .object({
     mode: PresentationModeSchema.default("deterministic"),
-    profilePath: z.string().min(1).optional()
+    profilePath: z.string().min(1).optional(),
+    defaultProfileId: z.string().min(1).optional()
   })
   .passthrough()
   .superRefine((presentation, ctx) => {
@@ -150,6 +151,13 @@ export const PresentationSettingsSchema = z
         code: z.ZodIssueCode.custom,
         path: ["mode"],
         message: "Model presentation is not implemented; use deterministic mode."
+      });
+    }
+    if ((presentation.profilePath === undefined) !== (presentation.defaultProfileId === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [presentation.profilePath === undefined ? "profilePath" : "defaultProfileId"],
+        message: "presentation.profilePath and presentation.defaultProfileId must be configured together."
       });
     }
   });

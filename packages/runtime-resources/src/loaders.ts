@@ -4,6 +4,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { LocaleCatalogSchema, type LocaleCatalog } from "./locale.js";
 import { PromptDefinitionSchema, PromptRegistry, type PromptDefinition } from "./prompt.js";
+import { PresentationProfileCatalogSchema, type PresentationProfileCatalog } from "./presentation.js";
 
 const PromptCatalogSchema = z.object({ prompts: z.array(PromptDefinitionSchema) });
 
@@ -30,6 +31,16 @@ export async function loadLocaleCatalogFile(filePath: string): Promise<LocaleCat
 /** 异步接口加载并构建 Prompt Registry */
 export async function loadPromptCatalogFile(filePath: string): Promise<PromptRegistry> {
   return loadPromptCatalogFileSync(filePath);
+}
+
+/** 同步加载并校验 Presentation Profile Catalog */
+export function loadPresentationProfileCatalogFileSync(filePath: string): PresentationProfileCatalog {
+  return PresentationProfileCatalogSchema.parse(parseResource(readFileSync(filePath, "utf8"), filePath));
+}
+
+/** 异步接口加载并校验 Presentation Profile Catalog */
+export async function loadPresentationProfileCatalogFile(filePath: string): Promise<PresentationProfileCatalog> {
+  return loadPresentationProfileCatalogFileSync(filePath);
 }
 
 /** 校验内存中的 Prompt Catalog 并返回 Prompt 定义 */

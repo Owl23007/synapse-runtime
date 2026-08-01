@@ -11,6 +11,7 @@ import type {
   WorkspaceResolver,
   WorkspaceStore
 } from "../context.js";
+import type { PresentationProfile } from "../output/index.js";
 
 /**
  * RuntimeCore 日志记录接口
@@ -44,6 +45,9 @@ export interface RuntimeCoreOptions {
   readonly localize?: (key: string, params?: Readonly<Record<string, string>>) => string;
   readonly memory?: {
     readonly enableDurableMemory?: boolean;
+  };
+  readonly presentation?: {
+    readonly profile?: PresentationProfile;
   };
   readonly context?: {
     readonly enabled?: boolean;

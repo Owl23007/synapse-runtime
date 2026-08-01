@@ -27,6 +27,7 @@ describe("runtime-core export surface", () => {
       "classifyInteractionNature",
       "commandResponse",
       "conversationTypeFromEvent",
+      "createCanonicalResult",
       "defaultWorkspace",
       "normalizeMessageId"
     ]);

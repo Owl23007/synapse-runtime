@@ -7,7 +7,10 @@ import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools } from "@synapse/runtime-tool-web";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
-import { createLocaleResolverFromConfig } from "../composition/runtime-resources.js";
+import {
+  createLocaleResolverFromConfig,
+  createPresentationProfileFromConfig
+} from "../composition/runtime-resources.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import type { LocaleResolver } from "@synapse/runtime-resources";
 
@@ -28,6 +31,7 @@ export interface RuntimeFactoryResult {
 
 export function createRuntimeFromConfig(options: RuntimeFactoryOptions): RuntimeFactoryResult {
   const localeResolver = createLocaleResolverFromConfig(options.config, options.logger);
+  const presentationProfile = createPresentationProfileFromConfig(options.config);
   const agent = createAgentFromConfig(options.config, {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch })
   });
@@ -48,6 +52,9 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       localize: (key, params) => localeResolver.resolve(key, params, options.config.locale.default),
       memory: {
         enableDurableMemory: durableMemoryEnabled(options.config)
+      },
+      presentation: {
+        ...(presentationProfile === undefined ? {} : { profile: presentationProfile })
       },
       context: {
         enabled: options.config.context.enabled,

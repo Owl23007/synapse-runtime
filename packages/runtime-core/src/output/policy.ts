@@ -9,6 +9,28 @@ export interface OutputPolicy {
   readonly appendExpandHint: boolean;
 }
 
+/** 不携带人格指令、可用于安全回退的规范结果 */
+export interface CanonicalResult {
+  readonly message: SynapseMessage;
+  readonly safeText: string;
+}
+
+/** 只允许收紧频道输出约束的确定性表达配置 */
+export interface PresentationProfile {
+  readonly id: string;
+  readonly locale: string;
+  readonly enabled: boolean;
+  readonly maxChars?: number | undefined;
+  readonly maxParagraphs?: number | undefined;
+  readonly allowMarkdown?: boolean | undefined;
+  readonly allowCodeBlock?: boolean | undefined;
+}
+
+/** 创建供表达阶段消费的规范结果 */
+export function createCanonicalResult(message: SynapseMessage): CanonicalResult {
+  return { message, safeText: getTextContent(message) };
+}
+
 /**
  * 根据工作区类型选择输出策略
  */
@@ -33,13 +55,47 @@ export class OutputPolicyResolver {
  * 将输出策略应用到结构化消息
  */
 export class ResponsePolicy {
+  readonly #profile: PresentationProfile | undefined;
+
+  /** 创建确定性表达策略 */
+  constructor(profile?: PresentationProfile) {
+    this.#profile = profile;
+  }
+
   /**
    * 返回应用输出策略后的新消息
    */
   apply(message: SynapseMessage, policy: OutputPolicy): SynapseMessage {
-    const text = applyTextPolicy(getTextContent(message), policy);
+    const canonical = createCanonicalResult(message);
+    const profile = this.#profile?.enabled === true ? this.#profile : undefined;
+    const effectivePolicy = tightenPolicy(policy, profile);
+    const text = applyParagraphLimit(applyTextPolicy(canonical.safeText, effectivePolicy), profile?.maxParagraphs);
     return { ...message, segments: [{ type: "text", text }] };
   }
+}
+
+/** Profile 只能收紧运行时根据频道与工作区计算出的边界 */
+function tightenPolicy(policy: OutputPolicy, profile: PresentationProfile | undefined): OutputPolicy {
+  if (profile === undefined || !profile.enabled) {
+    return policy;
+  }
+  return {
+    ...policy,
+    maxChars: profile.maxChars === undefined ? policy.maxChars : Math.min(policy.maxChars, profile.maxChars),
+    allowMarkdown: policy.allowMarkdown && profile.allowMarkdown !== false,
+    allowCodeBlock: policy.allowCodeBlock && profile.allowCodeBlock !== false
+  };
+}
+
+/** 按空行识别自然段，避免将单行列表误判为多个段落 */
+function applyParagraphLimit(text: string, maxParagraphs: number | undefined): string {
+  if (maxParagraphs === undefined) {
+    return text;
+  }
+  return text
+    .split(/\n\s*\n/)
+    .slice(0, maxParagraphs)
+    .join("\n\n");
 }
 
 /**
