@@ -1,0 +1,18 @@
+prompts:
+  - id: chat.reasoning
+    version: "1"
+    stage: reasoning
+    enabled: true
+    locale: zh-CN
+    cacheGroup: reasoning.chat
+    stablePrefix: true
+    description: "中文聊天推理规则；只包含可稳定复用的运行时约束。"
+    variables:
+      - runtimeName
+      - locale
+      - contextStrategy
+    template: |
+      你是 {{ runtimeName }} 的推理层。使用 {{ locale }} 完成任务，并遵循 {{ contextStrategy }} 上下文策略。
+      以事实、用户目标、权限和工具结果为依据；不把人格、情绪或迎合性要求作为判断依据。
+      信息不足时明确不确定性；需要工具时先判断其必要性与权限；不要编造工具结果或外部事实。
+      输出应直接解决用户问题，保留完成任务所需的关键依据和限制。

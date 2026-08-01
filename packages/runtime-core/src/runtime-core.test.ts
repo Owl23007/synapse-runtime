@@ -332,6 +332,39 @@ describe("RuntimeCore", () => {
     ]);
   });
 
+  it("sends a safe localized message when the agent run fails", async () => {
+    const channel = new MockChannelAdapter();
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({
+        privateTrigger: { mode: "always" },
+        groupTrigger: { mode: "always" }
+      }),
+      agent: {
+        id: "failing-agent",
+        async run(request): Promise<AgentRun> {
+          return {
+            id: "run-failed",
+            agentId: "failing-agent",
+            sessionId: request.sessionId,
+            status: "failed",
+            input: request.input,
+            steps: [],
+            error: "provider secret response"
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ "channel.qq.send_private_message": "allow" })),
+      localize: (key) => (key === "agent.request_failed" ? "模型请求失败，请稍后重试。" : key)
+    });
+
+    runtime.attachChannel(channel);
+    await channel.emit(privateMessage("event-failed", "你好"));
+
+    expect(sentText(channel.sent[0]?.message)).toBe("模型请求失败，请稍后重试。");
+    expect(sentText(channel.sent[0]?.message)).not.toContain("provider secret response");
+  });
+
   it("attributes an incoming event before persistence and records the routing decision", async () => {
     const channel = new MockChannelAdapter();
     const conversationStore = new RecordingConversationStore();

@@ -1,4 +1,9 @@
-import type { ConversationTrigger, PromptContext, PromptContextMessage } from "@synapse/runtime-conversation";
+import type {
+  ConversationTrigger,
+  PromptContext,
+  PromptContextMessage,
+  PromptContextSection
+} from "@synapse/runtime-conversation";
 import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
 import type { LineEvent } from "../conversation/types.js";
 import type { ConversationStore } from "../conversation/store.js";
@@ -16,6 +21,9 @@ export interface ContextComposerOptions {
   readonly contextProjector?: BranchContextProjector;
   readonly maxHistoryChars?: number;
   readonly timezone?: string;
+  readonly structured?: boolean;
+  readonly strategy?: string;
+  readonly cacheEnabled?: boolean;
 }
 
 export class ContextComposer {
@@ -24,6 +32,9 @@ export class ContextComposer {
   readonly #contextProjector: BranchContextProjector | undefined;
   readonly #maxHistoryChars: number;
   readonly #timezone: string;
+  readonly #structured: boolean;
+  readonly #strategy: string;
+  readonly #cacheEnabled: boolean;
 
   /**
    * 创建上下文组合器
@@ -42,6 +53,9 @@ export class ContextComposer {
             defaultMaxChars: this.#maxHistoryChars
           }));
     this.#timezone = options.timezone ?? "UTC";
+    this.#structured = options.structured ?? false;
+    this.#strategy = options.strategy ?? "default";
+    this.#cacheEnabled = options.cacheEnabled ?? true;
   }
 
   /**
@@ -92,20 +106,38 @@ export class ContextComposer {
 
     const conversationState = await this.#composeConversationState(input);
 
+    const legacySystem = buildContextSystemPrompt(
+      input.workspace,
+      input.outputPolicy,
+      {
+        currentTimeIso,
+        currentTimeLocal,
+        eventReceivedAt: input.event.receivedAt,
+        eventReceivedAtLocal,
+        timezone: this.#timezone
+      },
+      conversationState
+    );
     return {
-      system: buildContextSystemPrompt(
-        input.workspace,
-        input.outputPolicy,
-        {
-          currentTimeIso,
-          currentTimeLocal,
-          eventReceivedAt: input.event.receivedAt,
-          eventReceivedAtLocal,
-          timezone: this.#timezone
-        },
-        conversationState
-      ),
+      system: legacySystem,
       messages,
+      ...(this.#structured
+        ? {
+            sections: buildContextSections({
+              workspace: input.workspace,
+              outputPolicy: input.outputPolicy,
+              timeContext: {
+                currentTimeIso,
+                currentTimeLocal,
+                eventReceivedAt: input.event.receivedAt,
+                eventReceivedAtLocal,
+                timezone: this.#timezone
+              },
+              ...(conversationState === undefined ? {} : { conversationState }),
+              cacheEnabled: this.#cacheEnabled
+            })
+          }
+        : {}),
       metadata: {
         actorId: input.actor.identity.id,
         workspaceId: input.workspace.id,
@@ -118,6 +150,7 @@ export class ContextComposer {
         eventReceivedAt: input.event.receivedAt,
         eventReceivedAtLocal,
         timezone: this.#timezone,
+        contextStrategy: this.#strategy,
         ...(input.trigger === undefined
           ? {}
           : {
@@ -170,6 +203,66 @@ export class ContextComposer {
       mergedBranchResults: mergedResults.map(eventForPrompt)
     };
   }
+}
+
+function buildContextSections(input: {
+  readonly workspace: WorkspaceRef;
+  readonly outputPolicy: OutputPolicy;
+  readonly timeContext: {
+    readonly currentTimeIso: string;
+    readonly currentTimeLocal: string;
+    readonly eventReceivedAt: string;
+    readonly eventReceivedAtLocal: string;
+    readonly timezone: string;
+  };
+  readonly conversationState?: string;
+  readonly cacheEnabled: boolean;
+}): readonly PromptContextSection[] {
+  const workspaceBlock = {
+    id: "workspace-and-output",
+    source: "runtime-core",
+    stability: "workspace" as const,
+    required: true,
+    priority: 100,
+    cache: { scope: input.cacheEnabled ? ("workspace" as const) : ("none" as const) },
+    content: JSON.stringify({
+      workspace: input.workspace,
+      conversationMode: input.workspace.type === "group" ? "group" : "private",
+      outputPolicy: input.outputPolicy
+    })
+  };
+  const sections: PromptContextSection[] = [{ id: "workspace", blocks: [workspaceBlock] }];
+  if (input.conversationState !== undefined) {
+    sections.push({
+      id: "conversation",
+      blocks: [
+        {
+          id: "line-state",
+          source: "conversation-store",
+          stability: "session",
+          required: false,
+          priority: 70,
+          cache: { scope: input.cacheEnabled ? "session" : "none" },
+          content: input.conversationState
+        }
+      ]
+    });
+  }
+  sections.push({
+    id: "turn",
+    blocks: [
+      {
+        id: "time",
+        source: "channel-event",
+        stability: "turn",
+        required: true,
+        priority: 10,
+        cache: { scope: "none" },
+        content: JSON.stringify(input.timeContext)
+      }
+    ]
+  });
+  return sections;
 }
 
 function buildContextSystemPrompt(

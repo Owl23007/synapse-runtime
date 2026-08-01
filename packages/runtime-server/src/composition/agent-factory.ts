@@ -6,6 +6,7 @@ import {
 } from "@synapse/runtime-agent-api-provider";
 import type { AgentProviderConfig, RuntimeConfig } from "@synapse/runtime-config";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
+import { loadPromptCatalogFileSync } from "@synapse/runtime-resources";
 import type { RuntimeFetch } from "../types.js";
 
 export function createAgentFromConfig(config: RuntimeConfig, options: { readonly fetch?: RuntimeFetch } = {}): Agent {
@@ -28,8 +29,25 @@ export function createAgentFromConfig(config: RuntimeConfig, options: { readonly
   return new ApiChatAgent({
     id: providerId,
     provider: createChatProvider(providerId, providerConfig, options),
-    ...(config.agent.systemPrompt === undefined ? {} : { systemPrompt: config.agent.systemPrompt })
+    ...resolveSystemPrompt(config)
   });
+}
+
+function resolveSystemPrompt(config: RuntimeConfig): { readonly systemPrompt?: string } {
+  if (!config.prompts.enabled) {
+    return config.agent.systemPrompt === undefined ? {} : { systemPrompt: config.agent.systemPrompt };
+  }
+  if (config.prompts.catalogPath === undefined || config.prompts.defaultPromptId === undefined) {
+    throw new Error("Enabled Prompt Registry is missing its catalog path or default prompt id.");
+  }
+  const registry = loadPromptCatalogFileSync(config.prompts.catalogPath);
+  return {
+    systemPrompt: registry.render(config.prompts.defaultPromptId, {
+      locale: config.locale.default,
+      contextStrategy: config.context.strategy,
+      runtimeName: "Synapse Runtime"
+    })
+  };
 }
 
 export function createChatProvider(

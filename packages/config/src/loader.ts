@@ -103,6 +103,24 @@ function normalizeConfigPaths(config: RuntimeConfig, options: LoadConfigOptions)
     runtime: {
       ...config.runtime,
       dataDir: normalizeConfigPath(config.runtime.dataDir, options.baseDir)
+    },
+    locale: {
+      ...config.locale,
+      ...(config.locale.catalogPath === undefined
+        ? {}
+        : { catalogPath: normalizeConfigPath(config.locale.catalogPath, options.baseDir) })
+    },
+    prompts: {
+      ...config.prompts,
+      ...(config.prompts.catalogPath === undefined
+        ? {}
+        : { catalogPath: normalizeConfigPath(config.prompts.catalogPath, options.baseDir) })
+    },
+    presentation: {
+      ...config.presentation,
+      ...(config.presentation.profilePath === undefined
+        ? {}
+        : { profilePath: normalizeConfigPath(config.presentation.profilePath, options.baseDir) })
     }
   };
 }

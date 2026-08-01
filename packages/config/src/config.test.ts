@@ -234,8 +234,57 @@ maxHistoryChars = 1200
 
     expect(config.context).toMatchObject({
       enabled: false,
-      maxHistoryChars: 1200
+      maxHistoryChars: 1200,
+      strategy: "default",
+      cache: { enabled: true }
     });
+  });
+
+  it("defaults to the Chinese locale and keeps legacy system prompts compatible", () => {
+    const config = parseConfigObject({ agent: { systemPrompt: "legacy prompt" } });
+
+    expect(config.locale).toEqual({ default: "zh-CN" });
+    expect(config.prompts).toEqual({ enabled: false });
+    expect(config.presentation).toEqual({ mode: "deterministic" });
+    expect(config.agent.systemPrompt).toBe("legacy prompt");
+  });
+
+  it("normalizes external resource paths relative to the config file", () => {
+    const config = parseConfigContent(
+      `
+[locale]
+catalogPath = "resources/locales.zh-CN.yaml"
+
+[prompts]
+enabled = true
+catalogPath = "~/synapse/prompts.zh-CN.yaml"
+defaultPromptId = "chat.reasoning"
+
+[presentation]
+profilePath = "resources/presentation-profiles.yaml"
+`,
+      "/opt/synapse/config/runtime.config.toml"
+    );
+
+    expect(config.locale.catalogPath).toBe(resolve("/opt/synapse/config/resources/locales.zh-CN.yaml"));
+    expect(config.prompts.catalogPath).toBe(join(homedir(), "synapse", "prompts.zh-CN.yaml"));
+    expect(config.presentation.profilePath).toBe(resolve("/opt/synapse/config/resources/presentation-profiles.yaml"));
+  });
+
+  it("requires a complete Prompt Registry and rejects a conflicting legacy system prompt", () => {
+    expect(() => parseConfigObject({ prompts: { enabled: true } })).toThrow(/prompts\.catalogPath/);
+    expect(() =>
+      parseConfigObject({
+        prompts: { enabled: true, catalogPath: "prompts.yaml", defaultPromptId: "chat.reasoning" },
+        agent: { systemPrompt: "legacy prompt" }
+      })
+    ).toThrow(/agent\.systemPrompt cannot be used/);
+  });
+
+  it("rejects model presentation until the isolated presentation call is implemented", () => {
+    expect(() => parseConfigObject({ presentation: { mode: "model" } })).toThrow(
+      /Model presentation is not implemented/
+    );
   });
 
   it("rejects durable memory until its runtime implementation is available", () => {

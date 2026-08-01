@@ -88,9 +88,71 @@ export const RuntimeContextSettingsSchema = z
     channelHistoryTtlMinutes: z.number().int().positive().default(30),
     privateMaxMessages: z.number().int().positive().default(20),
     groupMaxMessages: z.number().int().positive().default(6),
-    channelMaxMessages: z.number().int().positive().default(8)
+    channelMaxMessages: z.number().int().positive().default(8),
+    strategy: z.string().min(1).default("default"),
+    cache: z
+      .object({
+        enabled: z.boolean().default(true)
+      })
+      .default({})
   })
   .passthrough();
+
+/** Locale resources used to render user-facing messages. */
+export const LocaleSettingsSchema = z
+  .object({
+    default: z.string().min(1).default("zh-CN"),
+    catalogPath: z.string().min(1).optional()
+  })
+  .passthrough();
+
+/** Prompt Registry switch and its external catalog location. */
+export const PromptRegistrySettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    catalogPath: z.string().min(1).optional(),
+    defaultPromptId: z.string().min(1).optional()
+  })
+  .passthrough()
+  .superRefine((prompts, ctx) => {
+    if (!prompts.enabled) {
+      return;
+    }
+
+    if (prompts.catalogPath === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["catalogPath"],
+        message: "Prompt Registry requires prompts.catalogPath when enabled."
+      });
+    }
+    if (prompts.defaultPromptId === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultPromptId"],
+        message: "Prompt Registry requires prompts.defaultPromptId when enabled."
+      });
+    }
+  });
+
+export const PresentationModeSchema = z.enum(["deterministic", "model"]);
+
+/** Optional final-response presentation layer, kept separate from reasoning. */
+export const PresentationSettingsSchema = z
+  .object({
+    mode: PresentationModeSchema.default("deterministic"),
+    profilePath: z.string().min(1).optional()
+  })
+  .passthrough()
+  .superRefine((presentation, ctx) => {
+    if (presentation.mode === "model") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mode"],
+        message: "Model presentation is not implemented; use deterministic mode."
+      });
+    }
+  });
 
 export const MemorySettingsSchema = z
   .object({
@@ -265,6 +327,9 @@ export const RuntimeConfigSchema = z
     server: ServerSettingsSchema.default({}),
     admin: AdminSettingsSchema.default({}),
     context: RuntimeContextSettingsSchema.default({}),
+    locale: LocaleSettingsSchema.default({}),
+    prompts: PromptRegistrySettingsSchema.default({}),
+    presentation: PresentationSettingsSchema.default({}),
     memory: MemorySettingsSchema.default({}),
     tools: ToolSettingsSchema.default({}),
     agent: AgentSettingsSchema.default({}),
@@ -274,6 +339,14 @@ export const RuntimeConfigSchema = z
   })
   .passthrough()
   .superRefine((config, ctx) => {
+    if (config.prompts.enabled && config.agent.systemPrompt !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["agent", "systemPrompt"],
+        message: "agent.systemPrompt cannot be used when the Prompt Registry is enabled."
+      });
+    }
+
     if (config.runtime.mode !== "hosted") {
       return;
     }
@@ -300,6 +373,10 @@ export type TriggerMode = z.infer<typeof TriggerModeSchema>;
 export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
 export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
 export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema>;
+export type LocaleSettings = z.infer<typeof LocaleSettingsSchema>;
+export type PromptRegistrySettings = z.infer<typeof PromptRegistrySettingsSchema>;
+export type PresentationMode = z.infer<typeof PresentationModeSchema>;
+export type PresentationSettings = z.infer<typeof PresentationSettingsSchema>;
 export type MemorySettings = z.infer<typeof MemorySettingsSchema>;
 /** Brave 网络搜索配置 */
 export type BraveWebSearchSettings = z.infer<typeof BraveWebSearchSettingsSchema>;

@@ -34,6 +34,7 @@
     "@synapse/runtime-core": "workspace:*",
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
+    "@synapse/runtime-resources": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
     "ink": "^5.2.1",

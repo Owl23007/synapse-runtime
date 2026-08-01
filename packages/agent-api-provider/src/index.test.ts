@@ -118,6 +118,9 @@ describe("OpenAiCompatibleChatProvider", () => {
           ],
           usage: {
             prompt_tokens: 20,
+            prompt_tokens_details: {
+              cached_tokens: 12
+            },
             completion_tokens: 8,
             total_tokens: 28
           }
@@ -152,6 +155,7 @@ describe("OpenAiCompatibleChatProvider", () => {
       ],
       usage: {
         promptTokens: 20,
+        cachedPromptTokens: 12,
         completionTokens: 8,
         totalTokens: 28
       }
@@ -232,12 +236,112 @@ describe("ApiChatAgent", () => {
             actorId: "guest:qq:napcat:qq-local:user-1",
             workspaceId: "personal:guest:qq:napcat:qq-local:user-1",
             sessionId: "qq:napcat:qq-local:private:user-1"
-          }
+          },
+          sections: []
         }
       })
     ).resolves.toMatchObject({
       status: "succeeded",
       output: textMessage("current answer")
+    });
+  });
+
+  it("prefers structured context over legacy system text and renders a deterministic stable prefix", async () => {
+    const agent = new ApiChatAgent({
+      id: "structured-context-agent",
+      systemPrompt: "Runtime rules.",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          expect(request.messages).toEqual([
+            { role: "system", content: "Runtime rules." },
+            { role: "system", content: "Global high priority." },
+            { role: "system", content: "Global low priority." },
+            { role: "system", content: "Workspace context." },
+            { role: "system", content: "Current retrieval." },
+            { role: "user", content: "previous question" },
+            { role: "user", content: "current question" }
+          ]);
+          expect(request).not.toHaveProperty("extraBody");
+          return { content: "answer" };
+        }
+      }
+    });
+
+    await expect(
+      agent.run({
+        ...agentRequest("current question"),
+        promptContext: {
+          system: "Legacy dynamic context.",
+          messages: [{ role: "user", content: "previous question" }],
+          metadata: {},
+          sections: [
+            {
+              id: "dynamic",
+              blocks: [
+                {
+                  id: "retrieval",
+                  content: "Current retrieval.",
+                  source: "retrieval",
+                  stability: "turn",
+                  required: false,
+                  priority: 100,
+                  cache: { scope: "none", metadata: { reason: "per-request" } }
+                }
+              ]
+            },
+            {
+              id: "stable",
+              blocks: [
+                {
+                  id: "workspace",
+                  content: "Workspace context.",
+                  source: "workspace",
+                  stability: "workspace",
+                  required: true,
+                  priority: 10,
+                  cache: { scope: "workspace" }
+                },
+                {
+                  id: "low",
+                  content: "Global low priority.",
+                  source: "runtime",
+                  stability: "global",
+                  required: true,
+                  priority: 10,
+                  cache: { scope: "global" }
+                },
+                {
+                  id: "high",
+                  content: "Global high priority.",
+                  source: "runtime",
+                  stability: "global",
+                  required: true,
+                  priority: 20,
+                  cache: { scope: "global" }
+                }
+              ]
+            }
+          ]
+        }
+      })
+    ).resolves.toMatchObject({ status: "succeeded", output: textMessage("answer") });
+  });
+
+  it("sorts tool definitions by stable name", async () => {
+    const agent = new ApiChatAgent({
+      id: "sorted-tools-agent",
+      provider: {
+        id: "test-provider",
+        async complete(request) {
+          expect(request.tools?.map((tool) => tool.name)).toEqual(["alpha", "zeta"]);
+          return { content: "answer" };
+        }
+      }
+    });
+
+    await expect(agent.run(agentRequest("hello"), agentContextWithTools(["zeta", "alpha"]))).resolves.toMatchObject({
+      status: "succeeded"
     });
   });
 
@@ -469,6 +573,21 @@ function agentContext(
           status: "created"
         };
       }
+    }
+  };
+}
+
+function agentContextWithTools(names: readonly string[]): AgentRuntimeContext {
+  const base = agentContext(async () => ({ status: "succeeded", output: undefined }));
+  const template = base.tools.list()[0];
+  if (template === undefined) {
+    throw new Error("Expected a tool template");
+  }
+  return {
+    ...base,
+    tools: {
+      ...base.tools,
+      list: () => names.map((name) => ({ ...template, name }))
     }
   };
 }

@@ -427,6 +427,16 @@ describe("RuntimeServer", () => {
         }
       }
     });
+    await expect(fetchJson(`${adminBaseUrl}/admin/branches/missing`)).resolves.toEqual({
+      ok: false,
+      error: "branch_not_found",
+      message: "未找到对应的分支。"
+    });
+    await expect(fetchJson(`${adminBaseUrl}/admin/tasks/missing`)).resolves.toEqual({
+      ok: false,
+      error: "task_not_found",
+      message: "未找到对应的任务。"
+    });
 
     const logs = await fetchJson(`${adminBaseUrl}/admin/logs?limit=2`);
     expect(logs).toMatchObject({ ok: true });

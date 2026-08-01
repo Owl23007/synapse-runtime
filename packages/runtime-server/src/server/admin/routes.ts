@@ -1,5 +1,5 @@
 import { redactConfig, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
-import type { ConversationBranch, ConversationTask } from "@synapse/runtime-core";
+import { TaskRunnerError, type ConversationBranch, type ConversationTask } from "@synapse/runtime-core";
 import type { Handler, Nova, NovaRequest, NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
 import type { RuntimeServerLogger } from "../../types.js";
@@ -29,6 +29,7 @@ export interface AdminRouteDeps {
   readonly listTasks: (branchId?: string) => Promise<readonly ConversationTask[]>;
   readonly getTask: (taskId: string) => Promise<ConversationTask | undefined>;
   readonly cancelTask: (taskId: string) => Promise<ConversationTask>;
+  readonly localize: (key: string, params?: Record<string, string>) => string;
 }
 
 export function registerAdminRoutes(deps: AdminRouteDeps): void {
@@ -97,7 +98,9 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       sendJson(
         response,
         branch === undefined ? 404 : 200,
-        branch === undefined ? { ok: false, error: "branch_not_found" } : { ok: true, branch }
+        branch === undefined
+          ? { ok: false, error: "branch_not_found", message: deps.localize("admin.branch_not_found") }
+          : { ok: true, branch }
       );
     })
   );
@@ -117,7 +120,9 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       sendJson(
         response,
         task === undefined ? 404 : 200,
-        task === undefined ? { ok: false, error: "task_not_found" } : { ok: true, task }
+        task === undefined
+          ? { ok: false, error: "task_not_found", message: deps.localize("admin.task_not_found") }
+          : { ok: true, task }
       );
     })
   );
@@ -125,17 +130,21 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     "/admin/tasks/:id/cancel",
     asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
       if (request.params.id === undefined) {
-        sendJson(response, 400, { ok: false, error: "missing_task_id" });
+        sendJson(response, 400, {
+          ok: false,
+          error: "missing_task_id",
+          message: deps.localize("admin.missing_task_id")
+        });
         return;
       }
       try {
         sendJson(response, 200, { ok: true, task: await deps.cancelTask(request.params.id) });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        sendJson(response, message.includes("was not found") ? 404 : 409, {
+        const notFound = error instanceof TaskRunnerError && error.code === "task_not_found";
+        sendJson(response, notFound ? 404 : 409, {
           ok: false,
-          error: message.includes("was not found") ? "task_not_found" : "task_cancel_failed",
-          message
+          error: notFound ? "task_not_found" : "task_cancel_failed",
+          message: deps.localize(notFound ? "admin.task_not_found" : "admin.task_cancel_failed")
         });
       }
     })
@@ -146,7 +155,11 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       const channelId = request.params.id;
 
       if (channelId === undefined) {
-        sendJson(response, 400, { ok: false, error: "missing_channel_id" });
+        sendJson(response, 400, {
+          ok: false,
+          error: "missing_channel_id",
+          message: deps.localize("admin.missing_channel_id")
+        });
         return;
       }
 
@@ -154,13 +167,21 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       const channelConfig = config.channels[channelId];
 
       if (channelConfig === undefined) {
-        sendJson(response, 404, { ok: false, error: "channel_not_found" });
+        sendJson(response, 404, {
+          ok: false,
+          error: "channel_not_found",
+          message: deps.localize("admin.channel_not_found")
+        });
         return;
       }
 
       const patch = readJsonBody(request);
       if (!isChannelAdminPatch(patch)) {
-        sendJson(response, 400, { ok: false, error: "invalid_channel_patch" });
+        sendJson(response, 400, {
+          ok: false,
+          error: "invalid_channel_patch",
+          message: deps.localize("admin.invalid_channel_patch")
+        });
         return;
       }
 
@@ -176,7 +197,11 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
           channelId,
           error: error instanceof Error ? error.message : String(error)
         });
-        sendJson(response, 500, { ok: false, error: "channel_patch_failed" });
+        sendJson(response, 500, {
+          ok: false,
+          error: "channel_patch_failed",
+          message: deps.localize("admin.channel_patch_failed")
+        });
       }
     })
   );
@@ -194,7 +219,11 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     "/admin/reload",
     asyncRoute(deps, async (_request: NovaRequest, response: NovaResponse) => {
       if (deps.getConfigPath() === undefined) {
-        sendJson(response, 400, { ok: false, error: "reload_config_path_not_available" });
+        sendJson(response, 400, {
+          ok: false,
+          error: "reload_config_path_not_available",
+          message: deps.localize("admin.reload_config_path_not_available")
+        });
         return;
       }
 
@@ -209,7 +238,11 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
         deps.logger.error("Admin reload failed.", {
           error: error instanceof Error ? error.message : String(error)
         });
-        sendJson(response, 500, { ok: false, error: "reload_failed" });
+        sendJson(response, 500, {
+          ok: false,
+          error: "reload_failed",
+          message: deps.localize("admin.reload_failed")
+        });
       }
     })
   );
@@ -226,7 +259,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
   });
 }
 
-function asyncRoute(deps: Pick<AdminRouteDeps, "logger">, handler: Handler): Handler {
+function asyncRoute(deps: Pick<AdminRouteDeps, "logger" | "localize">, handler: Handler): Handler {
   return (request, response) => {
     void Promise.resolve(handler(request, response)).catch((error) => {
       deps.logger.error("HTTP route handler failed.", {
@@ -234,7 +267,11 @@ function asyncRoute(deps: Pick<AdminRouteDeps, "logger">, handler: Handler): Han
       });
 
       if (!response.headersSent) {
-        sendJson(response, 500, { ok: false, error: "internal_error" });
+        sendJson(response, 500, {
+          ok: false,
+          error: "internal_error",
+          message: deps.localize("runtime.internal_error")
+        });
       }
     });
   };

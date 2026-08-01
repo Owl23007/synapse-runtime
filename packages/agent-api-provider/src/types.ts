@@ -32,6 +32,7 @@ export type ChatToolChoice = "auto" | "none" | { readonly name: string };
 /** 模型调用的用量信息 */
 export interface ChatTokenUsage {
   readonly promptTokens?: number;
+  readonly cachedPromptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
 }

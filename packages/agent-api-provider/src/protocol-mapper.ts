@@ -71,14 +71,23 @@ export function parseUsage(value: unknown): { readonly usage?: ChatTokenUsage } 
     return {};
   }
   const promptTokens = optionalNumber(value.prompt_tokens);
+  const cachedPromptTokens = isRecord(value.prompt_tokens_details)
+    ? optionalNumber(value.prompt_tokens_details.cached_tokens)
+    : undefined;
   const completionTokens = optionalNumber(value.completion_tokens);
   const totalTokens = optionalNumber(value.total_tokens);
-  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
+  if (
+    promptTokens === undefined &&
+    cachedPromptTokens === undefined &&
+    completionTokens === undefined &&
+    totalTokens === undefined
+  ) {
     return {};
   }
   return {
     usage: {
       ...(promptTokens === undefined ? {} : { promptTokens }),
+      ...(cachedPromptTokens === undefined ? {} : { cachedPromptTokens }),
       ...(completionTokens === undefined ? {} : { completionTokens }),
       ...(totalTokens === undefined ? {} : { totalTokens })
     }

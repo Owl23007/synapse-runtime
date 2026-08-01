@@ -52,7 +52,7 @@ describe("production web tool loop", () => {
         async complete(request) {
           modelStep += 1;
           if (modelStep === 1) {
-            expect(request.tools?.map((tool) => tool.name)).toEqual(["web.search", "web.fetch"]);
+            expect(request.tools?.map((tool) => tool.name)).toEqual(["web.fetch", "web.search"]);
             return {
               content: "",
               toolCalls: [

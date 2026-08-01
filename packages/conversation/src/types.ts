@@ -49,10 +49,41 @@ export interface PromptContextMessage {
   readonly createdAt?: string;
 }
 
+/** Context stability controls deterministic prefix placement. */
+export type PromptContextStability = "global" | "workspace" | "session" | "turn";
+
+/** The widest boundary within which a context block may be reused. */
+export type PromptContextCacheScope = "none" | "session" | "workspace" | "global";
+
+export interface PromptContextCache {
+  readonly scope: PromptContextCacheScope;
+  readonly metadata?: Readonly<Record<string, string>>;
+}
+
+/** A renderable unit of structured system context. */
+export interface PromptContextBlock {
+  readonly id: string;
+  readonly content: string;
+  readonly source: string;
+  readonly stability: PromptContextStability;
+  readonly required: boolean;
+  readonly priority: number;
+  readonly cache?: PromptContextCache;
+  readonly metadata?: Readonly<Record<string, string>>;
+}
+
+/** A logical group of context blocks. Sections do not affect rendered text. */
+export interface PromptContextSection {
+  readonly id: string;
+  readonly blocks: readonly PromptContextBlock[];
+  readonly metadata?: Readonly<Record<string, string>>;
+}
+
 export interface PromptContext {
   readonly system?: string;
   readonly messages: readonly PromptContextMessage[];
   readonly metadata: Readonly<Record<string, string>>;
+  readonly sections?: readonly PromptContextSection[];
 }
 
 export interface ConversationTrigger {

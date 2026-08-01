@@ -134,6 +134,15 @@ importers:
         specifier: ^7.6.13
         version: 7.6.13
 
+  packages/runtime-resources:
+    dependencies:
+      yaml:
+        specifier: ^2.5.0
+        version: 2.9.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+
   packages/runtime-server:
     dependencies:
       '@synapse/runtime-agent-api-provider':
@@ -166,6 +175,9 @@ importers:
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@synapse/runtime-resources':
+        specifier: workspace:*
+        version: link:../runtime-resources
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../tool-runtime

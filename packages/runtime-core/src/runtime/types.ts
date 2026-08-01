@@ -41,6 +41,7 @@ export interface RuntimeCoreOptions {
   readonly agent: Agent;
   readonly tools: ToolRuntime;
   readonly logger?: RuntimeCoreLogger;
+  readonly localize?: (key: string, params?: Readonly<Record<string, string>>) => string;
   readonly memory?: {
     readonly enableDurableMemory?: boolean;
   };
@@ -56,6 +57,9 @@ export interface RuntimeCoreOptions {
     readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;
     readonly timezone?: string;
+    readonly structured?: boolean;
+    readonly strategy?: string;
+    readonly cacheEnabled?: boolean;
     readonly privateHistoryTtlMinutes?: number;
     readonly groupHistoryTtlMinutes?: number;
     readonly channelHistoryTtlMinutes?: number;

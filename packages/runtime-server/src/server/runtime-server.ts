@@ -1,6 +1,7 @@
 import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
 import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeCore, SqliteRuntimeContextStore, TaskRunner } from "@synapse/runtime-core";
+import type { LocaleResolver } from "@synapse/runtime-resources";
 import { bodyParser, createApp, type Nova } from "nova-http";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
@@ -29,6 +30,7 @@ export class RuntimeServer {
   #runtime: RuntimeCore;
   #taskRunner: TaskRunner;
   #contextStore: SqliteRuntimeContextStore | undefined;
+  #localeResolver: LocaleResolver;
   #lifecycleTail: Promise<void> = Promise.resolve();
   #startPromise: Promise<RuntimeServerStartResult> | undefined;
   #stopPromise: Promise<void> | undefined;
@@ -61,6 +63,7 @@ export class RuntimeServer {
     });
     this.#runtime = runtimeResult.runtime;
     this.#contextStore = runtimeResult.contextStore;
+    this.#localeResolver = runtimeResult.localeResolver;
     this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
     this.#channelManager = new RuntimeChannelManager({
       channels: this.#channels,
@@ -189,7 +192,8 @@ export class RuntimeServer {
           ? (await this.#runtime.conversationStore.getRecoveryState()).unfinishedTasks
           : this.#runtime.conversationStore.listTasks(branchId),
       getTask: (taskId) => this.#runtime.conversationStore.getTask(taskId),
-      cancelTask: (taskId) => this.#taskRunner.cancel(taskId)
+      cancelTask: (taskId) => this.#taskRunner.cancel(taskId),
+      localize: (key, params) => this.#localeResolver.resolve(key, params, this.#config.locale.default)
     });
   }
 
@@ -232,6 +236,7 @@ export class RuntimeServer {
       });
       this.#runtime = runtimeResult.runtime;
       this.#contextStore = runtimeResult.contextStore;
+      this.#localeResolver = runtimeResult.localeResolver;
       this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
       await this.#taskRunner.recover();
       this.#channelManager.attachEnabledChannels(this.#config);

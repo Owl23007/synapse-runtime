@@ -8,7 +8,12 @@ export type {
   ConversationTrigger,
   ConversationTriggerPolicy,
   PromptContext,
+  PromptContextBlock,
+  PromptContextCache,
+  PromptContextCacheScope,
   PromptContextMessage,
+  PromptContextSection,
+  PromptContextStability,
   TriggerConfidence,
   TriggerKind,
   TriggerMode

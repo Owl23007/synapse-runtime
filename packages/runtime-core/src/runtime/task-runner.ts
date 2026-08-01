@@ -32,6 +32,21 @@ export interface TaskRunnerRecovery {
   readonly failedTaskIds: readonly string[];
 }
 
+export type TaskRunnerErrorCode = "task_not_found" | "task_not_running" | "branch_not_found" | "result_not_found";
+
+/** 供 API 和展示边界稳定识别的 Task Runner 领域错误。 */
+export class TaskRunnerError extends Error {
+  readonly code: TaskRunnerErrorCode;
+  readonly params: Readonly<Record<string, string>>;
+
+  constructor(code: TaskRunnerErrorCode, message: string, params: Readonly<Record<string, string>> = {}) {
+    super(message);
+    this.name = "TaskRunnerError";
+    this.code = code;
+    this.params = params;
+  }
+}
+
 /**
  * Executes durable branch tasks and always closes them with a published branch
  * result. Started work is never replayed after a restart because its external
@@ -60,7 +75,9 @@ export class TaskRunner {
   wait(taskId: string): Promise<BranchResult> {
     const running = this.#running.get(taskId);
     if (running === undefined) {
-      return Promise.reject(new Error(`Task "${taskId}" is not running in this process.`));
+      return Promise.reject(
+        new TaskRunnerError("task_not_running", `Task "${taskId}" is not running in this process.`, { taskId })
+      );
     }
     return running.completion;
   }
@@ -68,7 +85,7 @@ export class TaskRunner {
   async cancel(taskId: string): Promise<ConversationTask> {
     const task = await this.#store.getTask(taskId);
     if (task === undefined) {
-      throw new Error(`Task "${taskId}" was not found.`);
+      throw new TaskRunnerError("task_not_found", `Task "${taskId}" was not found.`, { taskId });
     }
     if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
       return task;
@@ -241,7 +258,7 @@ export class TaskRunner {
   async #requireBranch(branchId: string): Promise<ConversationBranch> {
     const branch = await this.#store.getBranch(branchId);
     if (branch === undefined) {
-      throw new Error(`Branch "${branchId}" was not found.`);
+      throw new TaskRunnerError("branch_not_found", `Branch "${branchId}" was not found.`, { branchId });
     }
     return branch;
   }
@@ -279,7 +296,7 @@ export class TaskRunner {
     const results = await this.#store.listBranchResults(branchId);
     const latest = results.at(-1);
     if (latest === undefined) {
-      throw new Error(`Branch "${branchId}" has no result.`);
+      throw new TaskRunnerError("result_not_found", `Branch "${branchId}" has no result.`, { branchId });
     }
     return latest;
   }

@@ -68,6 +68,7 @@ export class RuntimeCore {
   readonly #agent: Agent;
   readonly #tools: ToolRuntime;
   readonly #logger: RuntimeCoreLogger | undefined;
+  readonly #localize: (key: string, params?: Readonly<Record<string, string>>) => string;
   readonly #contextEnabled: boolean;
   readonly #providerByChannelId: Readonly<Record<string, string>>;
   readonly #conversationStore: ConversationStore;
@@ -105,6 +106,7 @@ export class RuntimeCore {
     this.#agent = options.agent;
     this.#tools = options.tools;
     this.#logger = options.logger;
+    this.#localize = options.localize ?? ((key) => key);
     this.#contextEnabled = options.context?.enabled ?? true;
     this.#enableDurableMemory = options.memory?.enableDurableMemory ?? false;
     this.#contextHistory = {
@@ -147,7 +149,10 @@ export class RuntimeCore {
       transcriptStore: this.#transcriptStore,
       conversationStore: this.#conversationStore,
       ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars }),
-      ...(options.context?.timezone === undefined ? {} : { timezone: options.context.timezone })
+      ...(options.context?.timezone === undefined ? {} : { timezone: options.context.timezone }),
+      ...(options.context?.structured === undefined ? {} : { structured: options.context.structured }),
+      ...(options.context?.strategy === undefined ? {} : { strategy: options.context.strategy }),
+      ...(options.context?.cacheEnabled === undefined ? {} : { cacheEnabled: options.context.cacheEnabled })
     });
     this.#removeToolObserver = this.#tools.addObserver((event) => this.#recordToolRuntimeEvent(event));
   }
@@ -832,6 +837,20 @@ export class RuntimeCore {
           request: enrichedRequest,
           runId: run.id,
           output: run.output,
+          workspace,
+          outputPolicy,
+          processStateId,
+          conversation: scope.accepted
+        });
+        return;
+      }
+
+      if (run.status === "failed") {
+        await this.#sendOutput({
+          event,
+          request: enrichedRequest,
+          runId: run.id,
+          output: textMessage(this.#localize("agent.request_failed")),
           workspace,
           outputPolicy,
           processStateId,

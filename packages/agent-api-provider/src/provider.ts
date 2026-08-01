@@ -1,5 +1,5 @@
 import type { Agent, AgentRun, AgentRuntimeContext, AgentStep } from "@synapse/runtime-agent-core";
-import type { AgentRequest } from "@synapse/runtime-conversation";
+import type { AgentRequest, PromptContextBlock, PromptContextSection } from "@synapse/runtime-conversation";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 import type {
   ApiChatAgentOptions,
@@ -141,7 +141,7 @@ export class ApiChatAgent implements Agent {
     const userText = getTextContent(request.input);
     const steps: AgentStep[] = [];
     let toolCallCount = 0;
-    const availableTools = context?.tools.list() ?? [];
+    const availableTools = (context?.tools.list() ?? []).toSorted((left, right) => compareText(left.name, right.name));
     const toolDefinitions: ChatToolDefinition[] = availableTools.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -150,9 +150,11 @@ export class ApiChatAgent implements Agent {
         additionalProperties: true
       }
     }));
+    const structuredContextMessages = renderContextSections(request.promptContext?.sections);
     const messages: ChatCompletionMessage[] = [
       ...(this.#systemPrompt === undefined ? [] : [{ role: "system" as const, content: this.#systemPrompt }]),
-      ...(request.promptContext?.system === undefined
+      ...structuredContextMessages,
+      ...(structuredContextMessages.length > 0 || request.promptContext?.system === undefined
         ? []
         : [{ role: "system" as const, content: request.promptContext.system }]),
       ...(request.promptContext?.messages.map((message) => ({
@@ -256,6 +258,49 @@ export class ApiChatAgent implements Agent {
   }
 }
 
+const STABILITY_ORDER = {
+  global: 0,
+  workspace: 1,
+  session: 2,
+  turn: 3
+} as const;
+
+function renderContextSections(
+  sections: readonly PromptContextSection[] | undefined
+): readonly ChatCompletionMessage[] {
+  if (sections === undefined || sections.length === 0) {
+    return [];
+  }
+
+  return sections
+    .flatMap((section) =>
+      section.blocks.map((block) => ({
+        block,
+        sectionId: section.id
+      }))
+    )
+    .toSorted(compareContextBlocks)
+    .map(({ block }) => ({ role: "system" as const, content: block.content }));
+}
+
+function compareContextBlocks(
+  left: { readonly block: PromptContextBlock; readonly sectionId: string },
+  right: { readonly block: PromptContextBlock; readonly sectionId: string }
+): number {
+  return (
+    STABILITY_ORDER[left.block.stability] - STABILITY_ORDER[right.block.stability] ||
+    right.block.priority - left.block.priority ||
+    compareText(left.sectionId, right.sectionId) ||
+    compareText(left.block.id, right.block.id) ||
+    compareText(left.block.source, right.block.source) ||
+    compareText(left.block.content, right.block.content)
+  );
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 async function executeToolCall(
   toolCall: ChatToolCall,
   runId: string,
@@ -330,6 +375,9 @@ function modelStepDetail(providerId: string, result: ChatCompletionResult): stri
   }
   if (result.usage?.totalTokens !== undefined) {
     details.push(`tokens=${result.usage.totalTokens}`);
+  }
+  if (result.usage?.cachedPromptTokens !== undefined) {
+    details.push(`cachedPromptTokens=${result.usage.cachedPromptTokens}`);
   }
   return details.join(" ");
 }

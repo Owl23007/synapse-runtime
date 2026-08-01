@@ -27,6 +27,28 @@ channelHistoryTtlMinutes = 30
 privateMaxMessages = 20
 groupMaxMessages = 6
 channelMaxMessages = 8
+# Context strategy and prefix-cache layout; actual provider cache support is negotiated by its adapter.
+strategy = "default"
+
+[context.cache]
+enabled = true
+
+[locale]
+# P0 ships with zh-CN. Resource paths are relative to this configuration file and support ~.
+default = "zh-CN"
+catalogPath = "resources/locales.zh-CN.yaml"
+
+[prompts]
+# Keep disabled while agent.systemPrompt is used. Enabling this requires catalogPath and defaultPromptId,
+# and agent.systemPrompt must be removed.
+enabled = false
+# catalogPath = "resources/prompts.zh-CN.yaml"
+# defaultPromptId = "chat.reasoning"
+
+[presentation]
+# Deterministic presentation does not allow a persona to influence reasoning.
+mode = "deterministic"
+# profilePath = "resources/presentation-profiles.yaml"
 
 [agent]
 default = "qwen"

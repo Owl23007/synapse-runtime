@@ -7,7 +7,9 @@ import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools } from "@synapse/runtime-tool-web";
 import { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
+import { createLocaleResolverFromConfig } from "../composition/runtime-resources.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
+import type { LocaleResolver } from "@synapse/runtime-resources";
 
 export interface RuntimeFactoryOptions {
   readonly config: RuntimeConfig;
@@ -21,9 +23,11 @@ export interface RuntimeFactoryResult {
   readonly contextStore: SqliteRuntimeContextStore;
   /** 当前生产运行时实际注册的工具集合 */
   readonly tools: ToolRuntime;
+  readonly localeResolver: LocaleResolver;
 }
 
 export function createRuntimeFromConfig(options: RuntimeFactoryOptions): RuntimeFactoryResult {
+  const localeResolver = createLocaleResolverFromConfig(options.config, options.logger);
   const agent = createAgentFromConfig(options.config, {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch })
   });
@@ -41,6 +45,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       agent,
       tools,
       logger: options.logger,
+      localize: (key, params) => localeResolver.resolve(key, params, options.config.locale.default),
       memory: {
         enableDurableMemory: durableMemoryEnabled(options.config)
       },
@@ -48,6 +53,9 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         enabled: options.config.context.enabled,
         maxHistoryChars: options.config.context.maxHistoryChars,
         timezone: options.config.context.timezone,
+        structured: options.config.prompts.enabled,
+        strategy: options.config.context.strategy,
+        cacheEnabled: options.config.context.cache.enabled,
         privateHistoryTtlMinutes: options.config.context.privateHistoryTtlMinutes,
         groupHistoryTtlMinutes: options.config.context.groupHistoryTtlMinutes,
         channelHistoryTtlMinutes: options.config.context.channelHistoryTtlMinutes,
@@ -60,7 +68,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         ...(options.config.context.enabled ? { transcriptStore: contextStore } : {})
       }
     });
-    return { runtime, contextStore, tools };
+    return { runtime, contextStore, tools, localeResolver };
   } catch (error) {
     contextStore.close();
     throw error;

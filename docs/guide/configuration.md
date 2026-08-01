@@ -10,6 +10,9 @@ Runtime 配置由 `@synapse/runtime-config` 加载。Loader 支持 TOML、YAML �
 [admin]
 [context]
 [memory]
+[locale]
+[prompts]
+[presentation]
 [tools.web]
 [tools.web.search]
 [agent]
@@ -44,6 +47,54 @@ maxHistoryChars = 6000
 ```
 
 启用后，`runtime-server` 会在 `runtime.dataDir` 下创建 `runtime-context.sqlite`，并将其注入为 transcript store、idempotency store 和 workspace store。
+
+```toml
+[context]
+strategy = "default"
+
+[context.cache]
+enabled = true
+```
+
+- `strategy`：上下文合成策略标识。它会作为 Prompt Registry 的受控变量传入，不应以每次请求都变化的内容替代稳定规则。
+- `context.cache.enabled`：允许 Runtime 按稳定前缀组织模型输入。Provider 是否实际命中 Prefix KV Cache 取决于其适配器和服务端能力；关闭后不应假设存在缓存收益。
+
+## Locale
+
+```toml
+[locale]
+default = "zh-CN"
+catalogPath = "resources/locales.zh-CN.yaml"
+```
+
+错误逻辑使用稳定的错误码和 message key，展示边界再根据 `locale.default` 渲染用户可见文本。P0 内置并提供 `zh-CN` 示例；自定义 catalog 可覆盖或补充 message key。模板变量使用单花括号，例如 `{reason}`。
+
+## Prompt Registry
+
+```toml
+[prompts]
+enabled = true
+catalogPath = "resources/prompts.zh-CN.yaml"
+defaultPromptId = "chat.reasoning"
+```
+
+Prompt catalog 是一个包含 `prompts` 数组的 YAML 或 JSON 文件。每个条目必须具有唯一的 `id`、`stage`、`template` 和变量声明；模板中引用的 `{{ variable }}` 必须出现在 `variables` 中。当前可用阶段为 `reasoning`、`internal`、`presentation`、`system` 和 `tool`。
+
+启用 Prompt Registry 时，必须同时设置 `catalogPath` 和 `defaultPromptId`，且不得再配置 `agent.systemPrompt`。旧 `systemPrompt` 仅用于兼容旧配置；两种方式互斥，避免两份系统规则同时生效。示例 catalog 中的 `chat.reasoning` 只放置稳定推理规则，不放人格、当前消息、时间或检索结果，以利于 Provider 的前缀缓存。
+
+## Presentation
+
+```toml
+[presentation]
+mode = "deterministic"
+# profilePath = "resources/presentation-profiles.yaml"
+```
+
+Presentation 用于最终表达而非推理。`deterministic` 是当前可用模式，会以确定性方式处理呈现；`model` 预留给将来的独立表达模型调用，当前启用会在配置校验阶段被拒绝。人格或表达 profile 不应放入 reasoning Prompt，避免其影响事实判断、规划和工具选择。
+
+## 资源路径
+
+`locale.catalogPath`、`prompts.catalogPath` 和 `presentation.profilePath` 支持 YAML 或 JSON。相对路径以配置文件所在目录为基准，`~` 会展开到当前用户目录；因此示例配置中的 `resources/...` 对应 `examples/resources/...`。建议将内容资源与运行参数分开维护，并将同一配置引用的资源文件一起发布。
 
 ## Memory
 

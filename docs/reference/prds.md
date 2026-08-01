@@ -6,6 +6,7 @@
 
 - [架构说明](../architecture.md)
 - [上下文闭环 PRD](../loop-memory-prd.md)
+- [Locale、Prompt Registry、上下文合成与前缀缓存重构 PRD](../locale-prompt-context-prd.md)
 - [Provider Runtime 对比](../provider-runtime-comparison.md)
 - [CLI Admin Console PRD](../cli-admin-console-prd.md)
 - [互联网访问能力 PRD](../network-reasoning-prd.md)
