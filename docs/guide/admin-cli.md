@@ -40,22 +40,22 @@ synapse-runtime use <profile>
 
 Admin API 挂载在 `/admin`。
 
-| Method | Path                    | 用途                                   |
-| ------ | ----------------------- | -------------------------------------- |
-| GET    | `/admin/health`         | 健康检查                               |
-| GET    | `/admin/status`         | Runtime、server、admin 和 channel 状态 |
-| GET    | `/admin/config`         | 脱敏后的 runtime config                |
-| GET    | `/admin/channels`       | Channel 摘要                           |
-| PATCH  | `/admin/channels/:id`   | 启用或禁用已配置 channel               |
+| Method | Path                            | 用途                                         |
+| ------ | ------------------------------- | -------------------------------------------- |
+| GET    | `/admin/health`                 | 健康检查                                     |
+| GET    | `/admin/status`                 | Runtime、server、admin 和 channel 状态       |
+| GET    | `/admin/config`                 | 脱敏后的 runtime config                      |
+| GET    | `/admin/channels`               | Channel 摘要                                 |
+| PATCH  | `/admin/channels/:id`           | 启用或禁用已配置 channel                     |
 | GET    | `/admin/branches?sessionId=...` | 查询会话分支；省略参数时返回可恢复的活动分支 |
-| GET    | `/admin/branches/:id`   | 查询单个分支 |
-| GET    | `/admin/tasks?branchId=...` | 查询分支任务；省略参数时返回未完成任务 |
-| GET    | `/admin/tasks/:id`      | 查询单个任务 |
-| POST   | `/admin/tasks/:id/cancel` | 取消任务并持久化 cancelled Branch Result |
-| GET    | `/admin/logs?limit=100` | 缓冲日志                               |
-| GET    | `/admin/events/stream`  | Server-sent log stream                 |
-| POST   | `/admin/reload`         | 从文件重新加载配置                     |
-| POST   | `/admin/shutdown`       | 停止 runtime server                    |
+| GET    | `/admin/branches/:id`           | 查询单个分支                                 |
+| GET    | `/admin/tasks?branchId=...`     | 查询分支任务；省略参数时返回未完成任务       |
+| GET    | `/admin/tasks/:id`              | 查询单个任务                                 |
+| POST   | `/admin/tasks/:id/cancel`       | 取消任务并持久化 cancelled Branch Result     |
+| GET    | `/admin/logs?limit=100`         | 缓冲日志                                     |
+| GET    | `/admin/events/stream`          | Server-sent log stream                       |
+| POST   | `/admin/reload`                 | 从文件重新加载配置                           |
+| POST   | `/admin/shutdown`               | 停止 runtime server                          |
 
 ## Admin 安全
 

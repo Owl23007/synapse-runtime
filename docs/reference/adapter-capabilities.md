@@ -11,8 +11,8 @@
 | Reply target        | `[CQ:reply,id=...]` becomes `message.replyTo.messageId`.                            |
 | Reply to bot        | Enabled. Runtime matches `replyTo.messageId` against assistant `externalMessageId`. |
 | Outgoing message id | `send_msg` response `message_id` is stored as assistant `externalMessageId`.        |
-| Group management    | Not advertised until management operations exist on the adapter contract.          |
-| Message recall      | Not advertised until recall exists on the adapter contract.                        |
+| Group management    | Not advertised until management operations exist on the adapter contract.           |
+| Message recall      | Not advertised until recall exists on the adapter contract.                         |
 
 ## QQ Official Group
 
@@ -33,8 +33,8 @@
 
 ## QQ Official C2C / DM
 
-| Event                                          | Runtime behavior                                       |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| `C2C_MESSAGE_CREATE` / `DIRECT_MESSAGE_CREATE` | Modeled as `conversation.kind=private`.                |
-| History policy                                 | Reuses private TTL and maxMessages.                    |
+| Event                                          | Runtime behavior                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `C2C_MESSAGE_CREATE` / `DIRECT_MESSAGE_CREATE` | Modeled as `conversation.kind=private`.                                                                |
+| History policy                                 | Reuses private TTL and maxMessages.                                                                    |
 | Passive reply window                           | Modeled separately from context TTL as `3600` seconds; expired replies omit passive reply identifiers. |
