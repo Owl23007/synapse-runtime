@@ -238,18 +238,16 @@ maxHistoryChars = 1200
     });
   });
 
-  it("supports memory settings", () => {
-    const config = parseConfigContent(
-      `
+  it("rejects durable memory until its runtime implementation is available", () => {
+    expect(() =>
+      parseConfigContent(
+        `
 [memory]
 enableDurableMemory = true
 `,
-      "runtime.config.toml"
-    );
-
-    expect(config.memory).toMatchObject({
-      enableDurableMemory: true
-    });
+        "runtime.config.toml"
+      )
+    ).toThrow(/Durable memory is not implemented and cannot be enabled/);
   });
 
   it("supports guarded web tools with Brave search", () => {

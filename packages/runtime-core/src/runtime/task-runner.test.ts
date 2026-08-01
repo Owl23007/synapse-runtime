@@ -58,15 +58,15 @@ describe("TaskRunner", () => {
       summary: "Task completed.",
       sourceTaskIds: [task.id]
     });
-    expect(await store.getBranch(branch.id)).toMatchObject({ status: "completed", mergedAt: expect.any(String) });
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive", mergedAt: expect.any(String) });
     expect(await store.listEvents(accepted.mainline.id)).toContainEqual(
       expect.objectContaining({ type: "branch_result" })
     );
   });
 
-  it("persists cancellation and publishes a cancelled result", async () => {
+  it("persists cancellation without treating it as branch closure", async () => {
     const store = new InMemoryConversationStore();
-    const { branch } = await branchFixture(store, "cancel");
+    const { accepted, branch } = await branchFixture(store, "cancel");
     let release: (() => void) | undefined;
     const runner = new TaskRunner({
       store,
@@ -87,9 +87,12 @@ describe("TaskRunner", () => {
     await expect(runner.cancel(task.id)).resolves.toMatchObject({ status: "cancelled" });
     release?.();
     await expect(runner.wait(task.id)).resolves.toMatchObject({ status: "cancelled" });
-    expect(await store.getBranch(branch.id)).toMatchObject({ status: "cancelled" });
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive" });
     expect(await store.listBranchResults(branch.id)).toContainEqual(
       expect.objectContaining({ status: "cancelled", sourceTaskIds: [task.id] })
+    );
+    expect(await store.listEvents(accepted.mainline.id)).toContainEqual(
+      expect.objectContaining({ type: "branch_result", payload: expect.objectContaining({ status: "cancelled" }) })
     );
   });
 
@@ -128,5 +131,135 @@ describe("TaskRunner", () => {
     expect(await store.listBranchResults(activeFixture.branch.id)).toContainEqual(
       expect.objectContaining({ status: "failed", sourceTaskIds: [active.id] })
     );
+    expect(await store.listEvents(activeFixture.accepted.mainline.id)).toContainEqual(
+      expect.objectContaining({ type: "branch_result", payload: expect.objectContaining({ status: "failed" }) })
+    );
+    expect(await store.getBranch(activeFixture.branch.id)).toMatchObject({ status: "inactive" });
+  });
+
+  it("publishes a completed result that was durable before recovery", async () => {
+    const store = new InMemoryConversationStore();
+    const { accepted, branch } = await branchFixture(store, "unpublished-result");
+    const result = await store.createBranchResult(branch.id, {
+      status: "completed",
+      summary: "Durable result awaiting publication.",
+      idempotencyKey: "result-before-recovery"
+    });
+    const runner = new TaskRunner({ store, executors: {} });
+
+    await expect(runner.recover(accepted.session.id)).resolves.toEqual({
+      resumedTaskIds: [],
+      failedTaskIds: []
+    });
+
+    expect(await store.listEvents(accepted.mainline.id)).toContainEqual(
+      expect.objectContaining({
+        type: "branch_result",
+        payload: expect.objectContaining({ resultId: result.id, branchId: branch.id })
+      })
+    );
+    expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
+  });
+
+  it("reuses a branch after a terminal task without treating the result as branch closure", async () => {
+    const store = new InMemoryConversationStore();
+    const { branch } = await branchFixture(store, "reuse");
+    const runner = new TaskRunner({
+      store,
+      executors: {
+        echo: async (input) => ({ output: input, summary: "Completed." })
+      }
+    });
+
+    const first = await runner.start(branch.id, {
+      executor: "echo",
+      input: "first",
+      idempotencyKey: "task-reuse-first"
+    });
+    await runner.wait(first.id);
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive" });
+
+    const second = await runner.start(branch.id, {
+      executor: "echo",
+      input: "second",
+      idempotencyKey: "task-reuse-second"
+    });
+    await runner.wait(second.id);
+
+    expect(await store.getTask(second.id)).toMatchObject({ status: "completed", output: "second" });
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive" });
+    expect(await store.listBranchResults(branch.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceTaskIds: [first.id], status: "completed" }),
+        expect.objectContaining({ sourceTaskIds: [second.id], status: "completed" })
+      ])
+    );
+  });
+
+  it("settles concurrent tasks on one branch without racing the lifecycle transition", async () => {
+    const store = new InMemoryConversationStore();
+    const { branch } = await branchFixture(store, "concurrent");
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new TaskRunner({
+      store,
+      executors: {
+        concurrent: async (input) => {
+          await gate;
+          return { output: input, summary: `Completed ${String(input)}.` };
+        }
+      }
+    });
+
+    const [first, second] = await Promise.all([
+      runner.start(branch.id, {
+        executor: "concurrent",
+        input: "first",
+        idempotencyKey: "task-concurrent-first"
+      }),
+      runner.start(branch.id, {
+        executor: "concurrent",
+        input: "second",
+        idempotencyKey: "task-concurrent-second"
+      })
+    ]);
+    release?.();
+
+    await expect(Promise.all([runner.wait(first.id), runner.wait(second.id)])).resolves.toEqual([
+      expect.objectContaining({ status: "completed", sourceTaskIds: [first.id] }),
+      expect.objectContaining({ status: "completed", sourceTaskIds: [second.id] })
+    ]);
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive" });
+  });
+
+  it("reopens legacy task-coupled branch states before starting new work", async () => {
+    const store = new InMemoryConversationStore();
+    const { branch } = await branchFixture(store, "legacy-status");
+    await store.transitionBranch(branch.id, {
+      status: "active",
+      idempotencyKey: "legacy-status-active"
+    });
+    await store.transitionBranch(branch.id, {
+      status: "completed",
+      idempotencyKey: "legacy-status-completed"
+    });
+    const runner = new TaskRunner({
+      store,
+      executors: {
+        echo: async (input) => ({ output: input, summary: "Completed." })
+      }
+    });
+
+    const task = await runner.start(branch.id, {
+      executor: "echo",
+      input: "follow-up",
+      idempotencyKey: "task-legacy-follow-up"
+    });
+    await runner.wait(task.id);
+
+    expect(await store.getTask(task.id)).toMatchObject({ status: "completed" });
+    expect(await store.getBranch(branch.id)).toMatchObject({ status: "inactive" });
   });
 });

@@ -60,4 +60,4 @@ Recent history 查询行为：
 
 ## Durable Memory 状态
 
-SQLite schema 已包含 `memory_records`，但 Durable Memory Lite 是可选能力，默认关闭。关闭时，`/memory remember`、`/memory list` 和 `/memory delete` 会返回明确不可用响应，不会调用 Agent。
+SQLite schema 已包含 `memory_records`，但 Durable Memory 尚未实现写入、召回和管理命令。`memory.enableDurableMemory` 目前只能保持默认值 `false`；显式设为 `true` 会在配置校验阶段失败，避免把 `/memory` 请求误交给 Agent 或形成不可审计的伪能力。

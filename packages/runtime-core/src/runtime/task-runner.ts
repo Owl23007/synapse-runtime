@@ -51,6 +51,7 @@ export class TaskRunner {
   }
 
   async start(branchId: string, input: CreateTaskInput): Promise<ConversationTask> {
+    await this.#reopenBranchForTask(branchId);
     const task = await this.#store.createTask(branchId, input);
     this.#schedule(task);
     return task;
@@ -85,6 +86,14 @@ export class TaskRunner {
 
   async recover(sessionId?: string): Promise<TaskRunnerRecovery> {
     const recovery = await this.#store.getRecoveryState(sessionId);
+    await recovery.unmergedResults.reduce<Promise<void>>(async (pendingPublication, result) => {
+      await pendingPublication;
+      const mainline = await this.#store.getMainline(result.sessionId);
+      await this.#store.publishBranchResult(result.branchId, mainline.id, {
+        resultId: result.id,
+        idempotencyKey: `task-runner:recovery:${result.id}:publish`
+      });
+    }, Promise.resolve());
     const outcomes = await recovery.unfinishedTasks.reduce<
       Promise<readonly { readonly id: string; readonly resumed: boolean }[]>
     >(async (pendingOutcomes, task) => {
@@ -164,11 +173,11 @@ export class TaskRunner {
       return this.#finish(failed, "failed", `Executor "${task.executor}" is not registered.`);
     }
 
-    const branch = await this.#requireBranch(task.branchId);
+    let branch = await this.#requireBranch(task.branchId);
     if (branch.status !== "active") {
-      await this.#store.transitionBranch(branch.id, {
+      branch = await this.#store.transitionBranch(branch.id, {
         status: "active",
-        idempotencyKey: `task-runner:${task.id}:branch-active`
+        idempotencyKey: `task-runner:${branch.id}:activate:${branch.updatedAt}`
       });
     }
     try {
@@ -205,37 +214,27 @@ export class TaskRunner {
     summary: string,
     execution?: TaskExecutionResult
   ): Promise<BranchResult> {
-    const existing = (await this.#store.listBranchResults(task.branchId)).find((result) =>
-      result.sourceTaskIds.includes(task.id)
+    let result = (await this.#store.listBranchResults(task.branchId)).find((candidate) =>
+      candidate.sourceTaskIds.includes(task.id)
     );
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    const result = await this.#store.createBranchResult(task.branchId, {
-      status,
-      summary,
-      artifacts: execution?.artifacts ?? task.artifacts,
-      ...(execution?.citations === undefined ? {} : { citations: execution.citations }),
-      ...(execution?.nextActions === undefined ? {} : { nextActions: execution.nextActions }),
-      sourceTaskIds: [task.id],
-      ...(task.sourceEventId === undefined ? {} : { sourceEventId: task.sourceEventId }),
-      idempotencyKey: `task-runner:${task.id}:result:${status}`
-    });
-    const branch = await this.#requireBranch(task.branchId);
-    if (branch.status !== status) {
-      await this.#store.transitionBranch(branch.id, {
+    if (result === undefined) {
+      result = await this.#store.createBranchResult(task.branchId, {
         status,
-        idempotencyKey: `task-runner:${task.id}:branch-${status}`
+        summary,
+        artifacts: execution?.artifacts ?? task.artifacts,
+        ...(execution?.citations === undefined ? {} : { citations: execution.citations }),
+        ...(execution?.nextActions === undefined ? {} : { nextActions: execution.nextActions }),
+        sourceTaskIds: [task.id],
+        ...(task.sourceEventId === undefined ? {} : { sourceEventId: task.sourceEventId }),
+        idempotencyKey: `task-runner:${task.id}:result:${status}`
       });
     }
-    if (status === "completed") {
-      const mainline = await this.#store.getMainline(task.sessionId);
-      await this.#store.publishBranchResult(branch.id, mainline.id, {
-        resultId: result.id,
-        idempotencyKey: `task-runner:${task.id}:publish`
-      });
-    }
+    await this.#settleBranchAfterTask(task);
+    const mainline = await this.#store.getMainline(task.sessionId);
+    await this.#store.publishBranchResult(task.branchId, mainline.id, {
+      resultId: result.id,
+      idempotencyKey: `task-runner:${task.id}:publish`
+    });
     return result;
   }
 
@@ -245,6 +244,35 @@ export class TaskRunner {
       throw new Error(`Branch "${branchId}" was not found.`);
     }
     return branch;
+  }
+
+  async #reopenBranchForTask(branchId: string): Promise<ConversationBranch> {
+    const branch = await this.#requireBranch(branchId);
+    if (
+      branch.status !== "completed" &&
+      branch.status !== "failed" &&
+      branch.status !== "cancelled" &&
+      branch.status !== "merged"
+    ) {
+      return branch;
+    }
+    return this.#store.transitionBranch(branch.id, {
+      status: "inactive",
+      idempotencyKey: `task-runner:${branch.id}:reopen:${branch.updatedAt}`
+    });
+  }
+
+  async #settleBranchAfterTask(task: ConversationTask): Promise<void> {
+    const [branch, unfinishedTasks] = await Promise.all([
+      this.#requireBranch(task.branchId),
+      this.#store.listTasks(task.branchId, { statuses: ["pending", "running", "blocked"] })
+    ]);
+    if (unfinishedTasks.length === 0 && branch.status !== "inactive") {
+      await this.#store.transitionBranch(branch.id, {
+        status: "inactive",
+        idempotencyKey: `task-runner:${branch.id}:settle:${branch.updatedAt}`
+      });
+    }
   }
 
   async #requireLatestResult(branchId: string): Promise<BranchResult> {

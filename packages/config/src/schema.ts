@@ -96,7 +96,18 @@ export const MemorySettingsSchema = z
   .object({
     enableDurableMemory: z.boolean().default(false)
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((memory, ctx) => {
+    if (!memory.enableDurableMemory) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["enableDurableMemory"],
+      message: "Durable memory is not implemented and cannot be enabled."
+    });
+  });
 
 /** Brave 网络搜索配置模式 */
 export const BraveWebSearchSettingsSchema = z

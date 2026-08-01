@@ -1210,12 +1210,6 @@ export class SqliteConversationRepository implements ConversationStore {
       if (naturalMerge !== undefined) {
         return mergeFromRow(naturalMerge);
       }
-      if (result.status !== "completed" || branch.status === "failed" || branch.status === "cancelled") {
-        throw new ConversationStoreError(
-          "invalid_state_transition",
-          `Only a completed result on a usable branch can be published; branch="${branch.status}", result="${result.status}".`
-        );
-      }
       assertWritableSession(this.#requireSession(branch.sessionId));
 
       const createdAt = input.createdAt ?? new Date().toISOString();

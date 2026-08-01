@@ -330,6 +330,47 @@ export function registerConversationStoreContract(name: string, createHarness: C
       expect(await store.listNodes(branch.id, { kinds: ["task_result"] })).toHaveLength(2);
     });
 
+    it("publishes failed and cancelled outcomes without closing the branch", async () => {
+      const { store } = harness;
+      const accepted = await store.acceptNormalizedEvent(normalizedInput());
+      const branch = await store.createBranch({
+        sessionId: accepted.session.id,
+        sourceEventId: accepted.lineEvent.id,
+        title: "Terminal outcomes",
+        goal: "Keep non-success outcomes auditable on the mainline",
+        reason: "Every computation outcome must be published",
+        createdBy: "system",
+        idempotencyKey: "branch-terminal-outcomes"
+      });
+      const failed = await store.createBranchResult(branch.id, {
+        status: "failed",
+        summary: "The first computation failed.",
+        idempotencyKey: "result-terminal-failed"
+      });
+      const cancelled = await store.createBranchResult(branch.id, {
+        status: "cancelled",
+        summary: "The second computation was cancelled.",
+        idempotencyKey: "result-terminal-cancelled"
+      });
+
+      await store.publishBranchResult(branch.id, accepted.mainline.id, {
+        resultId: failed.id,
+        idempotencyKey: "publish-terminal-failed"
+      });
+      await store.publishBranchResult(branch.id, accepted.mainline.id, {
+        resultId: cancelled.id,
+        idempotencyKey: "publish-terminal-cancelled"
+      });
+
+      expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
+      expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
+      expect(
+        (await store.listEvents(accepted.mainline.id))
+          .filter((event) => event.type === "branch_result")
+          .map((event) => (event.payload as { readonly status?: string } | undefined)?.status)
+      ).toEqual(["failed", "cancelled"]);
+    });
+
     it("recovers an unmerged completed result after its branch is archived", async () => {
       const { store } = harness;
       const accepted = await store.acceptNormalizedEvent(normalizedInput());

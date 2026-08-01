@@ -52,6 +52,8 @@
 | --------------------- | ------- | ------- |
 | `enableDurableMemory` | boolean | `false` |
 
+Durable Memory 尚未实现。该字段保留用于未来兼容，但当前只接受 `false`；显式设置为 `true` 会触发配置校验错误。
+
 ## `tools.web`
 
 | Field                 | Type     | Default              |
@@ -121,29 +123,29 @@ Channel id 必须以字母或数字开头，并且只能包含字母、数字、
 
 ### OneBot11
 
-| Field         | Type       | Default  |
-| ------------- | ---------- | -------- | --------------- | ----------- |
-| `adapter`     | `onebot11` | required |
-| `provider`    | string     | `napcat` |
-| `transport`   | `websocket` | `websocket` |
-| `endpoint`    | string     | required |
-| `accessToken` | string     | optional |
-| `enabled`     | boolean    | `true`   |
-| `riskLevel`   | `low       | medium   | high`           | `high`      |
+| Field         | Type                       | Default     |
+| ------------- | -------------------------- | ----------- |
+| `adapter`     | `onebot11`                 | required    |
+| `provider`    | string                     | `napcat`    |
+| `transport`   | `websocket`                | `websocket` |
+| `endpoint`    | string                     | required    |
+| `accessToken` | string                     | optional    |
+| `enabled`     | boolean                    | `true`      |
+| `riskLevel`   | `low`, `medium`, or `high` | `high`      |
 
 ### QQ Official
 
-| Field           | Type          | Default    |
-| --------------- | ------------- | ---------- | --------- | ----- |
-| `adapter`       | `qq-official` | required   |
-| `appId`         | string        | required   |
-| `appSecret`     | string        | required   |
-| `mode`          | `webhook`     | `webhook` |
-| `apiBaseUrl`    | URL string    | optional   |
-| `tokenEndpoint` | URL string    | optional   |
-| `webhookPath`   | string        | optional   |
-| `enabled`       | boolean       | `false`    |
-| `riskLevel`     | `low          | medium     | high`     | `low` |
+| Field           | Type                       | Default   |
+| --------------- | -------------------------- | --------- |
+| `adapter`       | `qq-official`              | required  |
+| `appId`         | string                     | required  |
+| `appSecret`     | string                     | required  |
+| `mode`          | `webhook`                  | `webhook` |
+| `apiBaseUrl`    | URL string                 | optional  |
+| `tokenEndpoint` | URL string                 | optional  |
+| `webhookPath`   | string                     | optional  |
+| `enabled`       | boolean                    | `false`   |
+| `riskLevel`     | `low`, `medium`, or `high` | `low`     |
 
 ## `permissions`
 

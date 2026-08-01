@@ -795,13 +795,6 @@ export class InMemoryConversationStore implements ConversationStore {
       this.#mergeOps.set(operationKey, { signature, value: cloneValue(existingMerge) });
       return cloneValue(existingMerge);
     }
-    if (result.status !== "completed" || branch.status === "failed" || branch.status === "cancelled") {
-      throw new ConversationStoreError(
-        "invalid_state_transition",
-        `Only a completed result on a usable branch can be published; branch="${branch.status}", result="${result.status}".`
-      );
-    }
-
     const mergeId = safeInput.id ?? `branch-merge-${randomUUID()}`;
     if (this.#merges.has(mergeId)) {
       throw conflict(`Branch merge "${mergeId}" already exists.`);

@@ -52,7 +52,7 @@ maxHistoryChars = 6000
 enableDurableMemory = false
 ```
 
-Durable Memory Lite 是可选能力，默认关闭。当前 schema 已存在；memory 命令在未启用时会返回明确不可用提示。
+Durable Memory 尚未实现，当前仅接受默认值 `false`。显式配置为 `true` 会在加载配置时失败；不要把该开关当作可用的存储、召回或 `/memory` 命令能力。
 
 ## Agent
 

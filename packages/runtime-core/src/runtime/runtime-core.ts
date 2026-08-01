@@ -442,9 +442,21 @@ export class RuntimeCore {
       processStateId = claim.state.id;
 
       if (branchId !== undefined) {
-        const branch = await this.#conversationStore.getBranch(branchId);
+        let branch = await this.#conversationStore.getBranch(branchId);
         if (branch === undefined) {
           throw new Error(`Conversation branch "${branchId}" does not exist.`);
+        }
+        if (
+          branch.status === "completed" ||
+          branch.status === "merged" ||
+          branch.status === "failed" ||
+          branch.status === "cancelled"
+        ) {
+          branch = await this.#conversationStore.transitionBranch(branch.id, {
+            status: "inactive",
+            idempotencyKey: `runtime:branch-reopen:${scope.accepted.event.id}`,
+            createdAt: event.receivedAt
+          });
         }
         if (branch.status === "created" || branch.status === "blocked" || branch.status === "inactive") {
           await this.#conversationStore.transitionBranch(branch.id, {
@@ -888,21 +900,7 @@ export class RuntimeCore {
     });
 
     if (input.conversation.lineEvent.lineId !== input.conversation.mainline.id) {
-      try {
-        await this.#appendAssistantTranscript(input.event, output, input.conversation, undefined, assistantEvent.id);
-      } catch (error) {
-        this.#logger?.warn("Runtime branch assistant transcript projection failed.", {
-          eventId: input.event.id,
-          runId: input.runId,
-          lineId: input.conversation.lineEvent.lineId,
-          error: error instanceof Error ? error.message : "Unknown transcript error."
-        });
-      }
-      if (input.processStateId !== undefined) {
-        await this.#eventProcessStore.update(input.processStateId, { status: "completed" });
-      }
-      this.#traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
-      return;
+      await this.#publishBranchOutput(input.conversation, assistantEvent, output);
     }
 
     const channel = this.#channels.get(input.event.channelId);
@@ -1060,6 +1058,37 @@ export class RuntimeCore {
     this.#traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
   }
 
+  /**
+   * Branches provide isolated, durable context; they are not an alternate user-facing
+   * output line. Persist the raw assistant event on the branch, then publish a
+   * structured result to the parent mainline before delivery. Both operations have
+   * event-scoped idempotency keys so recovery can safely repeat this projection.
+   */
+  async #publishBranchOutput(
+    conversation: AcceptedNormalizedEvent,
+    assistantEvent: LineEvent,
+    output: SynapseMessage
+  ): Promise<void> {
+    const branchId = conversation.lineEvent.lineId;
+    const result = await this.#conversationStore.createBranchResult(branchId, {
+      status: "completed",
+      summary: getText(output).trim() || "Assistant response.",
+      artifacts: [
+        {
+          kind: "assistant_output",
+          message: output,
+          text: getText(output)
+        }
+      ],
+      sourceEventId: assistantEvent.id,
+      idempotencyKey: `runtime:branch-output:${conversation.event.id}`
+    });
+    await this.#conversationStore.publishBranchResult(branchId, conversation.mainline.id, {
+      resultId: result.id,
+      idempotencyKey: `runtime:branch-output:${conversation.event.id}:publish`
+    });
+  }
+
   async #appendDeliveryEvent(
     input: {
       readonly event: SynapseChannelEvent;
@@ -1163,7 +1192,7 @@ export class RuntimeCore {
   }
 
   async #findAssistantEvent(conversation: AcceptedNormalizedEvent): Promise<LineEvent | undefined> {
-    const events = await this.#conversationStore.listEvents(conversation.mainline.id, {
+    const events = await this.#conversationStore.listEvents(conversation.lineEvent.lineId, {
       types: ["assistant_message"]
     });
     return events.find((event) => event.idempotencyKey === `assistant:${conversation.event.id}`);

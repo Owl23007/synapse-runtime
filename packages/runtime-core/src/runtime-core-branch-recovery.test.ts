@@ -814,7 +814,7 @@ describe("RuntimeCore branch isolation and recovery", () => {
     }
   });
 
-  it("keeps an explicitly targeted branch run, its context, tools, and assistant output off the mainline", async () => {
+  it("reopens legacy branch state while publishing and delivering its isolated result through the mainline", async () => {
     const channel = new RecordingChannel();
     const channels = new InMemoryChannelRegistry();
     channels.register(channel);
@@ -847,6 +847,14 @@ describe("RuntimeCore branch isolation and recovery", () => {
       createdBy: "agent",
       idempotencyKey: "create-investigation-branch",
       contextSnapshot: { mainlineSummary: "The user requested an isolated investigation." }
+    });
+    await conversationStore.transitionBranch(branch.id, {
+      status: "active",
+      idempotencyKey: "legacy-investigation-active"
+    });
+    await conversationStore.transitionBranch(branch.id, {
+      status: "completed",
+      idempotencyKey: "legacy-investigation-completed"
     });
     const tools = new ToolRuntime(
       new StaticPermissionEngine({
@@ -912,21 +920,35 @@ describe("RuntimeCore branch isolation and recovery", () => {
       lineId: branch.id,
       branchId: branch.id
     });
-    expect(channel.sent).toHaveLength(0);
+    expect(channel.sent).toHaveLength(1);
+    expect(channel.sent[0]?.message).toMatchObject(textMessage("branch-only answer"));
 
     const mainlineEvents = await conversationStore.listEvents(seed.mainline.id);
-    expect(mainlineEvents.map((item) => item.type)).toEqual(["user_message"]);
+    expect(mainlineEvents.map((item) => item.type)).toEqual(["user_message", "branch_result", "delivery_succeeded"]);
+    expect(mainlineEvents[1]).toMatchObject({
+      type: "branch_result",
+      payload: expect.objectContaining({
+        branchId: branch.id,
+        summary: "branch-only answer",
+        artifacts: [expect.objectContaining({ kind: "assistant_output", text: "branch-only answer" })]
+      })
+    });
     const branchEvents = await conversationStore.listEvents(branch.id);
     expect(branchEvents.map((item) => item.type)).toEqual([
       "branch_created",
+      "branch_status_changed",
+      "branch_status_changed",
       "user_message",
       "context_attributed",
+      "branch_status_changed",
       "branch_status_changed",
       "agent_run_started",
       "tool_call",
       "tool_result",
       "agent_run_completed",
-      "assistant_message"
+      "assistant_message",
+      "branch_result",
+      "branch_result_published"
     ]);
     await expect(conversationStore.getBranch(branch.id)).resolves.toMatchObject({ status: "active" });
     const incomingBranchEvent = branchEvents.find((item) => item.type === "user_message");

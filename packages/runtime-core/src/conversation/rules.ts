@@ -37,10 +37,13 @@ const BRANCH_TRANSITIONS: Readonly<Record<BranchStatus, ReadonlySet<BranchStatus
   active: new Set(["blocked", "inactive", "completed", "failed", "cancelled", "archived"]),
   blocked: new Set(["active", "inactive", "completed", "failed", "cancelled", "archived"]),
   inactive: new Set(["active", "blocked", "failed", "cancelled", "archived"]),
-  completed: new Set(["archived"]),
-  merged: new Set(["archived"]),
-  failed: new Set(["archived"]),
-  cancelled: new Set(["archived"]),
+  // These are legacy branch states from when a task outcome was also written
+  // to the branch.  Keep them readable, but allow the branch reference to be
+  // reopened for a later task instead of treating a prior result as closure.
+  completed: new Set(["inactive", "archived"]),
+  merged: new Set(["inactive", "archived"]),
+  failed: new Set(["inactive", "archived"]),
+  cancelled: new Set(["inactive", "archived"]),
   archived: new Set()
 };
 
