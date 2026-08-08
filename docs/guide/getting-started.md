@@ -60,4 +60,4 @@ pnpm docs:build
 pnpm docs:preview
 ```
 
-VitePress 文档源码位于 `docs`。已有 PRD 文件继续保留在同一目录，并从参考页链接进入。
+VitePress 文档源码位于 `docs`，PRD 统一存放于 `docs/prd`，并可从参考页或路线图进入。

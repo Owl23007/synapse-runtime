@@ -1,27 +1,25 @@
 # PRD 与设计资料
 
-已有设计文档继续保留在 `docs` 下，本页作为中文文档站的参考入口。
+PRD 统一收录在 [`docs/prd`](../prd/index.md) 目录；已归档且不再维护的文档放在 `archive` 子目录。
 
 ## Runtime
 
-- [架构说明](../architecture.md)
-- [上下文闭环 PRD](../loop-memory-prd.md)
-- [Locale、Prompt Registry、上下文合成与前缀缓存重构 PRD](../locale-prompt-context-prd.md)
-- [Provider Runtime 对比](../provider-runtime-comparison.md)
-- [CLI Admin Console PRD](../cli-admin-console-prd.md)
-- [互联网访问能力 PRD](../network-reasoning-prd.md)
+- [架构说明](/architecture)
+- [上下文闭环 PRD](/prd/loop-memory-prd)
+- [Locale、Prompt Registry、上下文合成与前缀缓存重构 PRD](/prd/locale-prompt-context-prd)
+- [Provider Runtime 对比](/provider-runtime-comparison)
+- [CLI Admin Console PRD](/prd/cli-admin-console-prd)
+- [互联网访问能力 PRD](/prd/network-reasoning-prd)
 
 ## 通道
 
-- [QQ Channel PRD](../qq-channel-prd.md)
-- [Channel 输入输出调研与协议建模 PRD](../channel-input-output-protocol-prd.md)
-- [NapCat Docker 指南](../napcat-docker.md)
+- [QQ Channel PRD](/prd/qq-channel-prd)
+- [Channel 输入输出调研与协议建模 PRD](/prd/channel-input-output-protocol-prd)
+- [NapCat Docker 指南](/napcat-docker)
 
 ## 推荐阅读顺序
 
-做实现或评审时，建议按以下顺序阅读：
-
-1. [架构说明](../architecture.md)
+1. [架构说明](/architecture)
 2. [运行链路](/guide/runtime-flow)
 3. [配置](/guide/configuration)
 4. 对应子系统的 PRD
