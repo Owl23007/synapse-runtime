@@ -450,8 +450,19 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
     workspace_id TEXT,
     visibility TEXT NOT NULL
       CHECK(visibility IN ('private', 'workspace', 'public', 'secret')),
+    kind TEXT NOT NULL DEFAULT 'preference'
+      CHECK(kind IN ('preference', 'fact', 'decision', 'summary')),
     content TEXT NOT NULL,
     source TEXT NOT NULL,
+    idempotency_key TEXT,
+    importance REAL NOT NULL DEFAULT 0.5
+      CHECK(importance >= 0 AND importance <= 1),
+    confidence REAL NOT NULL DEFAULT 0.8
+      CHECK(confidence >= 0 AND confidence <= 1),
+    pii_level TEXT NOT NULL DEFAULT 'none'
+      CHECK(pii_level IN ('none', 'low', 'high')),
+    prompt_eligible INTEGER NOT NULL DEFAULT 1
+      CHECK(prompt_eligible IN (0, 1)),
     source_event_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -473,6 +484,13 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_memory_visibility
   ON memory_records(visibility, identity_id, workspace_id, deleted_at);
+
+`;
+
+export const RUNTIME_CONTEXT_MEMORY_POST_MIGRATION_SQL = `
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_idempotency
+  ON memory_records(scope_type, scope_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 `;
 
 export const RUNTIME_CONTEXT_POST_MIGRATION_SQL = `

@@ -298,16 +298,15 @@ defaultProfileId = "default"
     );
   });
 
-  it("rejects durable memory until its runtime implementation is available", () => {
-    expect(() =>
-      parseConfigContent(
-        `
+  it("accepts durable memory when explicitly enabled", () => {
+    const config = parseConfigContent(
+      `
 [memory]
 enableDurableMemory = true
 `,
-        "runtime.config.toml"
-      )
-    ).toThrow(/Durable memory is not implemented and cannot be enabled/);
+      "runtime.config.toml"
+    );
+    expect(config.memory.enableDurableMemory).toBe(true);
   });
 
   it("supports guarded web tools with Brave search", () => {

@@ -46,6 +46,13 @@ import type { ConversationStore } from "../../conversation/store.js";
 import { eventProcessKey, normalizeMessageId } from "../../context/session.js";
 import type { WorkspaceResolveInput, WorkspaceStore } from "../../context/workspace.js";
 import type {
+  DeleteMemoryInput,
+  ListMemoryInput,
+  MemoryRecord,
+  MemoryStore,
+  RememberMemoryInput
+} from "../../memory/types.js";
+import type {
   EventProcessBeginInput,
   EventProcessClaim,
   EventProcessClaimInput,
@@ -94,6 +101,27 @@ interface ConversationMessageRow {
   readonly external_message_id: string | null;
 }
 
+interface MemoryRecordRow {
+  readonly id: string;
+  readonly scope_type: "identity" | "workspace";
+  readonly scope_id: string;
+  readonly identity_id: string | null;
+  readonly workspace_id: string | null;
+  readonly visibility: MemoryRecord["visibility"];
+  readonly kind: MemoryRecord["kind"];
+  readonly content: string;
+  readonly source: string;
+  readonly idempotency_key: string | null;
+  readonly source_event_id: string | null;
+  readonly importance: number;
+  readonly confidence: number;
+  readonly pii_level: MemoryRecord["piiLevel"];
+  readonly prompt_eligible: number;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly deleted_at: string | null;
+}
+
 interface EventProcessStateRow {
   readonly id: string;
   readonly status: EventProcessStatus;
@@ -110,7 +138,7 @@ interface EventProcessStateRow {
  * 聚合会话、转录、事件处理与工作区能力的 SQLite 上下文存储
  */
 export class SqliteRuntimeContextStore
-  implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore
+  implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore, MemoryStore
 {
   readonly #db: Database.Database;
   readonly #conversation: SqliteConversationRepository;
@@ -457,6 +485,101 @@ export class SqliteRuntimeContextStore
     return row === undefined ? undefined : transcriptMessageFromRow(row);
   }
 
+  async remember(input: RememberMemoryInput): Promise<MemoryRecord> {
+    validateMemoryInput(input);
+    const transaction = this.#db.transaction(() => {
+      const existing = this.#db
+        .prepare("SELECT * FROM memory_records WHERE scope_type = ? AND scope_id = ? AND idempotency_key = ? LIMIT 1")
+        .get(input.scopeType, input.scopeId, input.idempotencyKey) as MemoryRecordRow | undefined;
+      if (existing !== undefined) return memoryRecordFromRow(existing);
+      const sourceExisting = this.#db
+        .prepare("SELECT * FROM memory_records WHERE source = ? AND source_event_id = ? LIMIT 1")
+        .get(input.source, input.sourceEventId ?? null) as MemoryRecordRow | undefined;
+      if (sourceExisting !== undefined && input.sourceEventId !== undefined) return memoryRecordFromRow(sourceExisting);
+      const now = input.createdAt ?? new Date().toISOString();
+      const record: MemoryRecord = {
+        id: input.id ?? `memory-${randomUUID()}`,
+        scopeType: input.scopeType,
+        scopeId: input.scopeId,
+        ...(input.identityId === undefined ? {} : { identityId: input.identityId }),
+        ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
+        visibility: input.visibility,
+        kind: input.kind ?? "preference",
+        content: input.content.trim(),
+        source: input.source,
+        ...(input.sourceEventId === undefined ? {} : { sourceEventId: input.sourceEventId }),
+        importance: input.importance ?? 0.5,
+        confidence: input.confidence ?? 0.8,
+        piiLevel: input.piiLevel ?? "none",
+        promptEligible: input.promptEligible ?? input.visibility !== "secret",
+        createdAt: now,
+        updatedAt: now
+      };
+      this.#db
+        .prepare(`
+        INSERT INTO memory_records (
+          id, scope_type, scope_id, identity_id, workspace_id, visibility, kind, content, source, idempotency_key,
+          importance, confidence, pii_level, prompt_eligible, source_event_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+        .run(
+          record.id,
+          record.scopeType,
+          record.scopeId,
+          record.identityId ?? null,
+          record.workspaceId ?? null,
+          record.visibility,
+          record.kind,
+          record.content,
+          record.source,
+          input.idempotencyKey,
+          record.importance,
+          record.confidence,
+          record.piiLevel,
+          record.promptEligible ? 1 : 0,
+          record.sourceEventId ?? null,
+          record.createdAt,
+          record.updatedAt
+        );
+      return record;
+    });
+    return transaction();
+  }
+
+  async list(input: ListMemoryInput): Promise<readonly MemoryRecord[]> {
+    const deletedClause = input.includeDeleted === true ? "" : "AND deleted_at IS NULL AND prompt_eligible = 1";
+    const scopeClause =
+      input.workspaceType === "group"
+        ? "scope_type = 'workspace' AND scope_id = ?"
+        : "((scope_type = 'identity' AND scope_id = ?) OR (scope_type = 'workspace' AND scope_id = ?))";
+    const params =
+      input.workspaceType === "group"
+        ? [input.workspaceId, input.limit ?? 20]
+        : [input.identityId, input.workspaceId, input.limit ?? 20];
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM memory_records WHERE visibility != 'secret' AND ${scopeClause} ${deletedClause} ORDER BY created_at DESC, rowid DESC LIMIT ?`
+      )
+      .all(...params) as MemoryRecordRow[];
+    return rows.map(memoryRecordFromRow);
+  }
+
+  async delete(id: string, input: DeleteMemoryInput): Promise<boolean> {
+    const visible = await this.list({
+      identityId: input.identityId,
+      workspaceId: input.workspaceId,
+      workspaceType: input.workspaceType,
+      limit: 1000
+    });
+    if (!visible.some((record) => record.id === id)) return false;
+    const deletedAt = input.deletedAt ?? new Date().toISOString();
+    return (
+      this.#db
+        .prepare("UPDATE memory_records SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+        .run(deletedAt, deletedAt, id).changes === 1
+    );
+  }
+
   async begin(input: EventProcessBeginInput): Promise<EventProcessState> {
     const transaction = this.#db.transaction(() => {
       const id = eventProcessKey(input);
@@ -620,6 +743,8 @@ export class SqliteRuntimeContextStore
   }
 
   close(): void {
+    // Windows 可能仍持有 WAL 辅助文件，关闭前主动 checkpoint 以保证数据目录可安全迁移或清理
+    this.#db.pragma("wal_checkpoint(TRUNCATE)");
     this.#db.close();
   }
 
@@ -748,6 +873,40 @@ function transcriptMessageFromRow(row: ConversationMessageRow): TranscriptMessag
     ...(row.external_message_id === null ? {} : { externalMessageId: row.external_message_id }),
     ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at })
   };
+}
+
+function memoryRecordFromRow(row: MemoryRecordRow): MemoryRecord {
+  return {
+    id: row.id,
+    scopeType: row.scope_type,
+    scopeId: row.scope_id,
+    ...(row.identity_id === null ? {} : { identityId: row.identity_id }),
+    ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
+    visibility: row.visibility,
+    kind: row.kind,
+    content: row.content,
+    source: row.source,
+    ...(row.source_event_id === null ? {} : { sourceEventId: row.source_event_id }),
+    importance: row.importance,
+    confidence: row.confidence,
+    piiLevel: row.pii_level,
+    promptEligible: row.prompt_eligible === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at })
+  };
+}
+
+function validateMemoryInput(input: RememberMemoryInput): void {
+  if (!input.scopeId.trim() || !input.content.trim() || !input.source.trim() || !input.idempotencyKey.trim()) {
+    throw new Error("Memory scope, content, source and idempotency key must not be empty.");
+  }
+  if (input.scopeType === "identity" && input.identityId !== input.scopeId) {
+    throw new Error("Identity memory must be owned by its scope identity.");
+  }
+  if (input.scopeType === "workspace" && input.workspaceId !== input.scopeId) {
+    throw new Error("Workspace memory must be owned by its scope workspace.");
+  }
 }
 
 function serializeOptionalJson(value: unknown): string | null {

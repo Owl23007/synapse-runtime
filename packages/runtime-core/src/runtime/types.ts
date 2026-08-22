@@ -12,6 +12,7 @@ import type {
   WorkspaceStore
 } from "../context.js";
 import type { PresentationProfile } from "../output/index.js";
+import type { MemoryStore } from "../memory/index.js";
 
 /**
  * RuntimeCore 日志记录接口
@@ -46,6 +47,7 @@ export interface RuntimeCoreOptions {
   readonly compileInvocation?: (request: AgentRequest) => ModelInvocationEnvelope | Promise<ModelInvocationEnvelope>;
   readonly memory?: {
     readonly enableDurableMemory?: boolean;
+    readonly store?: MemoryStore;
   };
   readonly presentation?: {
     readonly profile?: PresentationProfile;
@@ -70,6 +72,7 @@ export interface RuntimeCoreOptions {
     readonly privateMaxMessages?: number;
     readonly groupMaxMessages?: number;
     readonly channelMaxMessages?: number;
+    readonly memoryStore?: MemoryStore;
   };
 }
 

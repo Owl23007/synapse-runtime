@@ -1,6 +1,7 @@
 import type { ConversationStore } from "../conversation/store.js";
 import type { TranscriptStore } from "../transcript/types.js";
 import type { WorkspaceStore } from "../context/workspace.js";
+import type { MemoryStore } from "../memory/types.js";
 
 /** 从兼容对象中识别会话存储 */
 export function conversationStoreFromUnknown(value: unknown): ConversationStore | undefined {
@@ -46,4 +47,23 @@ export function workspaceStoreFromUnknown(value: unknown): WorkspaceStore | unde
 
   const candidate = value as { readonly resolveWorkspace?: unknown };
   return typeof candidate.resolveWorkspace === "function" ? (value as WorkspaceStore) : undefined;
+}
+
+/** 从兼容对象中识别长期记忆存储 */
+export function memoryStoreFromUnknown(value: unknown): MemoryStore | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("remember" in value) ||
+    !("list" in value) ||
+    !("delete" in value)
+  ) {
+    return undefined;
+  }
+  const candidate = value as { readonly remember?: unknown; readonly list?: unknown; readonly delete?: unknown };
+  return typeof candidate.remember === "function" &&
+    typeof candidate.list === "function" &&
+    typeof candidate.delete === "function"
+    ? (value as MemoryStore)
+    : undefined;
 }

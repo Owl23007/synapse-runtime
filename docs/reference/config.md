@@ -52,7 +52,7 @@
 | --------------------- | ------- | ------- |
 | `enableDurableMemory` | boolean | `false` |
 
-Durable Memory 尚未实现。该字段保留用于未来兼容，但当前只接受 `false`；显式设置为 `true` 会触发配置校验错误。
+Durable Memory 默认关闭。设置为 `true` 后启用 SQLite 记忆持久化、`/memory` 管理命令与受作用域过滤的上下文召回。
 
 ## `tools.web`
 

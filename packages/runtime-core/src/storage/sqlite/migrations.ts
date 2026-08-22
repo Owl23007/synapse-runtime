@@ -1,5 +1,9 @@
 import type Database from "better-sqlite3";
-import { RUNTIME_CONTEXT_POST_MIGRATION_SQL, RUNTIME_CONTEXT_SCHEMA_SQL } from "./schema.js";
+import {
+  RUNTIME_CONTEXT_MEMORY_POST_MIGRATION_SQL,
+  RUNTIME_CONTEXT_POST_MIGRATION_SQL,
+  RUNTIME_CONTEXT_SCHEMA_SQL
+} from "./schema.js";
 
 /**
  * 幂等迁移运行时上下文数据库
@@ -16,15 +20,22 @@ export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
     ensureColumn(db, "conversation_messages", "idempotency_key", "TEXT");
     ensureColumn(db, "conversation_messages", "external_message_id", "TEXT");
     ensureColumn(db, "event_process_state", "source_event_type", "TEXT NOT NULL DEFAULT 'message.created'");
+    ensureColumn(db, "memory_records", "kind", "TEXT NOT NULL DEFAULT 'preference'");
+    ensureColumn(db, "memory_records", "importance", "REAL NOT NULL DEFAULT 0.5");
+    ensureColumn(db, "memory_records", "confidence", "REAL NOT NULL DEFAULT 0.8");
+    ensureColumn(db, "memory_records", "pii_level", "TEXT NOT NULL DEFAULT 'none'");
+    ensureColumn(db, "memory_records", "prompt_eligible", "INTEGER NOT NULL DEFAULT 1");
+    ensureColumn(db, "memory_records", "idempotency_key", "TEXT");
     backfillLegacyConversationModel(db);
     rebuildEventProcessUniqueIndex(db);
     db.exec(RUNTIME_CONTEXT_POST_MIGRATION_SQL);
+    db.exec(RUNTIME_CONTEXT_MEMORY_POST_MIGRATION_SQL);
 
     const foreignKeyErrors = db.prepare("PRAGMA foreign_key_check").all();
     if (foreignKeyErrors.length > 0) {
       throw new Error(`Runtime context migration produced ${foreignKeyErrors.length} foreign key violation(s).`);
     }
-    db.pragma("user_version = 4");
+    db.pragma("user_version = 5");
   });
 
   migrate.immediate();

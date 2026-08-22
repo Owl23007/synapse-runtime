@@ -13,9 +13,11 @@ import { trimHistory, isWithinHistoryTtl } from "./history.js";
 import { BranchContextProjector } from "./projection.js";
 import { formatZonedTimestamp } from "./time.js";
 import type { RuntimeActor, WorkspaceRef } from "./types.js";
+import type { MemoryStore } from "../memory/types.js";
 
 export interface ContextComposerOptions {
   readonly transcriptStore: TranscriptStore;
+  readonly memoryStore?: MemoryStore;
   readonly conversationStore?: ConversationStore;
   /** 用于临时重建分支上下文的投影器 */
   readonly contextProjector?: BranchContextProjector;
@@ -27,6 +29,7 @@ export interface ContextComposerOptions {
 
 export class ContextComposer {
   readonly #transcriptStore: TranscriptStore;
+  readonly #memoryStore: MemoryStore | undefined;
   readonly #conversationStore: ConversationStore | undefined;
   readonly #contextProjector: BranchContextProjector | undefined;
   readonly #maxHistoryChars: number;
@@ -39,6 +42,7 @@ export class ContextComposer {
    */
   constructor(options: ContextComposerOptions) {
     this.#transcriptStore = options.transcriptStore;
+    this.#memoryStore = options.memoryStore;
     this.#conversationStore = options.conversationStore;
     this.#maxHistoryChars = options.maxHistoryChars ?? 6000;
     this.#contextProjector =
@@ -102,6 +106,7 @@ export class ContextComposer {
     const eventReceivedAtLocal = formatZonedTimestamp(input.event.receivedAt, this.#timezone);
 
     const conversationState = await this.#composeConversationState(input);
+    const memories = await this.#composeMemories(input);
 
     return {
       messages,
@@ -116,6 +121,7 @@ export class ContextComposer {
           timezone: this.#timezone
         },
         ...(conversationState === undefined ? {} : { conversationState }),
+        ...(memories === undefined ? {} : { memories }),
         cacheEnabled: this.#cacheEnabled
       }),
       metadata: {
@@ -140,6 +146,21 @@ export class ContextComposer {
             })
       }
     };
+  }
+
+  async #composeMemories(input: {
+    readonly actor: RuntimeActor;
+    readonly workspace: WorkspaceRef;
+  }): Promise<readonly { readonly id: string; readonly kind: string; readonly content: string }[] | undefined> {
+    if (this.#memoryStore === undefined) return undefined;
+    const records = await this.#memoryStore.list({
+      identityId: input.actor.identity.id,
+      workspaceId: input.workspace.id,
+      workspaceType: input.workspace.type,
+      limit: 20
+    });
+    if (records.length === 0) return undefined;
+    return records.map((record) => ({ id: record.id, kind: record.kind, content: record.content }));
   }
 
   async #composeConversationState(input: {
@@ -196,6 +217,7 @@ function buildContextSections(input: {
     readonly timezone: string;
   };
   readonly conversationState?: string;
+  readonly memories?: readonly { readonly id: string; readonly kind: string; readonly content: string }[];
   readonly cacheEnabled: boolean;
 }): readonly PromptContextSection[] {
   const workspaceBlock = {
@@ -224,6 +246,22 @@ function buildContextSections(input: {
           priority: 70,
           cache: { scope: input.cacheEnabled ? "session" : "none" },
           content: input.conversationState
+        }
+      ]
+    });
+  }
+  if (input.memories !== undefined) {
+    sections.push({
+      id: "memory",
+      blocks: [
+        {
+          id: "durable-memory",
+          source: "memory-store",
+          stability: "workspace",
+          required: false,
+          priority: 80,
+          cache: { scope: input.cacheEnabled ? "workspace" : "none" },
+          content: JSON.stringify(input.memories)
         }
       ]
     });

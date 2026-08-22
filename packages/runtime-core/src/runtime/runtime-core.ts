@@ -42,11 +42,13 @@ import {
   type WorkspaceRef,
   type WorkspaceResolver
 } from "../context.js";
+import type { MemoryStore } from "../memory/index.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeTrace } from "./types.js";
 import {
   conversationStoreFromUnknown,
   transcriptStoreFromUnknown,
-  workspaceStoreFromUnknown
+  workspaceStoreFromUnknown,
+  memoryStoreFromUnknown
 } from "./store-resolution.js";
 import {
   channelSendAction,
@@ -84,6 +86,7 @@ export class RuntimeCore {
   readonly #responsePolicy: ResponsePolicy;
   readonly #eventProcessStore: EventProcessStore;
   readonly #enableDurableMemory: boolean;
+  readonly #memoryStore: MemoryStore | undefined;
   readonly #contextHistory: {
     readonly privateHistoryTtlMinutes: number;
     readonly groupHistoryTtlMinutes: number;
@@ -135,6 +138,11 @@ export class RuntimeCore {
       options.context?.transcriptStore ??
       transcriptStoreFromUnknown(this.#conversationStore) ??
       new InMemoryTranscriptStore();
+    const memoryStore =
+      options.memory?.store ??
+      options.context?.memoryStore ??
+      memoryStoreFromUnknown(options.context?.conversationStore ?? options.context?.transcriptStore);
+    this.#memoryStore = this.#enableDurableMemory ? memoryStore : undefined;
     this.#contextAttributor =
       options.context?.attributor ??
       new ContextAttributorLite({
@@ -153,6 +161,7 @@ export class RuntimeCore {
     this.#contextComposer = new ContextComposer({
       transcriptStore: this.#transcriptStore,
       conversationStore: this.#conversationStore,
+      ...(this.#memoryStore === undefined ? {} : { memoryStore: this.#memoryStore }),
       ...(options.context?.maxHistoryChars === undefined ? {} : { maxHistoryChars: options.context.maxHistoryChars }),
       ...(options.context?.timezone === undefined ? {} : { timezone: options.context.timezone }),
       ...(options.context?.strategy === undefined ? {} : { strategy: options.context.strategy }),
@@ -479,7 +488,9 @@ export class RuntimeCore {
       }
 
       const commandOutput = await commandResponse(event, actor, workspace, sessionId, this.#conversationStore, {
-        enableDurableMemory: this.#enableDurableMemory
+        enableDurableMemory: this.#enableDurableMemory,
+        ...(this.#memoryStore === undefined ? {} : { memoryStore: this.#memoryStore }),
+        sourceEventId: scope.accepted.event.id
       });
       let recoveredOutput =
         parseAgentOutput(processState.agentOutputJson) ??

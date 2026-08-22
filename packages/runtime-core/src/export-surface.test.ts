@@ -12,6 +12,7 @@ describe("runtime-core export surface", () => {
       "IdentityResolverLite",
       "InMemoryConversationStore",
       "InMemoryEventProcessStore",
+      "InMemoryMemoryStore",
       "InMemoryTranscriptStore",
       "OutputPolicyResolver",
       "ResponsePolicy",

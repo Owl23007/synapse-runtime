@@ -60,4 +60,4 @@ Recent history 查询行为：
 
 ## Durable Memory 状态
 
-SQLite schema 已包含 `memory_records`，但 Durable Memory 尚未实现写入、召回和管理命令。`memory.enableDurableMemory` 目前只能保持默认值 `false`；显式设为 `true` 会在配置校验阶段失败，避免把 `/memory` 请求误交给 Agent 或形成不可审计的伪能力。
+Durable Memory 默认关闭。启用后，`memory_records` 由 SQLite 持久化，`/memory remember`、`/memory list` 和 `/memory delete` 可管理记忆，Prompt Context 只召回当前身份或当前工作区可见的非密钥记忆。群聊不会读取身份私人记忆，软删除记忆也不会进入上下文。

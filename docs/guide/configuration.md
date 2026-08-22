@@ -106,7 +106,7 @@ Presentation 用于最终表达而非推理。`deterministic` 是当前可用模
 enableDurableMemory = false
 ```
 
-Durable Memory 尚未实现，当前仅接受默认值 `false`。显式配置为 `true` 会在加载配置时失败；不要把该开关当作可用的存储、召回或 `/memory` 命令能力。
+Durable Memory 默认关闭。启用后，`/memory remember`、`/memory list` 和 `/memory delete` 使用 SQLite 持久化，并按身份与工作区隔离记忆；密钥记忆和已删除记忆不会进入模型上下文。
 
 ## Agent
 
