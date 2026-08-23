@@ -1,6 +1,7 @@
 import { textMessage } from "@synapse/runtime-protocol";
 import { describe, expect, it } from "vitest";
 import { InMemoryTranscriptStore } from "../transcript/in-memory.js";
+import { InMemoryMemoryStore } from "../memory/in-memory.js";
 import { ContextComposer } from "./composer.js";
 
 describe("ContextComposer structured context", () => {
@@ -58,5 +59,60 @@ describe("ContextComposer structured context", () => {
       stability: "turn",
       cache: { scope: "none" }
     });
+  });
+
+  it("按 maxHistoryChars 限制长期记忆上下文并保留截断标记", async () => {
+    const memoryStore = new InMemoryMemoryStore();
+    await memoryStore.remember({
+      scopeType: "identity",
+      scopeId: "user-1",
+      identityId: "user-1",
+      visibility: "private",
+      content: "这是一段需要被上下文预算截断的长期偏好".repeat(10),
+      source: "test",
+      idempotencyKey: "memory-budget-1"
+    });
+    const composer = new ContextComposer({
+      transcriptStore: new InMemoryTranscriptStore(),
+      memoryStore,
+      maxHistoryChars: 140
+    });
+    const context = await composer.compose({
+      event: {
+        id: "event-memory-budget",
+        platform: "qq",
+        channelId: "qq-local",
+        eventType: "message.created",
+        conversation: { id: "user-1", kind: "private" },
+        sender: { id: "user-1" },
+        message: textMessage("hello"),
+        receivedAt: "2026-08-01T12:00:00.000Z"
+      },
+      actor: {
+        identity: { id: "user-1", type: "guest", trustLevel: "guest", roles: [] },
+        platformIdentity: {
+          platform: "qq",
+          provider: "napcat",
+          channelId: "qq-local",
+          platformUserId: "user-1"
+        },
+        isBound: false
+      },
+      workspace: { id: "personal:user-1", type: "personal", name: "个人空间" },
+      outputPolicy: {
+        mode: "normal",
+        maxChars: 4000,
+        allowMarkdown: true,
+        allowCodeBlock: true,
+        appendExpandHint: false
+      },
+      sessionId: "session-memory-budget",
+      currentInput: textMessage("hello"),
+      includeHistory: false,
+      maxMessages: 20
+    });
+    const memoryBlock = context.sections.find((section) => section.id === "memory")?.blocks[0];
+    expect(memoryBlock?.content.length).toBeLessThanOrEqual(140);
+    expect(memoryBlock?.content).toContain("truncated");
   });
 });

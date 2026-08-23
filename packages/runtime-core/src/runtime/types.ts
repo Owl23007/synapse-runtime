@@ -7,6 +7,7 @@ import type {
   ConversationStore,
   EventProcessStore,
   IdentityResolver,
+  IdentityStore,
   TranscriptStore,
   WorkspaceResolver,
   WorkspaceStore
@@ -60,6 +61,7 @@ export interface RuntimeCoreOptions {
     readonly transcriptStore?: TranscriptStore;
     readonly eventProcessStore?: EventProcessStore;
     readonly identityResolver?: IdentityResolver;
+    readonly identityStore?: IdentityStore;
     readonly workspaceResolver?: WorkspaceResolver;
     readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;

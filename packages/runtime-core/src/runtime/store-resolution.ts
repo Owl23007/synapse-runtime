@@ -2,6 +2,7 @@ import type { ConversationStore } from "../conversation/store.js";
 import type { TranscriptStore } from "../transcript/types.js";
 import type { WorkspaceStore } from "../context/workspace.js";
 import type { MemoryStore } from "../memory/types.js";
+import type { IdentityStore } from "../context/identity.js";
 
 /** 从兼容对象中识别会话存储 */
 export function conversationStoreFromUnknown(value: unknown): ConversationStore | undefined {
@@ -66,4 +67,11 @@ export function memoryStoreFromUnknown(value: unknown): MemoryStore | undefined 
     typeof candidate.delete === "function"
     ? (value as MemoryStore)
     : undefined;
+}
+
+/** 从兼容对象中识别身份存储 */
+export function identityStoreFromUnknown(value: unknown): IdentityStore | undefined {
+  if (typeof value !== "object" || value === null || !("resolveIdentity" in value)) return undefined;
+  const candidate = value as { readonly resolveIdentity?: unknown };
+  return typeof candidate.resolveIdentity === "function" ? (value as IdentityStore) : undefined;
 }

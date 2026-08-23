@@ -1,6 +1,31 @@
 import type { SynapseChannelEvent } from "@synapse/runtime-protocol";
 import type { PlatformIdentity, RuntimeActor } from "./types.js";
 
+/** 持久化身份解析的输入 */
+export interface IdentityResolveInput {
+  readonly identityId: string;
+  readonly platform: string;
+  readonly provider: string;
+  readonly channelId: string;
+  readonly platformUserId: string;
+  readonly type: "guest" | "owner" | "system";
+  readonly displayName?: string;
+  readonly roles: readonly string[];
+  readonly isBound: boolean;
+}
+
+/** 身份持久化解析结果 */
+export interface PersistedIdentityResolution {
+  readonly identity: RuntimeActor["identity"];
+  readonly isBound: boolean;
+}
+
+/** 身份持久化存储契约 */
+export interface IdentityStore {
+  /** 创建或读取平台身份到运行时身份的稳定映射 */
+  resolveIdentity(input: IdentityResolveInput): Promise<PersistedIdentityResolution>;
+}
+
 export interface IdentityResolver {
   /** 将平台发送者解析为运行时角色 */
   resolve(event: SynapseChannelEvent, provider: string): Promise<RuntimeActor>;
@@ -11,12 +36,16 @@ export interface IdentityResolver {
  */
 export class IdentityResolverLite implements IdentityResolver {
   readonly #owners: ReadonlySet<string>;
+  readonly #identityStore: IdentityStore | undefined;
 
   /**
    * 创建轻量身份解析器
    */
-  constructor(options: { readonly ownerPlatformUserIds?: readonly string[] } = {}) {
+  constructor(
+    options: { readonly ownerPlatformUserIds?: readonly string[]; readonly identityStore?: IdentityStore } = {}
+  ) {
     this.#owners = new Set(options.ownerPlatformUserIds ?? []);
+    this.#identityStore = options.identityStore;
   }
 
   /**
@@ -37,7 +66,7 @@ export class IdentityResolverLite implements IdentityResolver {
         ? "system:runtime"
         : `${type}:${event.platform}:${provider}:${event.channelId}:${event.sender.id}`;
 
-    return {
+    const fallbackActor: RuntimeActor = {
       identity: {
         id,
         type,
@@ -47,6 +76,26 @@ export class IdentityResolverLite implements IdentityResolver {
       },
       platformIdentity,
       isBound: isOwner
+    };
+    if (this.#identityStore === undefined) {
+      return fallbackActor;
+    }
+
+    const persisted = await this.#identityStore.resolveIdentity({
+      identityId: fallbackActor.identity.id,
+      platform: event.platform,
+      provider,
+      channelId: event.channelId,
+      platformUserId: event.sender.id,
+      type,
+      ...(event.sender.displayName === undefined ? {} : { displayName: event.sender.displayName }),
+      roles: event.sender.roles ?? [],
+      isBound: isOwner
+    });
+    return {
+      identity: persisted.identity,
+      platformIdentity,
+      isBound: persisted.isBound
     };
   }
 }

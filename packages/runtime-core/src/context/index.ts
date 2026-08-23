@@ -1,6 +1,13 @@
 export * from "./types.js";
 export { buildSessionId, buildSourceEventId, conversationTypeFromEvent, normalizeMessageId } from "./session.js";
-export { IdentityResolverLite, anonymousActor, type IdentityResolver } from "./identity.js";
+export {
+  IdentityResolverLite,
+  anonymousActor,
+  type IdentityResolveInput,
+  type IdentityResolver,
+  type IdentityStore,
+  type PersistedIdentityResolution
+} from "./identity.js";
 export {
   WorkspaceResolverLite,
   defaultWorkspace,

@@ -45,6 +45,7 @@ import type {
 import type { ConversationStore } from "../../conversation/store.js";
 import { eventProcessKey, normalizeMessageId } from "../../context/session.js";
 import type { WorkspaceResolveInput, WorkspaceStore } from "../../context/workspace.js";
+import type { IdentityResolveInput, IdentityStore, PersistedIdentityResolution } from "../../context/identity.js";
 import type {
   DeleteMemoryInput,
   ListMemoryInput,
@@ -122,6 +123,14 @@ interface MemoryRecordRow {
   readonly deleted_at: string | null;
 }
 
+interface IdentityRow {
+  readonly id: string;
+  readonly type: "guest" | "owner" | "system";
+  readonly trust_level: "guest" | "owner" | "system";
+  readonly display_name: string | null;
+  readonly roles_json: string;
+}
+
 interface EventProcessStateRow {
   readonly id: string;
   readonly status: EventProcessStatus;
@@ -138,7 +147,7 @@ interface EventProcessStateRow {
  * 聚合会话、转录、事件处理与工作区能力的 SQLite 上下文存储
  */
 export class SqliteRuntimeContextStore
-  implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore, MemoryStore
+  implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore, MemoryStore, IdentityStore
 {
   readonly #db: Database.Database;
   readonly #conversation: SqliteConversationRepository;
@@ -546,6 +555,82 @@ export class SqliteRuntimeContextStore
     return transaction();
   }
 
+  async resolveIdentity(input: IdentityResolveInput): Promise<PersistedIdentityResolution> {
+    const transaction = this.#db.transaction(() => {
+      const existing = this.#db
+        .prepare(`
+          SELECT identities.*
+          FROM identity_links
+          JOIN identities ON identities.id = identity_links.identity_id
+          WHERE identity_links.platform = ?
+            AND identity_links.provider = ?
+            AND identity_links.channel_id = ?
+            AND identity_links.platform_user_id = ?
+            AND identity_links.revoked_at IS NULL
+          LIMIT 1
+        `)
+        .get(input.platform, input.provider, input.channelId, input.platformUserId) as IdentityRow | undefined;
+      const now = new Date().toISOString();
+      if (existing !== undefined) {
+        this.#db
+          .prepare(
+            "UPDATE identities SET display_name = COALESCE(?, display_name), roles_json = ?, updated_at = ? WHERE id = ?"
+          )
+          .run(input.displayName ?? null, JSON.stringify(input.roles), now, existing.id);
+        return {
+          identity: identityFromRow({
+            ...existing,
+            display_name: input.displayName ?? existing.display_name,
+            roles_json: JSON.stringify(input.roles)
+          }),
+          isBound: input.isBound
+        };
+      }
+
+      this.#db
+        .prepare(`
+          INSERT OR IGNORE INTO identities (id, type, trust_level, display_name, roles_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          input.identityId,
+          input.type,
+          input.type,
+          input.displayName ?? null,
+          JSON.stringify(input.roles),
+          now,
+          now
+        );
+      this.#db
+        .prepare(`
+          INSERT INTO identity_links (
+            id, platform, provider, channel_id, platform_user_id, identity_id, bind_method, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          `identity-link-${randomUUID()}`,
+          input.platform,
+          input.provider,
+          input.channelId,
+          input.platformUserId,
+          input.identityId,
+          input.isBound ? "owner-config" : "platform-observation",
+          now
+        );
+      return {
+        identity: {
+          id: input.identityId,
+          type: input.type,
+          trustLevel: input.type,
+          ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+          roles: [...input.roles]
+        },
+        isBound: input.isBound
+      };
+    });
+    return transaction();
+  }
+
   async list(input: ListMemoryInput): Promise<readonly MemoryRecord[]> {
     const deletedClause = input.includeDeleted === true ? "" : "AND deleted_at IS NULL AND prompt_eligible = 1";
     const scopeClause =
@@ -565,19 +650,35 @@ export class SqliteRuntimeContextStore
   }
 
   async delete(id: string, input: DeleteMemoryInput): Promise<boolean> {
-    const visible = await this.list({
-      identityId: input.identityId,
-      workspaceId: input.workspaceId,
-      workspaceType: input.workspaceType,
-      limit: 1000
-    });
-    if (!visible.some((record) => record.id === id)) return false;
-    const deletedAt = input.deletedAt ?? new Date().toISOString();
-    return (
+    const transaction = this.#db.transaction(() => {
+      const operation = this.#db
+        .prepare("SELECT deleted FROM memory_delete_operations WHERE idempotency_key = ?")
+        .get(input.idempotencyKey) as { readonly deleted: number } | undefined;
+      if (operation !== undefined) return operation.deleted === 1;
+      const scopeClause =
+        input.workspaceType === "group"
+          ? "scope_type = 'workspace' AND scope_id = ?"
+          : "((scope_type = 'identity' AND scope_id = ?) OR (scope_type = 'workspace' AND scope_id = ?))";
+      const scopeParams = input.workspaceType === "group" ? [input.workspaceId] : [input.identityId, input.workspaceId];
+      const visible = this.#db
+        .prepare(
+          `SELECT id FROM memory_records WHERE id = ? AND visibility != 'secret' AND deleted_at IS NULL AND ${scopeClause} LIMIT 1`
+        )
+        .get(id, ...scopeParams) as { readonly id: string } | undefined;
+      const deletedAt = input.deletedAt ?? new Date().toISOString();
+      const deleted =
+        visible !== undefined &&
+        this.#db
+          .prepare("UPDATE memory_records SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+          .run(deletedAt, deletedAt, id).changes === 1;
       this.#db
-        .prepare("UPDATE memory_records SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
-        .run(deletedAt, deletedAt, id).changes === 1
-    );
+        .prepare(
+          "INSERT INTO memory_delete_operations (idempotency_key, memory_id, deleted, created_at) VALUES (?, ?, ?, ?)"
+        )
+        .run(input.idempotencyKey, id, deleted ? 1 : 0, deletedAt);
+      return deleted;
+    });
+    return transaction();
   }
 
   async begin(input: EventProcessBeginInput): Promise<EventProcessState> {
@@ -894,6 +995,25 @@ function memoryRecordFromRow(row: MemoryRecordRow): MemoryRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...(row.deleted_at === null ? {} : { deletedAt: row.deleted_at })
+  };
+}
+
+function identityFromRow(row: IdentityRow): PersistedIdentityResolution["identity"] {
+  let roles: readonly string[] = [];
+  try {
+    const parsed = JSON.parse(row.roles_json) as unknown;
+    if (Array.isArray(parsed) && parsed.every((role): role is string => typeof role === "string")) {
+      roles = parsed;
+    }
+  } catch {
+    roles = [];
+  }
+  return {
+    id: row.id,
+    type: row.type,
+    trustLevel: row.trust_level,
+    ...(row.display_name === null ? {} : { displayName: row.display_name }),
+    roles
   };
 }
 

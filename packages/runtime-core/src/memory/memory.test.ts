@@ -8,6 +8,7 @@ import { InMemoryConversationStore } from "../conversation/in-memory.js";
 import { SqliteRuntimeContextStore } from "../storage/sqlite/runtime-context-store.js";
 import { InMemoryMemoryStore } from "./in-memory.js";
 import type { RuntimeActor, WorkspaceRef } from "../context/types.js";
+import { IdentityResolverLite } from "../context/identity.js";
 
 const actor: RuntimeActor = {
   identity: { id: "identity:alice", type: "guest", trustLevel: "guest", roles: [] },
@@ -147,6 +148,47 @@ describe("MemoryStore", () => {
           workspaceType: "group"
         })
       ).resolves.toMatchObject([{ id: created.id, content: "持久化设置" }]);
+      reopened.close();
+    } finally {
+      cleanupTempDirectory(dir);
+    }
+  });
+
+  it("重复删除使用同一个幂等键时保持第一次结果", async () => {
+    const store = new InMemoryMemoryStore();
+    const record = await store.remember({
+      scopeType: "identity",
+      scopeId: actor.identity.id,
+      identityId: actor.identity.id,
+      visibility: "private",
+      content: "一次性偏好",
+      source: "test",
+      idempotencyKey: "delete-idempotency-record"
+    });
+    const input = {
+      identityId: actor.identity.id,
+      workspaceId: privateWorkspace.id,
+      workspaceType: "personal" as const,
+      idempotencyKey: "delete-idempotency"
+    };
+    expect(await store.delete(record.id, input)).toBe(true);
+    expect(await store.delete(record.id, input)).toBe(true);
+  });
+
+  it("持久化平台身份映射并恢复稳定身份", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synapse-identity-"));
+    const databasePath = join(dir, "runtime-context.sqlite");
+    try {
+      const first = new SqliteRuntimeContextStore({ databasePath });
+      const resolver = new IdentityResolverLite({ identityStore: first });
+      const event = memoryCommandEvent("hello", "identity-event");
+      const initial = await resolver.resolve(event, "napcat");
+      first.close();
+
+      const reopened = new SqliteRuntimeContextStore({ databasePath });
+      const restored = await new IdentityResolverLite({ identityStore: reopened }).resolve(event, "napcat");
+      expect(restored.identity).toEqual(initial.identity);
+      expect(restored.isBound).toBe(false);
       reopened.close();
     } finally {
       cleanupTempDirectory(dir);

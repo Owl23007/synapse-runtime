@@ -1,4 +1,33 @@
 export const RUNTIME_CONTEXT_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS identities (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK(type IN ('guest', 'owner', 'system')),
+    trust_level TEXT NOT NULL CHECK(trust_level IN ('guest', 'owner', 'system')),
+    display_name TEXT,
+    roles_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS identity_links (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    platform_user_id TEXT NOT NULL,
+    identity_id TEXT NOT NULL,
+    verified_at TEXT,
+    verified_by TEXT,
+    bind_method TEXT,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(identity_id) REFERENCES identities(id)
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_active_identity_link
+  ON identity_links(platform, provider, channel_id, platform_user_id)
+  WHERE revoked_at IS NULL;
+
   CREATE TABLE IF NOT EXISTS conversation_sessions (
     id TEXT PRIMARY KEY,
     platform TEXT,
@@ -484,6 +513,13 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_memory_visibility
   ON memory_records(visibility, identity_id, workspace_id, deleted_at);
+
+  CREATE TABLE IF NOT EXISTS memory_delete_operations (
+    idempotency_key TEXT PRIMARY KEY,
+    memory_id TEXT NOT NULL,
+    deleted INTEGER NOT NULL CHECK(deleted IN (0, 1)),
+    created_at TEXT NOT NULL
+  );
 
 `;
 

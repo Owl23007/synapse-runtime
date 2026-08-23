@@ -5,6 +5,7 @@ import type { DeleteMemoryInput, ListMemoryInput, MemoryRecord, MemoryStore, Rem
 export class InMemoryMemoryStore implements MemoryStore {
   readonly #records = new Map<string, MemoryRecord>();
   readonly #idempotency = new Map<string, MemoryRecord>();
+  readonly #deleteOperations = new Map<string, boolean>();
 
   async remember(input: RememberMemoryInput): Promise<MemoryRecord> {
     const existing = this.#idempotency.get(input.idempotencyKey);
@@ -48,10 +49,16 @@ export class InMemoryMemoryStore implements MemoryStore {
 
   async delete(id: string, input: DeleteMemoryInput): Promise<boolean> {
     validateListInput(input);
+    const previous = this.#deleteOperations.get(input.idempotencyKey);
+    if (previous !== undefined) return previous;
     const record = this.#records.get(id);
-    if (record === undefined || record.deletedAt !== undefined || !isVisible(record, input)) return false;
+    if (record === undefined || record.deletedAt !== undefined || !isVisible(record, input)) {
+      this.#deleteOperations.set(input.idempotencyKey, false);
+      return false;
+    }
     const deletedAt = input.deletedAt ?? new Date().toISOString();
     this.#records.set(id, { ...record, deletedAt, updatedAt: deletedAt });
+    this.#deleteOperations.set(input.idempotencyKey, true);
     return true;
   }
 }
@@ -75,7 +82,11 @@ function validateMemoryInput(input: RememberMemoryInput): void {
 }
 
 function validateListInput(input: ListMemoryInput | DeleteMemoryInput): void {
-  if (!input.identityId.trim() || !input.workspaceId.trim()) {
+  if (
+    !input.identityId.trim() ||
+    !input.workspaceId.trim() ||
+    ("idempotencyKey" in input && !input.idempotencyKey.trim())
+  ) {
     throw new Error("Memory access identity and workspace must not be empty.");
   }
 }

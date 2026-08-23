@@ -106,7 +106,7 @@ export class ContextComposer {
     const eventReceivedAtLocal = formatZonedTimestamp(input.event.receivedAt, this.#timezone);
 
     const conversationState = await this.#composeConversationState(input);
-    const memories = await this.#composeMemories(input);
+    const memories = await this.#composeMemories(input, this.#maxHistoryChars);
 
     return {
       messages,
@@ -148,10 +148,13 @@ export class ContextComposer {
     };
   }
 
-  async #composeMemories(input: {
-    readonly actor: RuntimeActor;
-    readonly workspace: WorkspaceRef;
-  }): Promise<readonly { readonly id: string; readonly kind: string; readonly content: string }[] | undefined> {
+  async #composeMemories(
+    input: {
+      readonly actor: RuntimeActor;
+      readonly workspace: WorkspaceRef;
+    },
+    maxChars: number
+  ): Promise<readonly { readonly id: string; readonly kind: string; readonly content: string }[] | undefined> {
     if (this.#memoryStore === undefined) return undefined;
     const records = await this.#memoryStore.list({
       identityId: input.actor.identity.id,
@@ -160,7 +163,20 @@ export class ContextComposer {
       limit: 20
     });
     if (records.length === 0) return undefined;
-    return records.map((record) => ({ id: record.id, kind: record.kind, content: record.content }));
+    const selected: Array<{ readonly id: string; readonly kind: string; readonly content: string }> = [];
+    for (const record of records) {
+      const candidate = { id: record.id, kind: record.kind, content: record.content };
+      if (JSON.stringify([...selected, candidate]).length <= maxChars) {
+        selected.push(candidate);
+        continue;
+      }
+      if (selected.length === 0) {
+        const fitted = fitMemoryRecord(candidate, maxChars);
+        if (fitted !== undefined) selected.push(fitted);
+      }
+      break;
+    }
+    return selected.length === 0 ? undefined : selected;
   }
 
   async #composeConversationState(input: {
@@ -204,6 +220,21 @@ export class ContextComposer {
       mergedBranchResults: mergedResults.map(eventForPrompt)
     };
   }
+}
+
+function fitMemoryRecord(
+  candidate: { readonly id: string; readonly kind: string; readonly content: string },
+  maxChars: number
+): { readonly id: string; readonly kind: string; readonly content: string } | undefined {
+  if (JSON.stringify([candidate]).length <= maxChars) return candidate;
+  const marker = "…[truncated]";
+  let content = candidate.content;
+  while (content.length > 0 && JSON.stringify([{ ...candidate, content: `${content}${marker}` }]).length > maxChars) {
+    content = content.slice(0, Math.max(0, content.length - 8));
+  }
+  return JSON.stringify([{ ...candidate, content: `${content}${marker}` }]).length <= maxChars
+    ? { ...candidate, content: `${content}${marker}` }
+    : undefined;
 }
 
 function buildContextSections(input: {

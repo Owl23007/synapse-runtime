@@ -28,6 +28,7 @@ import {
   OutputPolicyResolver,
   ResponsePolicy,
   WorkspaceResolverLite,
+  type IdentityStore,
   type AcceptedNormalizedEvent,
   type ConversationBranch,
   type ConversationStore,
@@ -48,7 +49,8 @@ import {
   conversationStoreFromUnknown,
   transcriptStoreFromUnknown,
   workspaceStoreFromUnknown,
-  memoryStoreFromUnknown
+  memoryStoreFromUnknown,
+  identityStoreFromUnknown
 } from "./store-resolution.js";
 import {
   channelSendAction,
@@ -150,7 +152,12 @@ export class RuntimeCore {
         transcriptStore: this.#transcriptStore
       });
     this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
-    this.#identityResolver = options.context?.identityResolver ?? new IdentityResolverLite();
+    const identityStore: IdentityStore | undefined =
+      options.context?.identityStore ??
+      identityStoreFromUnknown(options.context?.conversationStore ?? options.context?.transcriptStore);
+    this.#identityResolver =
+      options.context?.identityResolver ??
+      new IdentityResolverLite(identityStore === undefined ? {} : { identityStore });
     const workspaceStore =
       options.context?.workspaceStore ?? workspaceStoreFromUnknown(options.context?.transcriptStore);
     this.#workspaceResolver =

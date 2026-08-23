@@ -16,6 +16,8 @@ P0 上下文闭环实现位于 `@synapse/runtime-core`。
 guest:<platform>:<provider>:<channelId>:<platformUserId>
 ```
 
+生产运行时会将身份写入 SQLite 的 `identities` 和 `identity_links`，后续请求先按平台账号读取稳定映射；存储不可用时仍回退到上述确定性 guest identity。
+
 `/whoami` 会返回当前 platform identity 和 runtime identity。
 
 ## Workspace
@@ -60,4 +62,4 @@ Recent history 查询行为：
 
 ## Durable Memory 状态
 
-Durable Memory 默认关闭。启用后，`memory_records` 由 SQLite 持久化，`/memory remember`、`/memory list` 和 `/memory delete` 可管理记忆，Prompt Context 只召回当前身份或当前工作区可见的非密钥记忆。群聊不会读取身份私人记忆，软删除记忆也不会进入上下文。
+Durable Memory 默认关闭。启用后，`memory_records` 由 SQLite 持久化，`/memory remember`、`/memory list` 和 `/memory delete` 可管理记忆，Prompt Context 只召回当前身份或当前工作区可见的非密钥记忆，并受 `context.maxHistoryChars` 预算约束。群聊不会读取身份私人记忆，软删除记忆也不会进入上下文；删除命令按请求幂等。
