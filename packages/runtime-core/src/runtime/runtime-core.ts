@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
-import type { ChannelAdapter, ChannelRegistry } from "@synapse/runtime-channel";
+import { executeChannelAction, type ChannelAdapter, type ChannelRegistry } from "@synapse/runtime-channel";
 import type { AgentRequest, ConversationRouter, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+import {
+  messageSendAction,
+  type ChannelActionResult,
+  type SynapseChannelEvent,
+  type SynapseMessage
+} from "@synapse/runtime-protocol";
 import {
   ToolCallRecoveryError,
   type ToolCallReplayRequest,
@@ -1047,7 +1052,7 @@ export class RuntimeCore {
       return;
     }
 
-    let result: Awaited<ReturnType<ChannelAdapter["sendMessage"]>>;
+    let result: ChannelActionResult;
     if (input.processStateId === undefined) {
       throw new Error("Event process state is required before channel delivery.");
     }
@@ -1059,7 +1064,17 @@ export class RuntimeCore {
      * send_started 之后的异常按投递结果不确定处理以避免自动重复发送
      */
     try {
-      result = await channel.sendMessage(target, withReplyContext(output, input.event));
+      result = await executeChannelAction(
+        channel,
+        messageSendAction({
+          actionId: `message.send:${input.event.id}`,
+          channelId: input.event.channelId,
+          target,
+          message: withReplyContext(output, input.event),
+          conversation: input.event.conversation,
+          idempotencyKey: `send:${input.event.id}`
+        })
+      );
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Channel send threw an unknown error.";
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
@@ -1079,20 +1094,23 @@ export class RuntimeCore {
       return;
     }
 
-    if (!result.ok) {
+    if (result.status !== "succeeded") {
+      const reason = result.errorMessage ?? `Channel action ${result.status}.`;
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
-        error: result.error ?? "Channel send failed."
+        error: reason,
+        errorCode: result.errorCode,
+        retryable: result.retryable
       });
       if (input.processStateId !== undefined) {
         await this.#eventProcessStore.update(input.processStateId, {
           status: "send_failed",
-          errorJson: JSON.stringify({ error: result.error ?? "Channel send failed." })
+          errorJson: JSON.stringify({ error: reason, errorCode: result.errorCode })
         });
       }
       this.#traces.push({
         eventId: input.event.id,
         status: "failed",
-        reason: result.error ?? "Channel send failed.",
+        reason,
         runId: input.runId
       });
       return;
@@ -1105,7 +1123,7 @@ export class RuntimeCore {
       });
     }
     await this.#appendDeliveryEvent(input, assistantEvent, "delivery_succeeded", {
-      ...(result.messageId === undefined ? {} : { externalMessageId: result.messageId })
+      ...(result.externalMessageId === undefined ? {} : { externalMessageId: result.externalMessageId })
     });
 
     try {
@@ -1113,7 +1131,7 @@ export class RuntimeCore {
         input.event,
         output,
         input.conversation,
-        result.messageId,
+        result.externalMessageId,
         assistantEvent.id
       );
 
@@ -1596,8 +1614,8 @@ function parseSendResult(value: string | undefined): { readonly messageId?: stri
   }
 
   try {
-    const parsed = JSON.parse(value) as { readonly messageId?: unknown };
-    const messageId = normalizeMessageId(parsed.messageId);
+    const parsed = JSON.parse(value) as { readonly messageId?: unknown; readonly externalMessageId?: unknown };
+    const messageId = normalizeMessageId(parsed.messageId ?? parsed.externalMessageId);
     return messageId === undefined ? {} : { messageId };
   } catch {
     return undefined;

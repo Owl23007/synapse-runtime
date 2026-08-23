@@ -42,3 +42,5 @@ Synapse Runtime 使用 pnpm workspace 组织代码。当前实现覆盖：
 - 本地 SQLite 上下文存储，包括 transcript、幂等状态、workspace 绑定和可选 memory schema
 
 建议先阅读[快速开始](/guide/getting-started)，再通过[运行链路](/guide/runtime-flow)和[配置](/guide/configuration)理解消息如何穿过整个系统。
+
+项目当前各条闭环及明确延期边界见[闭环状态](/reference/closure-status)

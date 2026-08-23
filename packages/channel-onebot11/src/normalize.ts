@@ -1,4 +1,4 @@
-import type { SynapseChannelEvent } from "@synapse/runtime-protocol";
+import { CHANNEL_PROTOCOL_SCHEMA_VERSION, type SynapseChannelEvent } from "@synapse/runtime-protocol";
 import { oneBot11SegmentsToSynapseSegments } from "./message.js";
 import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
@@ -22,12 +22,13 @@ export function normalizeOneBot11Event(channelId: string, payload: unknown): Syn
     return undefined;
   }
 
-  const conversation = conversationFromPayload(payload, messageType, sender);
+  const conversation = conversationFromPayload(channelId, payload, messageType, sender);
   if (conversation === undefined) {
     return undefined;
   }
 
   const messageId = stringFromUnknown(payload.message_id);
+  const externalEventId = stringFromUnknown(payload.id) ?? messageId;
   const selfUserId = stringFromUnknown(payload.self_id);
   const timestamp = numberFromUnknown(payload.time);
   const senderName =
@@ -41,7 +42,10 @@ export function normalizeOneBot11Event(channelId: string, payload: unknown): Syn
   const messageTypeForSynapse = segments.some((segment) => segment.type !== "text") ? "mixed" : "text";
 
   return {
+    schemaVersion: CHANNEL_PROTOCOL_SCHEMA_VERSION,
     id: `${channelId}:${messageId ?? `${payload.post_type}:${payload.message_type}:${Date.now()}`}`,
+    ...(externalEventId === undefined ? {} : { externalEventId }),
+    adapterType: "onebot11",
     platform: "qq",
     channelId,
     eventType: "message.created",
@@ -49,9 +53,12 @@ export function normalizeOneBot11Event(channelId: string, payload: unknown): Syn
     sender: {
       id: senderId,
       ...(senderName === undefined ? {} : { displayName: senderName }),
-      ...(senderRole === undefined ? {} : { roles: [senderRole] })
+      ...(senderRole === undefined ? {} : { roles: [senderRole] }),
+      platform: "qq",
+      channelId
     },
     message: {
+      schemaVersion: CHANNEL_PROTOCOL_SCHEMA_VERSION,
       ...(messageId === undefined ? {} : { id: messageId }),
       type: messageTypeForSynapse,
       segments,
@@ -77,13 +84,14 @@ export function normalizeOneBot11Event(channelId: string, payload: unknown): Syn
 }
 
 function conversationFromPayload(
+  channelId: string,
   payload: Readonly<Record<string, unknown>>,
   messageType: "private" | "group",
   sender: Readonly<Record<string, unknown>> | undefined
 ): SynapseChannelEvent["conversation"] | undefined {
   if (messageType === "private") {
     const userId = stringFromUnknown(payload.user_id) ?? stringFromUnknown(sender?.user_id);
-    return userId === undefined ? undefined : { id: userId, kind: "private" };
+    return userId === undefined ? undefined : { id: userId, kind: "private", platform: "qq", channelId };
   }
 
   const groupId = stringFromUnknown(payload.group_id);
@@ -94,6 +102,8 @@ function conversationFromPayload(
   return {
     id: groupId,
     kind: "group",
+    platform: "qq",
+    channelId,
     ...(typeof sender?.card === "string" && sender.card.length > 0 ? { title: sender.card } : {})
   };
 }

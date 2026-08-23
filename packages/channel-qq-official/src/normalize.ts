@@ -1,4 +1,9 @@
-import type { MessageSegment, SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+import {
+  CHANNEL_PROTOCOL_SCHEMA_VERSION,
+  type MessageSegment,
+  type SynapseChannelEvent,
+  type SynapseMessage
+} from "@synapse/runtime-protocol";
 import type { QqOfficialDispatchPayload, QqOfficialMessagePayload } from "./types.js";
 import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
@@ -15,7 +20,7 @@ export function normalizeQqOfficialDispatch(
   }
 
   const messagePayload = payload.d as QqOfficialMessagePayload;
-  const conversation = conversationFromPayload(payload.t, messagePayload);
+  const conversation = conversationFromPayload(channelId, payload.t, messagePayload);
 
   if (conversation === undefined) {
     return undefined;
@@ -31,7 +36,10 @@ export function normalizeQqOfficialDispatch(
   const attachmentSegments = attachmentSegmentsFromPayload(messagePayload.attachments);
 
   return {
+    schemaVersion: CHANNEL_PROTOCOL_SCHEMA_VERSION,
     id: eventId,
+    externalEventId: eventId,
+    adapterType: "qq-official",
     platform: "qq",
     channelId,
     eventType: "message.created",
@@ -42,9 +50,12 @@ export function normalizeQqOfficialDispatch(
         stringFromUnknown(messagePayload.author?.id) ??
         stringFromUnknown(messagePayload.user_openid) ??
         "unknown",
-      ...(messagePayload.author?.username === undefined ? {} : { displayName: messagePayload.author.username })
+      ...(messagePayload.author?.username === undefined ? {} : { displayName: messagePayload.author.username }),
+      platform: "qq",
+      channelId
     },
     message: {
+      schemaVersion: CHANNEL_PROTOCOL_SCHEMA_VERSION,
       ...(messageId === undefined ? {} : { id: messageId }),
       type: attachmentSegments.length === 0 ? "text" : "mixed",
       segments: [
@@ -134,23 +145,24 @@ function unknownAttachmentPart(raw: unknown, fallbackText = ""): MessageSegment 
 }
 
 function conversationFromPayload(
+  channelId: string,
   eventType: string,
   payload: QqOfficialMessagePayload
 ): SynapseChannelEvent["conversation"] | undefined {
   if (eventType === "C2C_MESSAGE_CREATE" || eventType === "DIRECT_MESSAGE_CREATE") {
     const userId = stringFromUnknown(payload.user_openid) ?? stringFromUnknown(payload.author?.user_openid);
     const id = userId ?? stringFromUnknown(payload.channel_id) ?? stringFromUnknown(payload.guild_id);
-    return id === undefined ? undefined : { id, kind: "private" };
+    return id === undefined ? undefined : { id, kind: "private", platform: "qq", channelId };
   }
 
   if (eventType === "GROUP_AT_MESSAGE_CREATE" || eventType === "GROUP_MESSAGE_CREATE") {
     const groupId = stringFromUnknown(payload.group_openid) ?? stringFromUnknown(payload.group_id);
-    return groupId === undefined ? undefined : { id: groupId, kind: "group" };
+    return groupId === undefined ? undefined : { id: groupId, kind: "group", platform: "qq", channelId };
   }
 
   if (eventType === "AT_MESSAGE_CREATE" || eventType === "MESSAGE_CREATE") {
     const id = stringFromUnknown(payload.channel_id) ?? stringFromUnknown(payload.guild_id);
-    return id === undefined ? undefined : { id, kind: "channel" };
+    return id === undefined ? undefined : { id, kind: "channel", platform: "qq", channelId };
   }
 
   return undefined;

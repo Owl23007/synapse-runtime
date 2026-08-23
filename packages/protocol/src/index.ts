@@ -1,17 +1,31 @@
+export { CHANNEL_PROTOCOL_SCHEMA_VERSION } from "./types.js";
 export type {
   AdapterCapabilities,
+  CapabilityStatus,
+  ChannelActionResult,
+  ChannelActionTarget,
+  ChannelActionType,
+  ChannelCapability,
+  ChannelCapabilityProfile,
   ChannelEventType,
+  ChannelOutputAction,
+  ChannelOutputActionBase,
   ChannelTriggerHint,
+  ChannelProtocolSchemaVersion,
   ConversationKind,
   ConversationRef,
+  MessageDeleteAction,
+  MessageEditAction,
+  MessageSendAction,
   MessageReplyRef,
   MessageSegment,
   MessageType,
   Platform,
   ProtocolPartMetadata,
+  ReactionAction,
   SenderRef,
   SynapseChannelEvent,
   SynapseMessage,
   UnknownMessagePart
 } from "./types.js";
-export { getTextContent, textMessage } from "./message.js";
+export { getTextContent, messageSendAction, textMessage } from "./message.js";
