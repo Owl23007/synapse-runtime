@@ -29,7 +29,8 @@ export function createChannelAdapter(
       provider: channelConfig.provider,
       transport: channelConfig.transport,
       endpoint: channelConfig.endpoint,
-      ...(channelConfig.accessToken === undefined ? {} : { accessToken: channelConfig.accessToken })
+      ...(channelConfig.accessToken === undefined ? {} : { accessToken: channelConfig.accessToken }),
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch })
     });
   }
 

@@ -414,7 +414,7 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL
-      CHECK(type IN ('personal', 'group', 'system')),
+      CHECK(type IN ('personal', 'group', 'project', 'system')),
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

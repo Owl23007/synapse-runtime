@@ -1,5 +1,10 @@
 import { redactConfig, type ChannelConfig, type RuntimeConfig } from "@synapse/runtime-config";
-import { TaskRunnerError, type ConversationBranch, type ConversationTask } from "@synapse/runtime-core";
+import {
+  TaskRunnerError,
+  type ConversationBranch,
+  type ConversationTask,
+  type MemoryAdminStore
+} from "@synapse/runtime-core";
 import type { Handler, Nova, NovaRequest, NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
 import type { RuntimeServerLogger } from "../../types.js";
@@ -29,6 +34,7 @@ export interface AdminRouteDeps {
   readonly listTasks: (branchId?: string) => Promise<readonly ConversationTask[]>;
   readonly getTask: (taskId: string) => Promise<ConversationTask | undefined>;
   readonly cancelTask: (taskId: string) => Promise<ConversationTask>;
+  readonly getMemoryStore?: () => MemoryAdminStore | undefined;
   readonly localize: (key: string, params?: Record<string, string>) => string;
 }
 
@@ -205,6 +211,50 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       }
     })
   );
+  deps.app.get(
+    "/admin/memories",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      const store = deps.getMemoryStore?.();
+      if (store === undefined) {
+        sendJson(response, 503, { ok: false, error: "memory_store_unavailable" });
+        return;
+      }
+      const limit = Math.min(parsePositiveInt(request.query.get("limit")) ?? 100, 500);
+      sendJson(response, 200, {
+        ok: true,
+        memories: await store.listAll({
+          ...(request.query.get("query") === null ? {} : { query: request.query.get("query")! }),
+          ...(memoryScopeType(request.query.get("scopeType")) === undefined
+            ? {}
+            : { scopeType: memoryScopeType(request.query.get("scopeType"))! }),
+          ...(request.query.get("scopeId") === null ? {} : { scopeId: request.query.get("scopeId")! }),
+          includeDeleted: request.query.get("includeDeleted") === "true",
+          includeSecret: request.query.get("includeSecret") === "true",
+          limit
+        })
+      });
+    })
+  );
+  deps.app.delete(
+    "/admin/memories/:id",
+    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      const store = deps.getMemoryStore?.();
+      const id = request.params.id;
+      const idempotencyKey = request.getHeader("idempotency-key") ?? request.query.get("idempotencyKey") ?? undefined;
+      if (store === undefined) {
+        sendJson(response, 503, { ok: false, error: "memory_store_unavailable" });
+        return;
+      }
+      if (id === undefined || idempotencyKey === undefined || idempotencyKey.trim().length === 0) {
+        sendJson(response, 400, { ok: false, error: "missing_memory_id_or_idempotency_key" });
+        return;
+      }
+      sendJson(response, 200, {
+        ok: true,
+        deleted: await store.deleteByAdmin(id, idempotencyKey)
+      });
+    })
+  );
   deps.app.get("/admin/logs", (request: NovaRequest, response: NovaResponse) => {
     const limit = parsePositiveInt(request.query.get("limit")) ?? 100;
     sendJson(response, 200, {
@@ -257,6 +307,10 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       });
     }, 0);
   });
+}
+
+function memoryScopeType(value: string | null): "identity" | "workspace" | undefined {
+  return value === "identity" || value === "workspace" ? value : undefined;
 }
 
 function asyncRoute(deps: Pick<AdminRouteDeps, "logger" | "localize">, handler: Handler): Handler {

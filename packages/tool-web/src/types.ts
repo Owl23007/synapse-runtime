@@ -10,6 +10,33 @@ export interface WebDnsAddress {
 /** DNS 查询函数 */
 export type WebDnsLookup = (hostname: string) => Promise<readonly WebDnsAddress[]>;
 
+/** Web 工具结果缓存契约，缓存键必须包含租户或工作区隔离信息 */
+export interface WebCache {
+  /** 读取未过期的缓存值 */
+  get<T>(key: string): Promise<T | undefined>;
+  /** 写入带过期时间的缓存值 */
+  set<T>(key: string, value: T, ttlMs: number): Promise<void>;
+}
+
+/** 进程内 Web 结果缓存，适用于单 Runtime 部署与测试 */
+export class InMemoryWebCache implements WebCache {
+  readonly #entries = new Map<string, { readonly value: unknown; readonly expiresAt: number }>();
+
+  async get<T>(key: string): Promise<T | undefined> {
+    const entry = this.#entries.get(key);
+    if (entry === undefined) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      this.#entries.delete(key);
+      return undefined;
+    }
+    return entry.value as T;
+  }
+
+  async set<T>(key: string, value: T, ttlMs: number): Promise<void> {
+    this.#entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+}
+
 /** Brave 搜索配置 */
 export interface BraveWebSearchOptions {
   readonly provider: "brave";
@@ -39,6 +66,8 @@ export interface WebToolOptions {
   readonly userAgent?: string;
   readonly fetch?: WebFetch;
   readonly lookup?: WebDnsLookup;
+  readonly cache?: WebCache;
+  readonly cacheTtlMs?: number;
 }
 
 /** 规范化搜索结果 */
@@ -57,6 +86,7 @@ export interface WebSearchOutput {
   readonly provider: "brave" | "searxng";
   readonly searchedAt: string;
   readonly results: readonly WebSearchResult[];
+  readonly cacheHit?: boolean;
 }
 
 /** 网页抓取工具输出 */
@@ -71,4 +101,5 @@ export interface WebFetchOutput {
   readonly truncated: boolean;
   readonly fetchedAt: string;
   readonly notice: string;
+  readonly cacheHit?: boolean;
 }

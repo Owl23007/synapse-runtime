@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Tool } from "@synapse/runtime-tool-runtime";
-import { createWebTools, type WebFetch, type WebDnsLookup } from "./index.js";
+import { createWebTools, InMemoryWebCache, type WebFetch, type WebDnsLookup } from "./index.js";
 
 const publicLookup: WebDnsLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
@@ -235,6 +235,27 @@ describe("web.search", () => {
         }
       ]
     });
+  });
+});
+
+describe("web cache", () => {
+  it("caches search and fetch results without sharing the network call", async () => {
+    const fetcher = vi.fn<WebFetch>(async () =>
+      Response.json({
+        web: { results: [{ title: "Cached", url: "https://example.com", description: "result" }] }
+      })
+    );
+    const cache = new InMemoryWebCache();
+    const tool = createWebTools({
+      search: { provider: "brave", apiKey: "key" },
+      fetch: fetcher,
+      lookup: publicLookup,
+      cache
+    }).find((candidate) => candidate.name === "web.search");
+    if (tool === undefined) throw new Error("web.search was not created");
+    await expect(tool.handle({ query: "cached" }, toolContext)).resolves.toMatchObject({ cacheHit: false });
+    await expect(tool.handle({ query: "cached" }, toolContext)).resolves.toMatchObject({ cacheHit: true });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 });
 

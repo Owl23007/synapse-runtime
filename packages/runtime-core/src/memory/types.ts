@@ -59,6 +59,35 @@ export interface ListMemoryInput {
   readonly limit?: number;
 }
 
+/** 检索当前请求可见长期记忆的条件 */
+export interface SearchMemoryInput extends ListMemoryInput {
+  readonly query: string;
+}
+
+/** 长期记忆检索结果及其相关性分数 */
+export interface MemorySearchResult {
+  readonly record: MemoryRecord;
+  readonly score: number;
+}
+
+/** 管理端读取长期记忆的条件 */
+export interface ListAllMemoryInput {
+  readonly query?: string;
+  readonly scopeType?: MemoryScopeType;
+  readonly scopeId?: string;
+  readonly includeDeleted?: boolean;
+  readonly includeSecret?: boolean;
+  readonly limit?: number;
+}
+
+/** 管理端长期记忆存储能力 */
+export interface MemoryAdminStore {
+  /** 按管理条件读取跨身份和工作区的长期记忆 */
+  listAll(input?: ListAllMemoryInput): Promise<readonly MemoryRecord[]>;
+  /** 由管理端软删除长期记忆 */
+  deleteByAdmin(id: string, idempotencyKey: string, deletedAt?: string): Promise<boolean>;
+}
+
 /** 删除长期记忆时用于校验访问范围的条件 */
 export interface DeleteMemoryInput {
   readonly identityId: string;
@@ -74,6 +103,8 @@ export interface MemoryStore {
   remember(input: RememberMemoryInput): Promise<MemoryRecord>;
   /** 读取当前身份和工作区可见的长期记忆 */
   list(input: ListMemoryInput): Promise<readonly MemoryRecord[]>;
+  /** 在当前访问范围内按文本检索长期记忆 */
+  search?(input: SearchMemoryInput): Promise<readonly MemorySearchResult[]>;
   /** 在访问范围内软删除一条长期记忆 */
   delete(id: string, input: DeleteMemoryInput): Promise<boolean>;
 }

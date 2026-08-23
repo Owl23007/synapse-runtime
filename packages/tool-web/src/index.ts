@@ -5,9 +5,11 @@ export type {
   WebDnsLookup,
   WebFetch,
   WebFetchOutput,
+  WebCache,
   WebSearchOptions,
   WebSearchOutput,
   WebSearchResult,
   WebToolOptions
 } from "./types.js";
+export { InMemoryWebCache } from "./types.js";
 export { createWebTools } from "./web-tools.js";

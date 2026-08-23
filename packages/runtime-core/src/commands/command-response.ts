@@ -1,6 +1,7 @@
 import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
 import type { ConversationStore } from "../conversation/index.js";
 import type { RuntimeActor, WorkspaceRef } from "../context/types.js";
+import type { WorkspaceStore } from "../context/workspace.js";
 import type { MemoryStore } from "../memory/types.js";
 
 interface CommandContext {
@@ -12,6 +13,7 @@ interface CommandContext {
   readonly options: {
     readonly enableDurableMemory?: boolean;
     readonly memoryStore?: MemoryStore;
+    readonly workspaceStore?: WorkspaceStore;
     readonly sourceEventId?: string;
   };
 }
@@ -58,7 +60,20 @@ const commands: readonly CommandDefinition[] = [
     usage: "/workspace use project:<id>",
     description: "切换到项目工作区",
     matches: (text) => text.startsWith("/workspace use project:"),
-    execute: () => textResponse("Project workspace is not supported in P0.")
+    execute: async ({ text, actor, workspace, options }) => {
+      if (workspace.type === "group") return textResponse("群聊中不能切换项目工作区，请在私聊中执行该命令。");
+      const workspaceStore = options.workspaceStore;
+      if (workspaceStore?.bindProjectWorkspace === undefined) {
+        return textResponse("当前运行时未启用项目工作区存储。");
+      }
+      const projectId = text.slice("/workspace use project:".length).trim();
+      if (!projectId) return textResponse("用法：/workspace use project:<id>");
+      const project = await workspaceStore.bindProjectWorkspace({
+        workspaceId: projectId,
+        identityId: actor.identity.id
+      });
+      return textResponse(`已切换到项目工作区：${project.name}（${project.id}）`);
+    }
   },
   {
     usage: "/branches",
@@ -112,6 +127,7 @@ export async function commandResponse(
   options: {
     readonly enableDurableMemory?: boolean;
     readonly memoryStore?: MemoryStore;
+    readonly workspaceStore?: WorkspaceStore;
     readonly sourceEventId?: string;
   } = {}
 ): Promise<SynapseMessage | undefined> {
@@ -159,6 +175,35 @@ async function executeMemoryCommand(
     );
   }
 
+  if (action === "search") {
+    const query = parts.slice(2).join(" ").trim();
+    if (!query) return textResponse("用法：/memory search 关键词");
+    const results =
+      store.search === undefined
+        ? (
+            await store.list({
+              identityId: actor.identity.id,
+              workspaceId: workspace.id,
+              workspaceType: workspace.type,
+              limit: 50
+            })
+          )
+            .filter((record) => record.content.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+            .map((record) => ({ record, score: 1 }))
+        : await store.search({
+            query,
+            identityId: actor.identity.id,
+            workspaceId: workspace.id,
+            workspaceType: workspace.type,
+            limit: 20
+          });
+    return textResponse(
+      results.length === 0
+        ? "没有匹配的长期记忆。"
+        : ["匹配的长期记忆：", ...results.map(({ record }) => `- ${record.id} ${record.content}`)].join("\n")
+    );
+  }
+
   if (action === "remember") {
     const requestedScope =
       parts[2] === "private" || parts[2] === "group" || parts[2] === "workspace" ? parts[2] : undefined;
@@ -183,7 +228,13 @@ async function executeMemoryCommand(
       ...(sourceEventId === undefined ? {} : { sourceEventId }),
       idempotencyKey: `command:memory:${sourceEventId ?? `${actor.identity.id}:${content}`}`
     });
-    return textResponse(identityScope ? "已记住为你的私人偏好。" : "已记住为本群设置。");
+    return textResponse(
+      identityScope
+        ? "已记住为你的私人偏好。"
+        : workspace.type === "project"
+          ? "已记住为项目设置。"
+          : "已记住为本群设置。"
+    );
   }
 
   if (action === "delete" && parts[2] !== undefined) {
@@ -196,7 +247,9 @@ async function executeMemoryCommand(
     return textResponse(deleted ? "已删除该长期记忆。" : "未找到可删除的长期记忆。");
   }
 
-  return textResponse("用法：/memory remember [private|group] 内容\n/memory list\n/memory delete <id>");
+  return textResponse(
+    "用法：/memory remember [private|group] 内容\n/memory list\n/memory search 关键词\n/memory delete <id>"
+  );
 }
 
 function memoryScopeLabel(record: { readonly scopeType: string; readonly visibility: string }): string {

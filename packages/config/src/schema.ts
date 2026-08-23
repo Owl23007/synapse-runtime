@@ -209,6 +209,7 @@ export const WebToolSettingsSchema = z
     maxResponseBytes: z.number().int().min(1024).max(10_000_000).default(2_000_000),
     maxContentChars: z.number().int().min(1000).max(200_000).default(24_000),
     maxRedirects: z.number().int().min(0).max(10).default(5),
+    cacheTtlMs: z.number().int().positive().max(86_400_000).default(300_000),
     userAgent: z.string().min(1).default("SynapseRuntime/0.1"),
     search: WebSearchSettingsSchema.optional()
   })

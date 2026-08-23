@@ -288,6 +288,8 @@ Token 解析优先级：
 | GET    | `/admin/channels`       | 获取 Channel 列表    |
 | PATCH  | `/admin/channels/:id`   | 修改 Channel 配置    |
 | POST   | `/admin/reload`         | 重新加载配置         |
+| GET    | `/admin/memories`       | 查询长期记忆         |
+| DELETE | `/admin/memories/:id`   | 管理端软删除长期记忆 |
 | GET    | `/admin/logs?limit=100` | 获取最近日志         |
 | GET    | `/admin/events/stream`  | 获取实时事件流       |
 | POST   | `/admin/shutdown`       | 停止 Runtime         |

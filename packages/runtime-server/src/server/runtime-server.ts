@@ -193,6 +193,7 @@ export class RuntimeServer {
           : this.#runtime.conversationStore.listTasks(branchId),
       getTask: (taskId) => this.#runtime.conversationStore.getTask(taskId),
       cancelTask: (taskId) => this.#taskRunner.cancel(taskId),
+      getMemoryStore: () => this.#contextStore,
       localize: (key, params) => this.#localeResolver.resolve(key, params, this.#config.locale.default)
     });
   }

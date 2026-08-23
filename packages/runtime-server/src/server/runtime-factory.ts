@@ -4,7 +4,7 @@ import type { ChannelConfig, RuntimeConfig } from "@synapse/runtime-config";
 import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
-import { createWebTools } from "@synapse/runtime-tool-web";
+import { createWebTools, InMemoryWebCache } from "@synapse/runtime-tool-web";
 import { describeToolSet, ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import {
@@ -165,7 +165,9 @@ function registerBuiltInTools(tools: ToolRuntime, config: RuntimeConfig): void {
     maxResponseBytes: web.maxResponseBytes,
     maxContentChars: web.maxContentChars,
     maxRedirects: web.maxRedirects,
-    userAgent: web.userAgent
+    userAgent: web.userAgent,
+    cache: new InMemoryWebCache(),
+    ...(typeof web.cacheTtlMs === "number" ? { cacheTtlMs: web.cacheTtlMs } : {})
   });
   for (const tool of builtIns) {
     tools.register(tool);

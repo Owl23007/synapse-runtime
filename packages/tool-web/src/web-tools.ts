@@ -5,6 +5,7 @@ import type {
   WebDnsLookup,
   WebFetch,
   WebFetchOutput,
+  WebCache,
   WebSearchOptions,
   WebSearchOutput,
   WebSearchResult,
@@ -32,6 +33,8 @@ interface NormalizedWebToolOptions {
   readonly userAgent: string;
   readonly fetch: WebFetch;
   readonly lookup: WebDnsLookup;
+  readonly cache?: WebCache;
+  readonly cacheTtlMs: number;
 }
 
 interface WebSearchInput {
@@ -120,16 +123,29 @@ function createWebSearchTool(options: NormalizedWebToolOptions): Tool {
     },
     async handle(input) {
       const parsed = parseSearchInput(input);
+      const cacheKey = webCacheKey("search", {
+        provider: search.provider,
+        query: parsed.query,
+        count: parsed.count,
+        domains: parsed.domains
+      });
+      const cached = await options.cache?.get<WebSearchOutput>(cacheKey);
+      if (cached !== undefined) return { ...cached, cacheHit: true };
       const results =
         search.provider === "brave"
           ? await searchBrave(search, parsed, options)
           : await searchSearxng(search, parsed, options);
-      return {
+      const output = {
         query: parsed.query,
         provider: search.provider,
         searchedAt: new Date().toISOString(),
         results: filterSearchResults(results, parsed.domains, options)
       } satisfies WebSearchOutput;
+      if (options.cache !== undefined) {
+        await options.cache.set(cacheKey, output, options.cacheTtlMs);
+        return { ...output, cacheHit: false };
+      }
+      return output;
     }
   };
 }
@@ -148,7 +164,15 @@ function createWebFetchTool(options: NormalizedWebToolOptions): Tool {
     },
     async handle(input) {
       const parsed = parseFetchInput(input, options.maxContentChars);
-      return fetchWebPage(parsed, options);
+      const cacheKey = webCacheKey("fetch", parsed);
+      const cached = await options.cache?.get<WebFetchOutput>(cacheKey);
+      if (cached !== undefined) return { ...cached, cacheHit: true };
+      const output = await fetchWebPage(parsed, options);
+      if (options.cache !== undefined) {
+        await options.cache.set(cacheKey, output, options.cacheTtlMs);
+        return { ...output, cacheHit: false };
+      }
+      return output;
     }
   };
 }
@@ -335,8 +359,14 @@ function normalizeOptions(options: WebToolOptions): NormalizedWebToolOptions {
     maxRedirects: nonNegativeInteger(options.maxRedirects ?? 5, "maxRedirects"),
     userAgent: nonEmptyString(options.userAgent ?? "SynapseRuntime/0.1", "userAgent"),
     fetch: options.fetch ?? defaultFetch,
-    lookup: options.lookup ?? defaultLookup
+    lookup: options.lookup ?? defaultLookup,
+    ...(options.cache === undefined ? {} : { cache: options.cache }),
+    cacheTtlMs: positiveInteger(options.cacheTtlMs ?? 300_000, "cacheTtlMs")
   };
+}
+
+function webCacheKey(kind: "search" | "fetch", input: unknown): string {
+  return `web:${kind}:${JSON.stringify(input)}`;
 }
 
 function parseSearchInput(value: unknown): WebSearchInput {

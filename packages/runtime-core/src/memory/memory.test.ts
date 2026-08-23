@@ -9,6 +9,8 @@ import { SqliteRuntimeContextStore } from "../storage/sqlite/runtime-context-sto
 import { InMemoryMemoryStore } from "./in-memory.js";
 import type { RuntimeActor, WorkspaceRef } from "../context/types.js";
 import { IdentityResolverLite } from "../context/identity.js";
+import { InMemoryWorkspaceStore } from "../context/workspace.js";
+import { promoteExplicitMemory } from "./promotion.js";
 
 const actor: RuntimeActor = {
   identity: { id: "identity:alice", type: "guest", trustLevel: "guest", roles: [] },
@@ -173,6 +175,73 @@ describe("MemoryStore", () => {
     };
     expect(await store.delete(record.id, input)).toBe(true);
     expect(await store.delete(record.id, input)).toBe(true);
+  });
+
+  it("在访问范围内按关键词检索并按相关性排序", async () => {
+    const store = new InMemoryMemoryStore();
+    await store.remember({
+      scopeType: "identity",
+      scopeId: actor.identity.id,
+      identityId: actor.identity.id,
+      visibility: "private",
+      content: "偏好简短回答",
+      source: "test",
+      importance: 0.9,
+      idempotencyKey: "search-1"
+    });
+    await store.remember({
+      scopeType: "identity",
+      scopeId: actor.identity.id,
+      identityId: actor.identity.id,
+      visibility: "private",
+      content: "偏好回答使用 Markdown",
+      source: "test",
+      idempotencyKey: "search-2"
+    });
+    const results = await store.search({
+      query: "偏好 简短",
+      identityId: actor.identity.id,
+      workspaceId: privateWorkspace.id,
+      workspaceType: "personal"
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.record.content).toBe("偏好简短回答");
+  });
+
+  it("只将明确的记住请求自动晋升为幂等事实记忆", async () => {
+    const store = new InMemoryMemoryStore();
+    const input = {
+      message: textMessage("请记住：我使用简短回答"),
+      actor,
+      workspace: privateWorkspace,
+      sourceEventId: "promotion-1"
+    };
+    const first = await promoteExplicitMemory(store, input);
+    const duplicate = await promoteExplicitMemory(store, input);
+    expect(first?.content).toBe("我使用简短回答");
+    expect(duplicate).toEqual(first);
+    await expect(
+      promoteExplicitMemory(store, {
+        ...input,
+        message: textMessage("普通消息")
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it("可以将身份切换到可复用的项目工作区", async () => {
+    const store = new InMemoryWorkspaceStore();
+    await store.bindProjectWorkspace({ workspaceId: "project:synapse", identityId: actor.identity.id });
+    await expect(
+      store.resolveWorkspace({
+        platform: "qq",
+        provider: "napcat",
+        channelId: "qq-local",
+        conversationType: "private",
+        conversationId: "alice",
+        identityId: actor.identity.id,
+        defaultWorkspace: privateWorkspace
+      })
+    ).resolves.toEqual({ id: "project:synapse", type: "project", name: "project:synapse" });
   });
 
   it("持久化平台身份映射并恢复稳定身份", async () => {

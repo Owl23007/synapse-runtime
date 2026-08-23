@@ -12,6 +12,7 @@ import { createOneBot11SendParams } from "./message.js";
 import { normalizeOneBot11Event } from "./normalize.js";
 import type {
   OneBot11ChannelAdapterOptions,
+  OneBot11Fetch,
   OneBot11ResponsePayload,
   OneBot11Transport,
   OneBot11WebSocket,
@@ -37,6 +38,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
   readonly #endpoint: string;
   readonly #accessToken: string | undefined;
   readonly #requestTimeoutMs: number;
+  readonly #fetch: OneBot11Fetch;
   readonly #WebSocketCtor: OneBot11WebSocketConstructor;
   readonly #handlers = new Set<ChannelEventHandler>();
   readonly #pending = new Map<string, PendingRequest>();
@@ -51,12 +53,18 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     this.#endpoint = options.endpoint;
     this.#accessToken = options.accessToken;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#fetch = options.fetch ?? defaultFetch;
     this.#WebSocketCtor = options.WebSocketCtor ?? WebSocket;
   }
 
   async connect(): Promise<void> {
-    if (this.#transport !== "websocket") {
-      throw new Error(`OneBot 11 transport "${this.#transport}" is not implemented yet. Use "websocket" for NapCat.`);
+    if (this.#transport === "http") {
+      this.#status = {
+        state: "online",
+        detail: `OneBot 11 HTTP transport is ready for ${this.provider}; inbound events require a gateway caller.`,
+        checkedAt: new Date().toISOString()
+      };
+      return;
     }
 
     if (this.#socket !== undefined && this.#socket.readyState === WEBSOCKET_OPEN) {
@@ -211,6 +219,9 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
   }
 
   async #call(action: string, params: Readonly<Record<string, unknown>>): Promise<OneBot11ResponsePayload> {
+    if (this.#transport === "http" || this.#transport === "http-websocket") {
+      return this.#callHttp(action, params);
+    }
     const socket = this.#socket;
     if (socket === undefined || socket.readyState !== WEBSOCKET_OPEN) {
       throw new Error("OneBot 11 WebSocket is not connected.");
@@ -238,6 +249,23 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     });
   }
 
+  async #callHttp(action: string, params: Readonly<Record<string, unknown>>): Promise<OneBot11ResponsePayload> {
+    const base = this.#endpoint.endsWith("/") ? this.#endpoint : `${this.#endpoint}/`;
+    const response = await this.#fetch(new URL(action, base).toString(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(this.#accessToken === undefined ? {} : { authorization: `Bearer ${this.#accessToken}` })
+      },
+      body: JSON.stringify({ action, params })
+    });
+    const payload = response.text === undefined ? await response.json() : parseJsonPayload(await response.text());
+    if (!isRecord(payload)) {
+      throw new Error(`OneBot 11 HTTP action "${action}" returned a non-object response.`);
+    }
+    return payload as OneBot11ResponsePayload;
+  }
+
   #rejectAllPending(error: Error): void {
     for (const [echo, pending] of this.#pending) {
       clearTimeout(pending.timeout);
@@ -245,6 +273,15 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       pending.reject(new Error(`${pending.action} failed: ${error.message}`));
     }
   }
+}
+
+async function defaultFetch(
+  input: string,
+  init?: { readonly method?: string; readonly headers?: Readonly<Record<string, string>>; readonly body?: string }
+): Promise<Response> {
+  if (globalThis.fetch === undefined)
+    throw new Error("No fetch implementation is available for OneBot 11 HTTP transport.");
+  return globalThis.fetch(input, init);
 }
 
 function extractMessageId(data: unknown): string | undefined {

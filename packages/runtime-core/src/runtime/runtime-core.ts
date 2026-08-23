@@ -41,8 +41,11 @@ import {
   type OutputPolicy,
   type TranscriptStore,
   type WorkspaceRef,
-  type WorkspaceResolver
+  type WorkspaceResolver,
+  type WorkspaceStore
 } from "../context.js";
+import { InMemoryWorkspaceStore } from "../context/workspace.js";
+import { promoteExplicitMemory } from "../memory/promotion.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeTrace } from "./types.js";
 import {
@@ -82,6 +85,7 @@ export class RuntimeCore {
   readonly #transcriptStore: TranscriptStore;
   readonly #identityResolver: IdentityResolver;
   readonly #workspaceResolver: WorkspaceResolver;
+  readonly #workspaceStore: WorkspaceStore;
   readonly #contextComposer: ContextComposer;
   readonly #contextAttributor: ContextAttributor;
   readonly #outputPolicyResolver = new OutputPolicyResolver();
@@ -159,7 +163,10 @@ export class RuntimeCore {
       options.context?.identityResolver ??
       new IdentityResolverLite(identityStore === undefined ? {} : { identityStore });
     const workspaceStore =
-      options.context?.workspaceStore ?? workspaceStoreFromUnknown(options.context?.transcriptStore);
+      options.context?.workspaceStore ??
+      workspaceStoreFromUnknown(options.context?.transcriptStore) ??
+      new InMemoryWorkspaceStore();
+    this.#workspaceStore = workspaceStore;
     this.#workspaceResolver =
       options.context?.workspaceResolver ??
       new WorkspaceResolverLite({
@@ -497,6 +504,7 @@ export class RuntimeCore {
       const commandOutput = await commandResponse(event, actor, workspace, sessionId, this.#conversationStore, {
         enableDurableMemory: this.#enableDurableMemory,
         ...(this.#memoryStore === undefined ? {} : { memoryStore: this.#memoryStore }),
+        workspaceStore: this.#workspaceStore,
         sourceEventId: scope.accepted.event.id
       });
       let recoveredOutput =
@@ -649,6 +657,20 @@ export class RuntimeCore {
           this.#traces.push({ eventId: event.id, status: "ignored", reason: "send_succeeded_without_output" });
         }
         return;
+      }
+
+      try {
+        await promoteExplicitMemory(this.#memoryStore, {
+          message: request.input,
+          actor,
+          workspace,
+          sourceEventId
+        });
+      } catch (error) {
+        this.#logger?.warn("Runtime explicit memory promotion failed; continuing without durable promotion.", {
+          eventId: event.id,
+          error: error instanceof Error ? error.message : "Unknown memory promotion error."
+        });
       }
 
       if (this.#contextEnabled) {

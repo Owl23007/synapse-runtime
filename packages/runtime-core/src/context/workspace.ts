@@ -20,6 +20,12 @@ export interface WorkspaceResolveInput {
 export interface WorkspaceStore {
   /** 根据会话与身份绑定解析工作区 */
   resolveWorkspace(input: WorkspaceResolveInput): Promise<WorkspaceRef>;
+  /** 将身份绑定到可复用的项目工作区 */
+  bindProjectWorkspace?(input: {
+    readonly workspaceId: string;
+    readonly name?: string;
+    readonly identityId: string;
+  }): Promise<WorkspaceRef>;
 }
 
 /**
@@ -53,6 +59,39 @@ export class WorkspaceResolverLite implements WorkspaceResolver {
         defaultWorkspace: fallbackWorkspace
       }) ?? fallbackWorkspace
     );
+  }
+}
+
+/** 进程内工作区存储，保证未接入 SQLite 时项目工作区仍可测试和使用 */
+export class InMemoryWorkspaceStore implements WorkspaceStore {
+  readonly #projects = new Map<string, WorkspaceRef>();
+  readonly #identityProjects = new Map<string, string>();
+
+  async resolveWorkspace(input: WorkspaceResolveInput): Promise<WorkspaceRef> {
+    if (input.defaultWorkspace.type === "personal") {
+      const projectId = this.#identityProjects.get(input.identityId);
+      const project = projectId === undefined ? undefined : this.#projects.get(projectId);
+      if (project !== undefined) return project;
+    }
+    return input.defaultWorkspace;
+  }
+
+  async bindProjectWorkspace(input: {
+    readonly workspaceId: string;
+    readonly name?: string;
+    readonly identityId: string;
+  }): Promise<WorkspaceRef> {
+    const workspaceId = input.workspaceId.trim();
+    const identityId = input.identityId.trim();
+    if (!workspaceId || !identityId) throw new Error("Project workspace id and identity id must not be empty.");
+    const workspace = this.#projects.get(workspaceId) ?? {
+      id: workspaceId,
+      type: "project" as const,
+      name: input.name?.trim() || workspaceId
+    };
+    this.#projects.set(workspaceId, workspace);
+    this.#identityProjects.set(identityId, workspaceId);
+    return workspace;
   }
 }
 

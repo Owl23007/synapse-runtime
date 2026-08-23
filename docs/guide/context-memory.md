@@ -30,7 +30,7 @@ guest:<platform>:<provider>:<channelId>:<platformUserId>
 
 `/workspace info` 返回当前 workspace id、type 和 name。
 
-`/workspace use project:*` 会返回 P0 暂不支持，因为 project workspace 不在 P0 范围内。
+`/workspace use project:<id>` 会把当前身份绑定到项目工作区；SQLite 运行时会持久化该绑定，后续私聊事件自动恢复项目工作区。未接入持久化时使用进程内回退存储。
 
 ## Transcript
 
@@ -62,4 +62,6 @@ Recent history 查询行为：
 
 ## Durable Memory 状态
 
-Durable Memory 默认关闭。启用后，`memory_records` 由 SQLite 持久化，`/memory remember`、`/memory list` 和 `/memory delete` 可管理记忆，Prompt Context 只召回当前身份或当前工作区可见的非密钥记忆，并受 `context.maxHistoryChars` 预算约束。群聊不会读取身份私人记忆，软删除记忆也不会进入上下文；删除命令按请求幂等。
+Durable Memory 默认关闭。启用后，`memory_records` 由 SQLite 持久化，`/memory remember`、`/memory list`、`/memory search` 和 `/memory delete` 可管理记忆，Prompt Context 只召回当前身份或当前工作区可见的非密钥记忆，并受 `context.maxHistoryChars` 预算约束。以“记住”或“请记住”开头的用户消息会按当前工作区自动晋升为事实记忆，并使用来源事件幂等；群聊不会读取身份私人记忆，软删除记忆也不会进入上下文；删除命令按请求幂等。
+
+Admin API 提供 `GET /admin/memories` 和 `DELETE /admin/memories/:id`，支持查询、作用域过滤、软删除和管理端幂等键。密钥记忆默认不返回，已删除记忆需要显式传 `includeDeleted=true`。

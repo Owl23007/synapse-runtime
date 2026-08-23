@@ -106,7 +106,7 @@ Presentation 用于最终表达而非推理。`deterministic` 是当前可用模
 enableDurableMemory = false
 ```
 
-Durable Memory 默认关闭。启用后，`/memory remember`、`/memory list` 和 `/memory delete` 使用 SQLite 持久化，并按身份与工作区隔离记忆；密钥记忆和已删除记忆不会进入模型上下文。
+Durable Memory 默认关闭。启用后，`/memory remember`、`/memory list`、`/memory search` 和 `/memory delete` 使用 SQLite 持久化，并按身份与工作区隔离记忆；密钥记忆和已删除记忆不会进入模型上下文。以“记住”或“请记住”开头的消息会自动晋升为事实记忆。
 
 ## Agent
 

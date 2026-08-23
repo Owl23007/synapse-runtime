@@ -48,10 +48,14 @@ import type { WorkspaceResolveInput, WorkspaceStore } from "../../context/worksp
 import type { IdentityResolveInput, IdentityStore, PersistedIdentityResolution } from "../../context/identity.js";
 import type {
   DeleteMemoryInput,
+  ListAllMemoryInput,
   ListMemoryInput,
+  MemoryAdminStore,
   MemoryRecord,
+  MemorySearchResult,
   MemoryStore,
-  RememberMemoryInput
+  RememberMemoryInput,
+  SearchMemoryInput
 } from "../../memory/types.js";
 import type {
   EventProcessBeginInput,
@@ -147,7 +151,14 @@ interface EventProcessStateRow {
  * 聚合会话、转录、事件处理与工作区能力的 SQLite 上下文存储
  */
 export class SqliteRuntimeContextStore
-  implements TranscriptStore, EventProcessStore, WorkspaceStore, ConversationStore, MemoryStore, IdentityStore
+  implements
+    TranscriptStore,
+    EventProcessStore,
+    WorkspaceStore,
+    ConversationStore,
+    MemoryStore,
+    MemoryAdminStore,
+    IdentityStore
 {
   readonly #db: Database.Database;
   readonly #conversation: SqliteConversationRepository;
@@ -649,6 +660,60 @@ export class SqliteRuntimeContextStore
     return rows.map(memoryRecordFromRow);
   }
 
+  async search(input: SearchMemoryInput): Promise<readonly MemorySearchResult[]> {
+    validateMemoryAccessInput(input);
+    const terms = memorySearchTerms(input.query);
+    if (terms.length === 0) return [];
+    const deletedClause = input.includeDeleted === true ? "" : "AND deleted_at IS NULL AND prompt_eligible = 1";
+    const scopeClause =
+      input.workspaceType === "group"
+        ? "scope_type = 'workspace' AND scope_id = ?"
+        : "((scope_type = 'identity' AND scope_id = ?) OR (scope_type = 'workspace' AND scope_id = ?))";
+    const scopeParams = input.workspaceType === "group" ? [input.workspaceId] : [input.identityId, input.workspaceId];
+    const textClause = terms.map(() => "LOWER(content) LIKE ?").join(" AND ");
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM memory_records WHERE visibility != 'secret' AND ${scopeClause} ${deletedClause} AND ${textClause} ORDER BY created_at DESC, rowid DESC LIMIT ?`
+      )
+      .all(
+        ...scopeParams,
+        ...terms.map((term) => `%${term}%`),
+        Math.max(input.limit ?? 20, 20) * 4
+      ) as MemoryRecordRow[];
+    return rows
+      .map((row) => ({ record: memoryRecordFromRow(row), score: memoryRelevanceScore(row, terms) }))
+      .toSorted(
+        (left, right) => right.score - left.score || right.record.createdAt.localeCompare(left.record.createdAt)
+      )
+      .slice(0, input.limit ?? 20);
+  }
+
+  async listAll(input: ListAllMemoryInput = {}): Promise<readonly MemoryRecord[]> {
+    const conditions = [input.includeDeleted === true ? "1 = 1" : "deleted_at IS NULL"];
+    const params: unknown[] = [];
+    if (input.includeSecret !== true) conditions.push("visibility != 'secret'");
+    if (input.scopeType !== undefined) {
+      conditions.push("scope_type = ?");
+      params.push(input.scopeType);
+    }
+    if (input.scopeId !== undefined) {
+      conditions.push("scope_id = ?");
+      params.push(input.scopeId);
+    }
+    const terms = input.query === undefined ? [] : memorySearchTerms(input.query);
+    for (const term of terms) {
+      conditions.push("LOWER(content) LIKE ?");
+      params.push(`%${term}%`);
+    }
+    params.push(input.limit ?? 100);
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM memory_records WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC, rowid DESC LIMIT ?`
+      )
+      .all(...params) as MemoryRecordRow[];
+    return rows.map(memoryRecordFromRow);
+  }
+
   async delete(id: string, input: DeleteMemoryInput): Promise<boolean> {
     const transaction = this.#db.transaction(() => {
       const operation = this.#db
@@ -676,6 +741,29 @@ export class SqliteRuntimeContextStore
           "INSERT INTO memory_delete_operations (idempotency_key, memory_id, deleted, created_at) VALUES (?, ?, ?, ?)"
         )
         .run(input.idempotencyKey, id, deleted ? 1 : 0, deletedAt);
+      return deleted;
+    });
+    return transaction();
+  }
+
+  async deleteByAdmin(id: string, idempotencyKey: string, deletedAt = new Date().toISOString()): Promise<boolean> {
+    if (!id.trim() || !idempotencyKey.trim())
+      throw new Error("Memory id and delete idempotency key must not be empty.");
+    const operationKey = `admin:${idempotencyKey}`;
+    const transaction = this.#db.transaction(() => {
+      const operation = this.#db
+        .prepare("SELECT deleted FROM memory_delete_operations WHERE idempotency_key = ?")
+        .get(operationKey) as { readonly deleted: number } | undefined;
+      if (operation !== undefined) return operation.deleted === 1;
+      const deleted =
+        this.#db
+          .prepare("UPDATE memory_records SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+          .run(deletedAt, deletedAt, id).changes === 1;
+      this.#db
+        .prepare(
+          "INSERT INTO memory_delete_operations (idempotency_key, memory_id, deleted, created_at) VALUES (?, ?, ?, ?)"
+        )
+        .run(operationKey, id, deleted ? 1 : 0, deletedAt);
       return deleted;
     });
     return transaction();
@@ -840,6 +928,41 @@ export class SqliteRuntimeContextStore
       return input.defaultWorkspace;
     });
 
+    return transaction();
+  }
+
+  async bindProjectWorkspace(input: {
+    readonly workspaceId: string;
+    readonly name?: string;
+    readonly identityId: string;
+  }): Promise<WorkspaceRef> {
+    const workspaceId = input.workspaceId.trim();
+    const identityId = input.identityId.trim();
+    if (!workspaceId || !identityId) throw new Error("Project workspace id and identity id must not be empty.");
+    const transaction = this.#db.transaction(() => {
+      const now = new Date().toISOString();
+      const existing = this.#db
+        .prepare("SELECT id, type, name FROM workspaces WHERE id = ? AND deleted_at IS NULL")
+        .get(workspaceId) as { readonly id: string; readonly type: string; readonly name: string } | undefined;
+      if (existing !== undefined && existing.type !== "project") {
+        throw new Error(`Workspace "${workspaceId}" is not a project workspace.`);
+      }
+      this.#db
+        .prepare(
+          "INSERT OR IGNORE INTO workspaces (id, type, name, created_at, updated_at) VALUES (?, 'project', ?, ?, ?)"
+        )
+        .run(workspaceId, input.name?.trim() || workspaceId, now, now);
+      this.#db
+        .prepare(`
+          INSERT OR IGNORE INTO workspace_bindings (id, workspace_id, binding_type, identity_id, created_at)
+          VALUES (?, ?, 'identity', ?, ?)
+        `)
+        .run(`wbind-${randomUUID()}`, workspaceId, identityId, now);
+      const row = this.#db
+        .prepare("SELECT id, type, name FROM workspaces WHERE id = ? AND deleted_at IS NULL")
+        .get(workspaceId) as { readonly id: string; readonly type: WorkspaceRef["type"]; readonly name: string };
+      return row;
+    });
     return transaction();
   }
 
@@ -1027,6 +1150,30 @@ function validateMemoryInput(input: RememberMemoryInput): void {
   if (input.scopeType === "workspace" && input.workspaceId !== input.scopeId) {
     throw new Error("Workspace memory must be owned by its scope workspace.");
   }
+}
+
+function validateMemoryAccessInput(input: ListMemoryInput): void {
+  if (!input.identityId.trim() || !input.workspaceId.trim()) {
+    throw new Error("Memory access identity and workspace must not be empty.");
+  }
+}
+
+function memorySearchTerms(query: string): readonly string[] {
+  return [
+    ...new Set(
+      query
+        .trim()
+        .toLocaleLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean)
+    )
+  ];
+}
+
+function memoryRelevanceScore(row: MemoryRecordRow, terms: readonly string[]): number {
+  const content = row.content.toLocaleLowerCase();
+  const matched = terms.reduce((count, term) => count + (content.includes(term) ? 1 : 0), 0);
+  return matched / terms.length + row.importance * 0.01 + row.confidence * 0.001;
 }
 
 function serializeOptionalJson(value: unknown): string | null {

@@ -66,6 +66,7 @@ Durable Memory 默认关闭。设置为 `true` 后启用 SQLite 记忆持久化�
 | `maxResponseBytes`    | integer  | `2000000`            |
 | `maxContentChars`     | integer  | `24000`              |
 | `maxRedirects`        | integer  | `5`                  |
+| `cacheTtlMs`          | integer  | `300000`             |
 | `userAgent`           | string   | `SynapseRuntime/0.1` |
 
 可选的 `tools.web.search` 支持：

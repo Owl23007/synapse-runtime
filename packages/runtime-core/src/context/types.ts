@@ -1,5 +1,5 @@
 export type ConversationType = "private" | "group" | "channel" | "cli" | "system";
-export type WorkspaceType = "personal" | "group" | "system";
+export type WorkspaceType = "personal" | "group" | "project" | "system";
 
 export interface PlatformIdentity {
   readonly platform: string;

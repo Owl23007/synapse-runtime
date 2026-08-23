@@ -29,6 +29,7 @@ timeoutMs = 15000
 maxResponseBytes = 2000000
 maxContentChars = 24000
 maxRedirects = 5
+cacheTtlMs = 300000
 allowPrivateNetwork = false
 
 [permissions]
@@ -115,7 +116,7 @@ HTML 会移除脚本、样式、模板和 SVG，再提取标题与可读文本
 - 不保存 Cookie
 - 不支持点击、截图或表单提交
 - HTML 提取器是轻量实现，不等同于完整浏览器 Readability
-- 搜索与抓取缓存尚未实现
+- 搜索与抓取默认使用 Runtime 进程内缓存，TTL 由 `cacheTtlMs` 控制；缓存按工具类型和规范化输入隔离，重启后清空
 
 ## 设计参考
 

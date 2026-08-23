@@ -158,6 +158,35 @@ describe("OneBot11ChannelAdapter", () => {
     expect(socket.options).toEqual({ headers: { authorization: "Bearer token-1" } });
   });
 
+  it("supports HTTP action calls while leaving inbound payload handling explicit", async () => {
+    const requests: Array<{ readonly url: string; readonly body: string }> = [];
+    const adapter = new OneBot11ChannelAdapter({
+      id: "qq-http",
+      transport: "http",
+      endpoint: "http://127.0.0.1:5700",
+      accessToken: "token-1",
+      fetch: async (input, init) => {
+        requests.push({ url: String(input), body: String(init?.body) });
+        return Response.json({ status: "ok", retcode: 0, data: { message_id: 1001 } });
+      }
+    });
+
+    await adapter.connect();
+    await expect(adapter.sendMessage({ type: "private", userId: "42" }, textMessage("hello"))).resolves.toEqual({
+      ok: true,
+      messageId: "1001"
+    });
+    expect(requests).toEqual([
+      {
+        url: "http://127.0.0.1:5700/send_msg",
+        body: JSON.stringify({
+          action: "send_msg",
+          params: { message_type: "private", user_id: "42", message: "hello", auto_escape: false }
+        })
+      }
+    ]);
+  });
+
   it("dispatches incoming message events", async () => {
     const socket = new FakeWebSocket("ws://127.0.0.1:3001");
     const adapter = new OneBot11ChannelAdapter({

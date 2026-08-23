@@ -1,5 +1,23 @@
 export type OneBot11Transport = "websocket" | "http" | "http-websocket";
 
+/** OneBot HTTP 请求初始化参数 */
+export interface OneBot11FetchInit {
+  readonly method?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+}
+
+/** OneBot HTTP 响应的最小兼容契约 */
+export interface OneBot11FetchResponse {
+  readonly ok: boolean;
+  readonly status: number;
+  json(): Promise<unknown>;
+  text?(): Promise<string>;
+}
+
+/** OneBot HTTP 请求函数 */
+export type OneBot11Fetch = (url: string, init?: OneBot11FetchInit) => Promise<OneBot11FetchResponse>;
+
 export interface OneBot11ChannelAdapterOptions {
   readonly id: string;
   readonly provider?: string;
@@ -7,6 +25,7 @@ export interface OneBot11ChannelAdapterOptions {
   readonly endpoint: string;
   readonly accessToken?: string;
   readonly requestTimeoutMs?: number;
+  readonly fetch?: OneBot11Fetch;
   readonly WebSocketCtor?: OneBot11WebSocketConstructor;
 }
 

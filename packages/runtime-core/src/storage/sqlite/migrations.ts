@@ -26,6 +26,7 @@ export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
     ensureColumn(db, "memory_records", "pii_level", "TEXT NOT NULL DEFAULT 'none'");
     ensureColumn(db, "memory_records", "prompt_eligible", "INTEGER NOT NULL DEFAULT 1");
     ensureColumn(db, "memory_records", "idempotency_key", "TEXT");
+    rebuildWorkspaceTypeCheck(db);
     backfillLegacyConversationModel(db);
     rebuildEventProcessUniqueIndex(db);
     db.exec(RUNTIME_CONTEXT_POST_MIGRATION_SQL);
@@ -35,10 +36,106 @@ export function migrateSqliteRuntimeContextStore(db: Database.Database): void {
     if (foreignKeyErrors.length > 0) {
       throw new Error(`Runtime context migration produced ${foreignKeyErrors.length} foreign key violation(s).`);
     }
-    db.pragma("user_version = 6");
+    db.pragma("user_version = 7");
   });
 
   migrate.immediate();
+}
+
+function rebuildWorkspaceTypeCheck(db: Database.Database): void {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'workspaces'").get() as
+    | { readonly sql?: string }
+    | undefined;
+  if (row?.sql?.includes("'project'") === true) return;
+
+  db.exec(`
+    DROP INDEX IF EXISTS idx_workspace_binding_identity;
+    DROP INDEX IF EXISTS idx_workspace_binding_conversation;
+    DROP INDEX IF EXISTS idx_memory_scope_created;
+    DROP INDEX IF EXISTS idx_memory_visibility;
+    DROP INDEX IF EXISTS idx_memory_idempotency;
+    ALTER TABLE workspaces RENAME TO workspaces_legacy_v6;
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK(type IN ('personal', 'group', 'project', 'system')),
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    INSERT INTO workspaces (id, type, name, created_at, updated_at, deleted_at)
+      SELECT id, type, name, created_at, updated_at, deleted_at FROM workspaces_legacy_v6;
+    ALTER TABLE memory_records RENAME TO memory_records_legacy_v6;
+    CREATE TABLE memory_records (
+      id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL CHECK(scope_type IN ('identity', 'workspace')),
+      scope_id TEXT NOT NULL,
+      identity_id TEXT,
+      workspace_id TEXT,
+      visibility TEXT NOT NULL CHECK(visibility IN ('private', 'workspace', 'public', 'secret')),
+      kind TEXT NOT NULL DEFAULT 'preference' CHECK(kind IN ('preference', 'fact', 'decision', 'summary')),
+      content TEXT NOT NULL,
+      source TEXT NOT NULL,
+      idempotency_key TEXT,
+      importance REAL NOT NULL DEFAULT 0.5 CHECK(importance >= 0 AND importance <= 1),
+      confidence REAL NOT NULL DEFAULT 0.8 CHECK(confidence >= 0 AND confidence <= 1),
+      pii_level TEXT NOT NULL DEFAULT 'none' CHECK(pii_level IN ('none', 'low', 'high')),
+      prompt_eligible INTEGER NOT NULL DEFAULT 1 CHECK(prompt_eligible IN (0, 1)),
+      source_event_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      CHECK(
+        (scope_type = 'identity' AND identity_id IS NOT NULL AND workspace_id IS NULL)
+        OR
+        (scope_type = 'workspace' AND identity_id IS NULL AND workspace_id IS NOT NULL)
+      ),
+      FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+    );
+    INSERT INTO memory_records (
+      id, scope_type, scope_id, identity_id, workspace_id, visibility, kind, content, source,
+      idempotency_key, importance, confidence, pii_level, prompt_eligible, source_event_id,
+      created_at, updated_at, deleted_at
+    ) SELECT id, scope_type, scope_id, identity_id, workspace_id, visibility, kind, content, source,
+      idempotency_key, importance, confidence, pii_level, prompt_eligible, source_event_id,
+      created_at, updated_at, deleted_at FROM memory_records_legacy_v6;
+    DROP TABLE memory_records_legacy_v6;
+    ALTER TABLE workspace_bindings RENAME TO workspace_bindings_legacy_v6;
+    CREATE TABLE workspace_bindings (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      binding_type TEXT NOT NULL CHECK(binding_type IN ('identity', 'conversation')),
+      identity_id TEXT,
+      platform TEXT,
+      provider TEXT,
+      channel_id TEXT,
+      conversation_type TEXT CHECK(conversation_type IS NULL OR conversation_type IN ('private', 'group', 'channel', 'cli', 'system')),
+      conversation_id TEXT,
+      created_at TEXT NOT NULL,
+      deleted_at TEXT,
+      CHECK(
+        (binding_type = 'identity' AND identity_id IS NOT NULL AND platform IS NULL AND provider IS NULL AND channel_id IS NULL AND conversation_type IS NULL AND conversation_id IS NULL)
+        OR
+        (binding_type = 'conversation' AND identity_id IS NULL AND platform IS NOT NULL AND provider IS NOT NULL AND channel_id IS NOT NULL AND conversation_type IS NOT NULL AND conversation_id IS NOT NULL)
+      ),
+      FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+    );
+    INSERT INTO workspace_bindings (
+      id, workspace_id, binding_type, identity_id, platform, provider, channel_id,
+      conversation_type, conversation_id, created_at, deleted_at
+    ) SELECT id, workspace_id, binding_type, identity_id, platform, provider, channel_id,
+      conversation_type, conversation_id, created_at, deleted_at FROM workspace_bindings_legacy_v6;
+    DROP TABLE workspace_bindings_legacy_v6;
+    DROP TABLE workspaces_legacy_v6;
+    CREATE INDEX idx_memory_scope_created ON memory_records(scope_type, scope_id, created_at DESC);
+    CREATE INDEX idx_memory_visibility ON memory_records(visibility, identity_id, workspace_id, deleted_at);
+    CREATE UNIQUE INDEX idx_workspace_binding_identity
+      ON workspace_bindings(workspace_id, identity_id)
+      WHERE binding_type = 'identity' AND deleted_at IS NULL;
+    CREATE UNIQUE INDEX idx_workspace_binding_conversation
+      ON workspace_bindings(workspace_id, platform, provider, channel_id, conversation_type, conversation_id)
+      WHERE binding_type = 'conversation' AND deleted_at IS NULL;
+  `);
 }
 
 /**

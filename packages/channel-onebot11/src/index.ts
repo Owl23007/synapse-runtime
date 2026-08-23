@@ -3,6 +3,9 @@ export { createOneBot11SendParams, oneBot11SegmentsToSynapseSegments, renderOneB
 export { normalizeOneBot11Event } from "./normalize.js";
 export type {
   OneBot11ChannelAdapterOptions,
+  OneBot11Fetch,
+  OneBot11FetchInit,
+  OneBot11FetchResponse,
   OneBot11MessageEventPayload,
   OneBot11ResponsePayload,
   OneBot11Transport,
