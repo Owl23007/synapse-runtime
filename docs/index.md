@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: Synapse Runtime
+  name: Synapse
   text: Agent Infra Runtime
   tagline: 面向本地优先部署的 TypeScript Runtime，统一通道接入、Agent Provider、权限、上下文合成与运维控制面。
   actions:
