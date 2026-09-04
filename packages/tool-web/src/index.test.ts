@@ -209,6 +209,11 @@ describe("web.search", () => {
             url: "https://agents.example/open",
             content: "Agent tools",
             engine: "duckduckgo"
+          },
+          {
+            title: "Fallback source",
+            url: "https://fallback.example/result",
+            content: "No provider source"
           }
         ]
       })
@@ -223,7 +228,7 @@ describe("web.search", () => {
     });
 
     await expect(
-      tool.handle({ query: "open agents", count: 3, domains: ["agents.example"] }, toolContext)
+      tool.handle({ query: "open agents", count: 3, domains: ["agents.example", "fallback.example"] }, toolContext)
     ).resolves.toMatchObject({
       provider: "searxng",
       searchedAt: expect.any(String),
@@ -232,6 +237,11 @@ describe("web.search", () => {
           rank: 1,
           title: "Open source agents",
           source: "duckduckgo"
+        },
+        {
+          rank: 2,
+          title: "Fallback source",
+          source: "fallback.example"
         }
       ]
     });

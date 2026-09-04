@@ -48,6 +48,12 @@ interface WebFetchInput {
   readonly maxChars: number;
 }
 
+interface SearchResultFieldNames {
+  readonly snippet: string;
+  readonly publishedAt: string;
+  readonly source?: string;
+}
+
 const WEB_SEARCH_SCHEMA = {
   type: "object",
   properties: {
@@ -198,25 +204,7 @@ async function searchBrave(
   const body = parseJsonRecord(await readResponseText(response, options.maxResponseBytes));
   const web = recordValue(body.web);
   const results = Array.isArray(web?.results) ? web.results : [];
-  return results.slice(0, input.count).flatMap((value, index) => {
-    const result = recordValue(value);
-    const title = stringValue(result?.title);
-    const urlValue = stringValue(result?.url);
-    if (title === undefined || urlValue === undefined) {
-      return [];
-    }
-    const publishedAt = stringValue(result?.page_age);
-    return [
-      {
-        rank: index + 1,
-        title: truncateInlineText(cleanInlineText(title), 300),
-        url: urlValue,
-        snippet: truncateInlineText(cleanInlineText(stringValue(result?.description) ?? ""), 1200),
-        source: hostnameOrUnknown(urlValue),
-        ...(publishedAt === undefined ? {} : { publishedAt })
-      }
-    ];
-  });
+  return normalizeSearchResults(results, input.count, { snippet: "description", publishedAt: "page_age" });
 }
 
 async function searchSearxng(
@@ -238,21 +226,35 @@ async function searchSearxng(
   );
   const body = parseJsonRecord(await readResponseText(response, options.maxResponseBytes));
   const results = Array.isArray(body.results) ? body.results : [];
-  return results.slice(0, input.count).flatMap((value, index) => {
+  return normalizeSearchResults(results, input.count, {
+    snippet: "content",
+    publishedAt: "publishedDate",
+    source: "engine"
+  });
+}
+
+function normalizeSearchResults(
+  values: readonly unknown[],
+  count: number,
+  fields: SearchResultFieldNames
+): readonly WebSearchResult[] {
+  return values.slice(0, count).flatMap((value, index) => {
     const result = recordValue(value);
     const title = stringValue(result?.title);
-    const urlValue = stringValue(result?.url);
-    if (title === undefined || urlValue === undefined) {
+    const url = stringValue(result?.url);
+    if (title === undefined || url === undefined) {
       return [];
     }
-    const publishedAt = stringValue(result?.publishedDate);
+
+    const publishedAt = stringValue(result?.[fields.publishedAt]);
+    const providerSource = fields.source === undefined ? undefined : stringValue(result?.[fields.source]);
     return [
       {
         rank: index + 1,
         title: truncateInlineText(cleanInlineText(title), 300),
-        url: urlValue,
-        snippet: truncateInlineText(cleanInlineText(stringValue(result?.content) ?? ""), 1200),
-        source: stringValue(result?.engine) ?? hostnameOrUnknown(urlValue),
+        url,
+        snippet: truncateInlineText(cleanInlineText(stringValue(result?.[fields.snippet]) ?? ""), 1200),
+        source: providerSource ?? hostnameOrUnknown(url),
         ...(publishedAt === undefined ? {} : { publishedAt })
       }
     ];
