@@ -48,13 +48,12 @@ const columns = computed(() =>
       const totalPages = Math.max(1, Math.ceil(matchedPrds.length / PAGE_SIZE));
       const currentPage = Math.min(pageByStatus[stage.status], totalPages);
 
-      return {
-        ...stage,
+      return Object.assign({}, stage, {
         total: matchedPrds.length,
         currentPage,
         totalPages,
         prds: matchedPrds.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-      };
+      });
     })
 );
 
