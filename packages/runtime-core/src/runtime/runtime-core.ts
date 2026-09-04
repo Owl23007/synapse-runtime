@@ -40,6 +40,7 @@ import {
   type ContextAttributionDecision,
   type ContextAttributor,
   type CreateBranchInput,
+  type EventProcessState,
   type LineEvent,
   type IdentityResolver,
   type EventProcessStore,
@@ -70,6 +71,13 @@ import {
   textMessage,
   withReplyContext
 } from "./message-utils.js";
+
+type RuntimeEventScope = {
+  readonly provider: string;
+  readonly accepted: AcceptedNormalizedEvent;
+};
+
+type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send_uncertain";
 
 /**
  * 编排频道事件持久化、上下文构建、智能体执行与消息投递
@@ -358,14 +366,7 @@ export class RuntimeCore {
     });
   }
 
-  async #runAgent(
-    request: AgentRequest,
-    event: SynapseChannelEvent,
-    scope: {
-      readonly provider: string;
-      readonly accepted: AcceptedNormalizedEvent;
-    }
-  ): Promise<void> {
+  async #runAgent(request: AgentRequest, event: SynapseChannelEvent, scope: RuntimeEventScope): Promise<void> {
     const provider = scope.provider;
     const sessionId = scope.accepted.session.id;
     const lineId = scope.accepted.lineEvent.lineId;
@@ -443,16 +444,7 @@ export class RuntimeCore {
         return;
       }
 
-      let recoveryStatus =
-        processState.status === "processing"
-          ? processPhase(processState.errorJson) === "send_started"
-            ? "send_uncertain"
-            : processState.sendResultJson !== undefined
-              ? "send_succeeded"
-              : processState.agentOutputJson !== undefined || processState.agentOutputText !== undefined
-                ? "agent_completed"
-                : "received"
-          : processState.status;
+      const recoveryStatus = recoveryStatusFromProcess(processState);
       if (this.#locallyClaimedProcesses.has(processState.id)) {
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
         return;
@@ -512,155 +504,19 @@ export class RuntimeCore {
         workspaceStore: this.#workspaceStore,
         sourceEventId: scope.accepted.event.id
       });
-      let recoveredOutput =
-        parseAgentOutput(processState.agentOutputJson) ??
-        (processState.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText));
-      if (recoveredOutput === undefined) {
-        const completedAgentEvent = await this.#findCompletedAgentEvent(scope.accepted);
-        const persistedOutput =
-          completedAgentEvent === undefined ? undefined : agentOutputFromEvent(completedAgentEvent);
-        if (persistedOutput !== undefined) {
-          recoveredOutput = persistedOutput;
-          if (recoveryStatus === "received") {
-            recoveryStatus = "agent_completed";
-          }
-          await this.#eventProcessStore.update(processState.id, {
-            status: "processing",
-            agentOutputText: getText(persistedOutput),
-            agentOutputJson: stringifyAgentOutput(persistedOutput)
-          });
-        }
-      }
-      if (recoveredOutput !== undefined && commandOutput === undefined) {
-        await this.#ensureCompletedAgentEvent(scope.accepted, recoveredOutput, event.id);
-      }
-
-      if (recoveryStatus === "send_uncertain") {
-        const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-        if (assistantEvent === undefined || recoveredOutput === undefined) {
-          throw new Error(`Uncertain delivery for "${scope.accepted.event.id}" is missing its persisted output.`);
-        }
-        const recoveredRunId = `recovered-${event.id}`;
-        await this.#appendDeliveryEvent(
-          {
-            event,
-            runId: recoveredRunId,
-            conversation: scope.accepted
-          },
-          assistantEvent,
-          "delivery_uncertain",
-          {
-            recovered: true,
-            reason: "The previous process stopped after delivery started; output was not sent again."
-          }
-        );
-        const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
-        const assistant = await this.#appendAssistantTranscript(
-          event,
-          output,
-          scope.accepted,
-          undefined,
-          assistantEvent.id
-        );
-        await this.#eventProcessStore.update(processState.id, {
-          status: "completed",
-          ...(assistant === undefined ? {} : { assistantMessageId: assistant.id }),
-          errorJson: JSON.stringify({ phase: "send_uncertain" })
-        });
-        this.#traces.push({
-          eventId: event.id,
-          status: "failed",
-          reason: "delivery_outcome_uncertain",
-          runId: recoveredRunId
-        });
-        return;
-      }
-
-      if ((recoveryStatus === "agent_completed" || recoveryStatus === "send_failed") && recoveredOutput !== undefined) {
-        const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-        if (assistantEvent !== undefined) {
-          const deliveryEvents = await this.#conversationStore.listEvents(scope.accepted.mainline.id, {
-            types: ["delivery_succeeded"]
-          });
-          const delivered = deliveryEvents.find((delivery) => delivery.sourceEventId === assistantEvent.id);
-          if (delivered !== undefined) {
-            const recoveredRunId = `recovered-${event.id}`;
-            const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
-            const assistant = await this.#appendAssistantTranscript(
-              event,
-              output,
-              scope.accepted,
-              externalMessageIdFromDelivery(delivered),
-              assistantEvent.id
-            );
-            await this.#eventProcessStore.update(processState.id, {
-              status: "completed",
-              ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
-            });
-            this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
-            return;
-          }
-        }
-        await this.#sendOutput({
+      if (
+        await this.#resumeRecoveredProcess({
           event,
           request: enrichedRequest,
-          runId: `recovered-${event.id}`,
-          output: recoveredOutput,
+          scope,
+          processState,
+          recoveryStatus,
+          commandOutput,
           workspace,
           outputPolicy,
-          processStateId,
-          conversation: scope.accepted
-        });
-        return;
-      }
-
-      if (recoveryStatus === "send_succeeded") {
-        const sendSucceededState = processState;
-        if (recoveredOutput !== undefined) {
-          const recoveredRunId = `recovered-${event.id}`;
-          const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-          if (assistantEvent === undefined) {
-            throw new Error(`Persisted assistant event for "${scope.accepted.event.id}" does not exist.`);
-          }
-          const sendResult = parseSendResult(processState.sendResultJson);
-          const deliveryEvents = await this.#conversationStore.listEvents(scope.accepted.mainline.id, {
-            types: ["delivery_succeeded"]
-          });
-          if (!deliveryEvents.some((delivery) => delivery.sourceEventId === assistantEvent.id)) {
-            await this.#appendDeliveryEvent(
-              {
-                event,
-                runId: recoveredRunId,
-                conversation: scope.accepted
-              },
-              assistantEvent,
-              "delivery_succeeded",
-              {
-                ...(sendResult?.messageId === undefined ? {} : { externalMessageId: sendResult.messageId }),
-                recovered: true
-              }
-            );
-          }
-          const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, `recovered-${event.id}`);
-          const assistant = await this.#appendAssistantTranscript(
-            event,
-            output,
-            scope.accepted,
-            sendResult?.messageId,
-            assistantEvent.id
-          );
-          await this.#eventProcessStore.update(sendSucceededState.id, {
-            status: "completed",
-            ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
-          });
-          this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
-        } else {
-          await this.#eventProcessStore.update(processState.id, {
-            status: "completed",
-            errorJson: JSON.stringify({ error: "send_succeeded_without_output" })
-          });
-          this.#traces.push({ eventId: event.id, status: "ignored", reason: "send_succeeded_without_output" });
-        }
+          processStateId
+        })
+      ) {
         return;
       }
 
@@ -953,6 +809,175 @@ export class RuntimeCore {
         this.#locallyClaimedProcesses.delete(locallyClaimedProcessId);
       }
     }
+  }
+
+  /**
+   * 恢复崩溃前已持久化的智能体输出或投递结果
+   *
+   * 返回 true 表示该事件已被恢复路径完全处理，调用方不应重新执行智能体
+   */
+  async #resumeRecoveredProcess(input: {
+    readonly event: SynapseChannelEvent;
+    readonly request: AgentRequest;
+    readonly scope: RuntimeEventScope;
+    readonly processState: EventProcessState;
+    readonly recoveryStatus: RecoveryStatus;
+    readonly commandOutput: SynapseMessage | undefined;
+    readonly workspace: WorkspaceRef;
+    readonly outputPolicy: OutputPolicy;
+    readonly processStateId: string | undefined;
+  }): Promise<boolean> {
+    const { event, request, scope, processState, commandOutput, workspace, outputPolicy, processStateId } = input;
+    let recoveryStatus = input.recoveryStatus;
+    let recoveredOutput =
+      parseAgentOutput(processState.agentOutputJson) ??
+      (processState.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText));
+    if (recoveredOutput === undefined) {
+      const completedAgentEvent = await this.#findCompletedAgentEvent(scope.accepted);
+      const persistedOutput = completedAgentEvent === undefined ? undefined : agentOutputFromEvent(completedAgentEvent);
+      if (persistedOutput !== undefined) {
+        recoveredOutput = persistedOutput;
+        if (recoveryStatus === "received") {
+          recoveryStatus = "agent_completed";
+        }
+        await this.#eventProcessStore.update(processState.id, {
+          status: "processing",
+          agentOutputText: getText(persistedOutput),
+          agentOutputJson: stringifyAgentOutput(persistedOutput)
+        });
+      }
+    }
+    if (recoveredOutput !== undefined && commandOutput === undefined) {
+      await this.#ensureCompletedAgentEvent(scope.accepted, recoveredOutput, event.id);
+    }
+
+    if (recoveryStatus === "send_uncertain") {
+      const assistantEvent = await this.#findAssistantEvent(scope.accepted);
+      if (assistantEvent === undefined || recoveredOutput === undefined) {
+        throw new Error(`Uncertain delivery for "${scope.accepted.event.id}" is missing its persisted output.`);
+      }
+      const recoveredRunId = `recovered-${event.id}`;
+      await this.#appendDeliveryEvent(
+        { event, runId: recoveredRunId, conversation: scope.accepted },
+        assistantEvent,
+        "delivery_uncertain",
+        {
+          recovered: true,
+          reason: "The previous process stopped after delivery started; output was not sent again."
+        }
+      );
+      const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
+      const assistant = await this.#appendAssistantTranscript(
+        event,
+        output,
+        scope.accepted,
+        undefined,
+        assistantEvent.id
+      );
+      await this.#eventProcessStore.update(processState.id, {
+        status: "completed",
+        ...(assistant === undefined ? {} : { assistantMessageId: assistant.id }),
+        errorJson: JSON.stringify({ phase: "send_uncertain" })
+      });
+      this.#traces.push({
+        eventId: event.id,
+        status: "failed",
+        reason: "delivery_outcome_uncertain",
+        runId: recoveredRunId
+      });
+      return true;
+    }
+
+    if ((recoveryStatus === "agent_completed" || recoveryStatus === "send_failed") && recoveredOutput !== undefined) {
+      const assistantEvent = await this.#findAssistantEvent(scope.accepted);
+      if (assistantEvent !== undefined) {
+        const delivered = await this.#findSuccessfulDelivery(scope.accepted, assistantEvent);
+        if (delivered !== undefined) {
+          const recoveredRunId = `recovered-${event.id}`;
+          const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
+          const assistant = await this.#appendAssistantTranscript(
+            event,
+            output,
+            scope.accepted,
+            externalMessageIdFromDelivery(delivered),
+            assistantEvent.id
+          );
+          await this.#eventProcessStore.update(processState.id, {
+            status: "completed",
+            ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
+          });
+          this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
+          return true;
+        }
+      }
+      await this.#sendOutput({
+        event,
+        request,
+        runId: `recovered-${event.id}`,
+        output: recoveredOutput,
+        workspace,
+        outputPolicy,
+        processStateId,
+        conversation: scope.accepted
+      });
+      return true;
+    }
+
+    if (recoveryStatus !== "send_succeeded") {
+      return false;
+    }
+
+    if (recoveredOutput === undefined) {
+      await this.#eventProcessStore.update(processState.id, {
+        status: "completed",
+        errorJson: JSON.stringify({ error: "send_succeeded_without_output" })
+      });
+      this.#traces.push({ eventId: event.id, status: "ignored", reason: "send_succeeded_without_output" });
+      return true;
+    }
+
+    const recoveredRunId = `recovered-${event.id}`;
+    const assistantEvent = await this.#findAssistantEvent(scope.accepted);
+    if (assistantEvent === undefined) {
+      throw new Error(`Persisted assistant event for "${scope.accepted.event.id}" does not exist.`);
+    }
+    const sendResult = parseSendResult(processState.sendResultJson);
+    const delivered = await this.#findSuccessfulDelivery(scope.accepted, assistantEvent);
+    if (delivered === undefined) {
+      await this.#appendDeliveryEvent(
+        { event, runId: recoveredRunId, conversation: scope.accepted },
+        assistantEvent,
+        "delivery_succeeded",
+        {
+          ...(sendResult?.messageId === undefined ? {} : { externalMessageId: sendResult.messageId }),
+          recovered: true
+        }
+      );
+    }
+    const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
+    const assistant = await this.#appendAssistantTranscript(
+      event,
+      output,
+      scope.accepted,
+      sendResult?.messageId,
+      assistantEvent.id
+    );
+    await this.#eventProcessStore.update(processState.id, {
+      status: "completed",
+      ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
+    });
+    this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
+    return true;
+  }
+
+  async #findSuccessfulDelivery(
+    conversation: AcceptedNormalizedEvent,
+    assistantEvent: LineEvent
+  ): Promise<LineEvent | undefined> {
+    const deliveryEvents = await this.#conversationStore.listEvents(conversation.mainline.id, {
+      types: ["delivery_succeeded"]
+    });
+    return deliveryEvents.find((delivery) => delivery.sourceEventId === assistantEvent.id);
   }
 
   async #sendOutput(input: {
@@ -1650,6 +1675,24 @@ function processPhase(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function recoveryStatusFromProcess(process: EventProcessState): RecoveryStatus {
+  if (process.status !== "processing") {
+    return process.status;
+  }
+
+  if (processPhase(process.errorJson) === "send_started") {
+    return "send_uncertain";
+  }
+
+  if (process.sendResultJson !== undefined) {
+    return "send_succeeded";
+  }
+
+  return process.agentOutputJson !== undefined || process.agentOutputText !== undefined
+    ? "agent_completed"
+    : "received";
 }
 
 function agentOutputFromEvent(event: LineEvent): SynapseMessage | undefined {
