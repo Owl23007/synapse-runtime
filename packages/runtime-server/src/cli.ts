@@ -2,6 +2,7 @@
 import { startRuntimeConsole } from "./console.js";
 import { loadConfigFile, type RuntimeConfig } from "@synapse/runtime-config";
 import { RuntimeAdminClient } from "./admin-client.js";
+import { parseArgs, type CliOptions } from "./cli-args.js";
 import { loadEnvFile } from "./env.js";
 import {
   connectProfile,
@@ -12,38 +13,8 @@ import {
 } from "./profile-store.js";
 import { RuntimeServer } from "./server/runtime-server.js";
 
-interface CliOptions {
-  readonly command:
-    | "start"
-    | "serve"
-    | "console"
-    | "status"
-    | "logs"
-    | "channels"
-    | "channel"
-    | "reload"
-    | "shutdown"
-    | "connect"
-    | "profiles"
-    | "use";
-  readonly configPath: string;
-  readonly envFile?: string;
-  readonly adminHost?: string;
-  readonly adminPort?: number;
-  readonly adminTokenEnv?: string;
-  readonly endpoint?: string;
-  readonly token?: string;
-  readonly tail?: number;
-  readonly profile?: string;
-  readonly profilePath?: string;
-  readonly spawn?: boolean;
-  readonly channelAction?: "enable" | "disable";
-  readonly channelId?: string;
-  readonly positional?: readonly string[];
-}
-
 async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseArgs(process.argv.slice(2), printHelp);
 
   if (options.command === "console") {
     await startRuntimeConsole(options);
@@ -92,230 +63,6 @@ async function main(): Promise<void> {
       process.exit(1);
     });
   });
-}
-
-function parseArgs(args: readonly string[]): CliOptions {
-  let command: CliOptions["command"] = "start";
-  let configPath = "runtime.config.toml";
-  let envFile: string | undefined;
-  let adminHost: string | undefined;
-  let adminPort: number | undefined;
-  let adminTokenEnv: string | undefined;
-  let endpoint: string | undefined;
-  let token: string | undefined;
-  let tail: number | undefined;
-  let profile: string | undefined;
-  let profilePath: string | undefined;
-  let spawn = false;
-  let channelAction: CliOptions["channelAction"];
-  let channelId: string | undefined;
-  const positional: string[] = [];
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    if (
-      index === 0 &&
-      (arg === "start" ||
-        arg === "serve" ||
-        arg === "console" ||
-        arg === "status" ||
-        arg === "logs" ||
-        arg === "channels" ||
-        arg === "channel" ||
-        arg === "reload" ||
-        arg === "shutdown" ||
-        arg === "connect" ||
-        arg === "profiles" ||
-        arg === "use")
-    ) {
-      command = arg;
-      continue;
-    }
-
-    if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    }
-
-    if (arg === "--config" || arg === "-c") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error(`${arg} requires a file path.`);
-      }
-
-      configPath = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--env-file") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--env-file requires a file path.");
-      }
-
-      envFile = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--admin-host") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--admin-host requires a host value.");
-      }
-
-      adminHost = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--admin-port") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--admin-port requires a port value.");
-      }
-
-      const port = Number.parseInt(value, 10);
-      if (!Number.isInteger(port) || port < 0 || port > 65_535) {
-        throw new Error("--admin-port must be an integer between 0 and 65535.");
-      }
-
-      adminPort = port;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--admin-token-env") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--admin-token-env requires an environment variable name.");
-      }
-
-      adminTokenEnv = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--endpoint") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--endpoint requires a URL.");
-      }
-
-      endpoint = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--profile") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--profile requires a profile name.");
-      }
-
-      profile = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--profile-config") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--profile-config requires a file path.");
-      }
-
-      profilePath = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--spawn") {
-      spawn = true;
-      continue;
-    }
-
-    if (arg === "--token") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error("--token requires a token.");
-      }
-
-      token = value;
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--tail" || arg === "--limit") {
-      const value = args[index + 1];
-
-      if (value === undefined) {
-        throw new Error(`${arg} requires a positive integer.`);
-      }
-
-      tail = parsePositiveInt(value, arg);
-      index += 1;
-      continue;
-    }
-
-    if (arg !== undefined && !arg.startsWith("-")) {
-      positional.push(arg);
-      continue;
-    }
-
-    throw new Error(`Unknown argument "${arg}".`);
-  }
-
-  if (command === "connect" && endpoint === undefined && positional[0] !== undefined) {
-    endpoint = positional[0];
-  }
-
-  if (command === "use" && profile === undefined && positional[0] !== undefined) {
-    profile = positional[0];
-  }
-
-  if (command === "channel") {
-    const action = positional[0];
-
-    if (action !== "enable" && action !== "disable") {
-      throw new Error('channel command requires "enable" or "disable".');
-    }
-
-    if (positional[1] === undefined) {
-      throw new Error("channel command requires a channel id.");
-    }
-
-    channelAction = action;
-    channelId = positional[1];
-  }
-
-  return {
-    command,
-    configPath,
-    ...(envFile === undefined ? {} : { envFile }),
-    ...(adminHost === undefined ? {} : { adminHost }),
-    ...(adminPort === undefined ? {} : { adminPort }),
-    ...(adminTokenEnv === undefined ? {} : { adminTokenEnv }),
-    ...(endpoint === undefined ? {} : { endpoint }),
-    ...(token === undefined ? {} : { token }),
-    ...(tail === undefined ? {} : { tail }),
-    ...(profile === undefined ? {} : { profile }),
-    ...(profilePath === undefined ? {} : { profilePath }),
-    ...(spawn ? { spawn } : {}),
-    ...(channelAction === undefined ? {} : { channelAction }),
-    ...(channelId === undefined ? {} : { channelId }),
-    ...(positional.length === 0 ? {} : { positional })
-  };
 }
 
 async function runAdminCommand(options: CliOptions): Promise<void> {
@@ -394,16 +141,6 @@ async function runProfileCommand(options: CliOptions): Promise<void> {
   console.log(JSON.stringify({ ok: true, profilePath, ...config }, null, 2));
 }
 
-function parsePositiveInt(value: string, optionName: string): number {
-  const parsed = Number.parseInt(value, 10);
-
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${optionName} requires a positive integer.`);
-  }
-
-  return parsed;
-}
-
 function applyCliOverrides(config: RuntimeConfig, options: CliOptions): RuntimeConfig {
   if (options.adminHost === undefined && options.adminPort === undefined && options.adminTokenEnv === undefined) {
     return config;
@@ -426,7 +163,7 @@ function applyCliOverrides(config: RuntimeConfig, options: CliOptions): RuntimeC
   };
 }
 
-function printHelp(): void {
+function printHelp(): never {
   console.log(`Usage: synapse-runtime [command] [options]
 
 Commands:
@@ -458,6 +195,7 @@ Options:
   --tail <n>            Log entry count for logs. Defaults to 100
   -h, --help            Show this help message
 `);
+  process.exit(0);
 }
 
 main().catch((error) => {
