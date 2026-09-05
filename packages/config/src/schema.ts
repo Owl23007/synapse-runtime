@@ -1,94 +1,8 @@
 import { z } from "zod";
-import { AgentSettingsSchema } from "./schema/agent.js";
-import { ChannelConfigSchema, ChannelIdSchema } from "./schema/channels.js";
-import {
-  ConversationSettingsSchema,
-  MemorySettingsSchema,
-  RuntimeContextSettingsSchema
-} from "./schema/conversation.js";
-import { DEFAULT_PERMISSIONS, PermissionPolicySchema } from "./schema/permissions.js";
-import { LocaleSettingsSchema, PresentationSettingsSchema, PromptBundleSettingsSchema } from "./schema/resources.js";
-import { AdminSettingsSchema, RuntimeSettingsSchema, ServerSettingsSchema } from "./schema/runtime.js";
-import { ToolSettingsSchema } from "./schema/tools.js";
+import * as schemas from "./schema/index.js";
 
-// 保留原有 Schema 导入入口，领域模块仅依赖自身及共享定义，避免循环依赖
-export {
-  PermissionPolicySchema,
-  RiskLevelSchema,
-  DEFAULT_PERMISSIONS,
-  type PermissionPolicy,
-  type RiskLevel
-} from "./schema/permissions.js";
-export {
-  DEFAULT_RUNTIME_DATA_DIR,
-  RuntimeModeSchema,
-  LogLevelSchema,
-  RuntimeSettingsSchema,
-  ServerSettingsSchema,
-  AdminSettingsSchema,
-  type RuntimeMode,
-  type LogLevel,
-  type RuntimeSettings,
-  type ServerSettings,
-  type AdminSettings
-} from "./schema/runtime.js";
-export {
-  TriggerModeSchema,
-  ConversationTriggerPolicySchema,
-  ContextPolicySchema,
-  RuntimeContextSettingsSchema,
-  MemorySettingsSchema,
-  ConversationSettingsSchema,
-  type TriggerMode,
-  type ConversationTriggerPolicy,
-  type ContextPolicy,
-  type RuntimeContextSettings,
-  type MemorySettings,
-  type ConversationSettings
-} from "./schema/conversation.js";
-export {
-  LocaleSettingsSchema,
-  PromptBundleSettingsSchema,
-  PresentationModeSchema,
-  PresentationSettingsSchema,
-  type LocaleSettings,
-  type PromptBundleSettings,
-  type PresentationMode,
-  type PresentationSettings
-} from "./schema/resources.js";
-export {
-  BraveWebSearchSettingsSchema,
-  SearxngWebSearchSettingsSchema,
-  WebSearchSettingsSchema,
-  WebToolSettingsSchema,
-  ToolSettingsSchema,
-  type BraveWebSearchSettings,
-  type SearxngWebSearchSettings,
-  type WebSearchSettings,
-  type WebToolSettings,
-  type ToolSettings
-} from "./schema/tools.js";
-export {
-  AgentProviderIdSchema,
-  OpenAiCompatibleAgentProviderConfigSchema,
-  EchoAgentProviderConfigSchema,
-  AgentProviderConfigSchema,
-  AgentSettingsSchema,
-  type AgentProviderId,
-  type OpenAiCompatibleAgentProviderConfig,
-  type EchoAgentProviderConfig,
-  type AgentProviderConfig,
-  type AgentSettings
-} from "./schema/agent.js";
-export {
-  OneBot11ChannelConfigSchema,
-  QqOfficialChannelConfigSchema,
-  ChannelConfigSchema,
-  ChannelIdSchema,
-  type OneBot11ChannelConfig,
-  type QqOfficialChannelConfig,
-  type ChannelConfig
-} from "./schema/channels.js";
+// 保留原有 Schema 导入入口
+export * from "./schema/index.js";
 
 /**
  * 组合各领域配置并校验跨领域约束
@@ -97,19 +11,19 @@ export {
  */
 export const RuntimeConfigSchema = z
   .object({
-    runtime: RuntimeSettingsSchema.default({}),
-    server: ServerSettingsSchema.default({}),
-    admin: AdminSettingsSchema.default({}),
-    context: RuntimeContextSettingsSchema.default({}),
-    locale: LocaleSettingsSchema.default({}),
-    prompts: PromptBundleSettingsSchema.default({}),
-    presentation: PresentationSettingsSchema.default({}),
-    memory: MemorySettingsSchema.default({}),
-    tools: ToolSettingsSchema.default({}),
-    agent: AgentSettingsSchema.default({}),
-    conversation: ConversationSettingsSchema.default({}),
-    channels: z.record(ChannelIdSchema, ChannelConfigSchema).default({}),
-    permissions: z.record(z.string().min(1), PermissionPolicySchema).default(DEFAULT_PERMISSIONS)
+    runtime: schemas.RuntimeSettingsSchema.default({}),
+    server: schemas.ServerSettingsSchema.default({}),
+    admin: schemas.AdminSettingsSchema.default({}),
+    context: schemas.RuntimeContextSettingsSchema.default({}),
+    locale: schemas.LocaleSettingsSchema.default({}),
+    prompts: schemas.PromptBundleSettingsSchema.default({}),
+    presentation: schemas.PresentationSettingsSchema.default({}),
+    memory: schemas.MemorySettingsSchema.default({}),
+    tools: schemas.ToolSettingsSchema.default({}),
+    agent: schemas.AgentSettingsSchema.default({}),
+    conversation: schemas.ConversationSettingsSchema.default({}),
+    channels: z.record(schemas.ChannelIdSchema, schemas.ChannelConfigSchema).default({}),
+    permissions: z.record(z.string().min(1), schemas.PermissionPolicySchema).default(schemas.DEFAULT_PERMISSIONS)
   })
   .passthrough()
   .superRefine((config, ctx) => {
