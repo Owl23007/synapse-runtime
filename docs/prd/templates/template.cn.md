@@ -4,7 +4,7 @@ status: wip
 lang: zh-CN
 
 translations:
-en: ./template.en.md
+  en: ./template.en.md
 
 links:
 issues: []
@@ -25,8 +25,6 @@ implementations: []
 - 当前存在什么问题
 - 本次准备解决什么
 - 用户最终获得什么能力
-
----
 
 ## Motivation
 
@@ -49,8 +47,6 @@ Expected:
 User → New behavior → Result
 ```
 
----
-
 ## Goals
 
 本 PRD 希望实现：
@@ -69,8 +65,6 @@ User → New behavior → Result
 - [Non-goal 2]
 - [Future capability]
 
----
-
 ## User Experience
 
 ### Basic Usage
@@ -85,8 +79,6 @@ User → New behavior → Result
 2. 系统接收 `[Input]`
 3. 系统执行 `[Behavior]`
 4. 用户获得 `[Result]`
-
----
 
 ## Behavior
 
@@ -124,8 +116,6 @@ User → New behavior → Result
 - 可测试
 - 尽量与具体实现无关
 
----
-
 ## Scope
 
 ### Included
@@ -137,8 +127,6 @@ User → New behavior → Result
 
 - `[Capability X]`
 - `[Capability Y]`
-
----
 
 ## Public API
 
@@ -159,8 +147,6 @@ export interface ExampleConfig {
 - Public / Internal API 边界
 - 默认行为
 - 是否存在 Breaking Change
-
----
 
 ## Configuration
 
@@ -188,8 +174,6 @@ Default
 - `[Rule 1]`
 - `[Rule 2]`
 
----
-
 ## Compatibility
 
 说明升级后对已有用户的影响。
@@ -216,8 +200,6 @@ Default
 
 > 用户升级后，如果什么都不修改，会发生什么？
 
----
-
 ## Edge Cases
 
 | Scenario              | Expected Behavior |
@@ -227,8 +209,6 @@ Default
 | Conflict              | `[Behavior]`      |
 | IO / Network failure  | `[Behavior]`      |
 | Concurrent operations | `[Behavior]`      |
-
----
 
 ## Design Constraints
 
@@ -244,8 +224,6 @@ Default
 
 完整实现方案放入 RFC / Design Document。
 
----
-
 ## Open Questions
 
 尚未确定的问题：
@@ -253,13 +231,7 @@ Default
 - `[Question 1]`
 - `[Question 2]`
 
-不要使用 checkbox，避免被 Roadmap 计入进度。
-
----
-
 ## Implementation Plan
-
-Checkbox 会被 Roadmap 自动统计。
 
 ### Phase 1 — Core
 
@@ -292,8 +264,6 @@ Checkbox 会被 Roadmap 自动统计。
 - [ ] 完善配置功能
 ```
 
----
-
 ## Acceptance Criteria
 
 - [ ] 核心用户场景可以完整运行
@@ -302,8 +272,6 @@ Checkbox 会被 Roadmap 自动统计。
 - [ ] Public API 与定义一致
 - [ ] 不存在未声明的 Breaking Change
 - [ ] 必要文档已更新
-
----
 
 ## Contributor Notes
 
@@ -331,8 +299,6 @@ pnpm test
 pnpm dev
 ```
 
----
-
 ## Decisions
 
 > 仅记录重要且已经确定的决策。
@@ -345,16 +311,10 @@ pnpm dev
 
 **Alternatives:** `[其他考虑过的方案]`
 
----
-
 ## Future Work
-
-> 不属于当前 PRD Progress。
 
 - `[Future capability 1]`
 - `[Future capability 2]`
-
----
 
 ## Changelog
 

@@ -4,9 +4,9 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
-    "docs:build": "vitepress build docs",
-    "docs:dev": "vitepress dev docs",
-    "docs:preview": "vitepress preview docs",
+    "docs:build": "pnpm --filter @synapse/docs build",
+    "docs:dev": "pnpm --filter @synapse/docs dev",
+    "docs:preview": "pnpm --filter @synapse/docs preview",
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check .",
     "lint": "oxlint .",
@@ -31,7 +31,6 @@
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "typescript": "^5.5.4",
-    "vitepress": "^1.6.4",
     "vitest": "^2.0.5"
   },
   "lint-staged": {

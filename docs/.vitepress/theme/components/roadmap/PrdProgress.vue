@@ -3,7 +3,7 @@ import { computed, reactive, ref } from "vue";
 import { formatPrd, type PrdStatus } from "../../utils/prd-formatter";
 
 const PAGE_SIZE = 4;
-const modules = import.meta.glob("/prd/**/*.md", {
+const modules = import.meta.glob<string>("/prd/**/*.md", {
   eager: true,
   import: "default",
   query: "?raw"

@@ -81,4 +81,4 @@ node apps/runtime/dist/check.js config examples/runtime.config.toml --env-file .
 
 当前是显式组装的应用，并非通用插件宿主。配置与国际化支持动态注册，但这不等于业务实例已经具备统一的插件挂载、依赖等待和卸载回收协议
 
-`runtime-core` 仍包含 SQLite 实现；会话路由与持久会话图的命名边界也值得继续收敛。相关评估与采用范围见 [DeepSeek Harness 对照评审](./monorepo-review.md)
+`runtime-core` 仍包含 SQLite 实现；会话路由与持久会话图的命名边界也值得继续收敛。
