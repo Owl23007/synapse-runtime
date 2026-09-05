@@ -40,16 +40,22 @@ node apps/runtime/dist/cli.js start \
 
 ## 启动控制台
 
-连接已有 Admin API：
+TUI 位于独立的 `apps/tui` 应用。连接已有 Admin API：
 
 ```bash
 pnpm tui
 ```
 
-启动一个本地 Runtime，并打开控制台：
+启动独立的本地 Runtime 子进程，并通过 Admin API 连接：
 
 ```bash
 pnpm tui:spawn
+```
+
+该脚本显式传入 `apps/runtime/dist/cli.js`。TUI 退出时回收自己启动的进程，连接已有服务时则只断开连接。无密钥试运行可执行：
+
+```bash
+node apps/tui/dist/cli.js --spawn --runtime-entry apps/runtime/dist/cli.js --config examples/minimal.config.toml
 ```
 
 ## 启动文档站

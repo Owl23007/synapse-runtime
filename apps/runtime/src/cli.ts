@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadConfigFile } from "./config/index.js";
 import { configLoadOptions } from "./config/cli-options.js";
-import { RuntimeAdminClient } from "./admin-client.js";
+import { RuntimeAdminClient } from "@synapse/runtime-client";
 import { parseArgs, type CliOptions } from "./cli-args.js";
 import { loadEnvFile } from "./env.js";
 import {
@@ -15,10 +15,8 @@ import {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2), printHelp);
 
-  if (options.command === "console") {
-    const { startRuntimeConsole } = await import("./console.js");
-    await startRuntimeConsole(options);
-    return;
+  if (options.spawn || (options.command === "start" && options.positional?.[0] === "console")) {
+    throw new Error("TUI 已独立，请使用 synapse-tui 启动控制台");
   }
 
   if (
@@ -46,7 +44,20 @@ async function main(): Promise<void> {
   const config = await loadConfigFile(options.configPath, loadConfigOptions);
   const { RuntimeServer } = await import("./server/runtime-server.js");
   const server = new RuntimeServer({ config, configPath: options.configPath, loadConfigOptions });
-  await server.start();
+  // IPC 仅承担父子进程生命周期，交互仍使用带认证的 Admin API
+  if (process.send && !config.admin.enabled) throw new Error("Managed Runtime requires admin.enabled=true");
+  const parentDisconnected = () => {
+    void server.stop().finally(() => process.exit(0));
+  };
+  if (process.send) process.once("disconnect", parentDisconnected);
+  const started = await server.start();
+  if (process.send) {
+    if (!process.connected) {
+      await server.stop();
+      return;
+    }
+    process.send({ type: "synapse:runtime-ready", adminPort: started.admin?.port });
+  }
 
   const shutdown = async () => {
     await server.stop();
@@ -149,7 +160,6 @@ function printHelp(): never {
 Commands:
   start                 Start the runtime server. Default command
   serve                 Alias of start
-  console               Start the interactive runtime console connected to Admin API
   status                Print Admin API runtime status as JSON
   logs                  Print Admin API buffered logs as JSON
   channels              Print Admin API channels as JSON
@@ -173,7 +183,6 @@ Options:
   --token <token>       Admin API bearer token. Defaults to SYNAPSE_RUNTIME_TOKEN
   --profile <name>      CLI profile name for connect/status/logs/channels/use
   --profile-config <p>  CLI profile config path. Defaults to ~/.synapse/cli.json
-  --spawn               For console only: start a local runtime inside the TUI
   --tail <n>            Log entry count for logs. Defaults to 100
   -h, --help            Show this help message
 `);

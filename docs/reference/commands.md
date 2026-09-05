@@ -44,7 +44,6 @@ synapse-runtime [command] [options]
 | ---------------------- | ---------------------------------------- |
 | `start`                | 启动 runtime server                      |
 | `serve`                | `start` 的别名                           |
-| `console`              | 启动连接 Admin API 的交互式控制台        |
 | `status`               | 以 JSON 输出 Admin API runtime status    |
 | `logs`                 | 以 JSON 输出 Admin API 缓冲日志          |
 | `channels`             | 以 JSON 输出 Admin API channels          |
@@ -69,6 +68,9 @@ synapse-runtime [command] [options]
 | `--token <token>`          | Admin API bearer token                          |
 | `--profile <name>`         | CLI profile 名称                                |
 | `--profile-config <path>`  | CLI profile config 路径                         |
-| `--spawn`                  | 仅 console 使用：在 TUI 内启动本地 Runtime      |
 | `--tail <n>`               | logs 返回条数                                   |
 | `-h, --help`               | 显示帮助                                        |
+
+## 独立 TUI CLI
+
+`synapse-tui` 由 `apps/tui` 提供，使用 `--endpoint`、`--token` 或 `--profile` 连接已有 Runtime。使用 `--spawn --runtime-entry <runtime cli.js>` 启动所属子进程，可附加服务端配置参数。详细参数及退出语义见 [Admin 与 CLI](../guide/admin-cli.md#独立-tui)。

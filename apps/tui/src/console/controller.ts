@@ -1,22 +1,21 @@
-import { configLoadOptions } from "../config/cli-options.js";
-import type { RuntimeConfig } from "../config/index.js";
-import { RuntimeAdminClient } from "../admin-client.js";
-import { loadEnvFile } from "../env.js";
+import { RuntimeAdminClient } from "@synapse/runtime-client";
 import { resolveRuntimeConnection } from "@synapse/runtime-user-config";
-import { RuntimeServer } from "../server/runtime-server.js";
+import { LocalRuntimeProcess } from "../local-runtime.js";
 import { parseAssignments, parseCommandValue, splitCommand, formatError } from "./commands.js";
-import { addChannelConfigFile, updateChannelConfigFile } from "./config-editor.js";
 import { ConsoleLogStore } from "./log-store.js";
 import { isRecord, parseChannelSummaries, parseLogEntries, parseLogLevel } from "./response-parsers.js";
 import type { ConsoleState, RuntimeConsoleOptions, StateListener } from "./types.js";
 
+/** 通过 Admin API 驱动终端状态与操作 */
 export class RuntimeConsoleController {
   readonly #options: RuntimeConsoleOptions;
   readonly #logger = new ConsoleLogStore();
   readonly #listeners = new Set<StateListener>();
-  #server: RuntimeServer | undefined;
+  #server: LocalRuntimeProcess | undefined;
+  readonly #abort = new AbortController();
   #client: RuntimeAdminClient | undefined;
   #unsubscribeRemoteLogs: (() => void) | undefined;
+  #stopPromise: Promise<void> | undefined;
   #state: ConsoleState;
 
   constructor(options: RuntimeConsoleOptions) {
@@ -58,6 +57,8 @@ export class RuntimeConsoleController {
 
       await this.#connectRemoteRuntime();
     } catch (error) {
+      await this.#server?.stop();
+      if (this.#abort.signal.aborted) return;
       this.#logger.error("Runtime console failed to start.", { error: formatError(error) });
       this.#setState({
         status: "failed",
@@ -66,11 +67,16 @@ export class RuntimeConsoleController {
     }
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    return (this.#stopPromise ??= this.#stop());
+  }
+
+  async #stop(): Promise<void> {
     if (this.#state.status === "stopping" || this.#state.status === "stopped") {
       return;
     }
 
+    this.#abort.abort();
     this.#setState({ status: "stopping" });
 
     try {
@@ -140,9 +146,7 @@ export class RuntimeConsoleController {
           return "continue";
         }
 
-        const config = await this.#loadConfig();
-        this.#setState({ config, notices: ["Config reloaded. Restart console to reattach channels."] });
-        return "continue";
+        throw new Error("控制台尚未连接 Runtime");
       }
 
       if (name === "/channel") {
@@ -153,7 +157,7 @@ export class RuntimeConsoleController {
       this.#setState({ notices: [`Unknown command: ${name ?? command}. Type /help.`] });
       return "continue";
     } catch (error) {
-      this.#logger.error("Console command failed.", { command, error: formatError(error) });
+      this.#logger.error("Console command failed.", { error: formatError(error) });
       this.#setState({ notices: [formatError(error)] });
       return "continue";
     }
@@ -179,14 +183,7 @@ export class RuntimeConsoleController {
         return;
       }
 
-      await updateChannelConfigFile(this.#options.configPath, channelId, { enabled: action === "enable" });
-      const config = await this.#loadConfig();
-      this.#setState({
-        config,
-        view: "channels",
-        notices: [`Channel "${channelId}" ${action}d in config. Restart console to apply runtime changes.`]
-      });
-      return;
+      throw new Error("控制台尚未连接 Runtime");
     }
 
     if (action === "set" && channelId !== undefined) {
@@ -198,19 +195,19 @@ export class RuntimeConsoleController {
         return;
       }
 
-      await updateChannelConfigFile(this.#options.configPath, channelId, { [key]: parseCommandValue(value) });
-      const config = await this.#loadConfig();
+      if (!this.#client) throw new Error("控制台尚未连接 Runtime");
+      await this.#client.updateChannelConfig(channelId, { [key]: parseCommandValue(value) });
       this.#setState({
-        config,
         view: "channels",
-        notices: [`Updated channel "${channelId}" field "${key}". Restart console to apply runtime changes.`]
+        notices: [`Updated channel "${channelId}" field "${key}". 执行 /reload 应用服务端配置。`]
       });
       return;
     }
 
     if (action === "add-qq-official" && channelId !== undefined) {
       const values = parseAssignments(args.slice(2));
-      await addChannelConfigFile(this.#options.configPath, channelId, {
+      if (!this.#client) throw new Error("控制台尚未连接 Runtime");
+      await this.#client.addChannelConfig(channelId, {
         adapter: "qq-official",
         appId: values.appId ?? values.appid ?? "",
         appSecret: values.appSecret ?? values.appsecret ?? "",
@@ -219,11 +216,9 @@ export class RuntimeConsoleController {
         enabled: values.enabled === undefined ? false : parseCommandValue(values.enabled),
         riskLevel: values.riskLevel ?? "low"
       });
-      const config = await this.#loadConfig();
       this.#setState({
-        config,
         view: "channels",
-        notices: [`Added QQ official channel "${channelId}". Fill missing fields before enabling.`]
+        notices: [`Added QQ official channel "${channelId}". 执行 /reload 应用服务端配置。`]
       });
       return;
     }
@@ -234,53 +229,38 @@ export class RuntimeConsoleController {
     });
   }
 
-  async #loadConfig(): Promise<RuntimeConfig> {
-    const { loadConfigFile } = await import("../config/index.js");
-    return loadConfigFile(this.#options.configPath, configLoadOptions(this.#options));
-  }
-
   async #startLocalRuntime(): Promise<void> {
-    if (this.#options.envFile !== undefined) {
-      loadEnvFile(this.#options.envFile);
-    }
-
-    const config = await this.#loadConfig();
-    const server = new RuntimeServer({
-      configPath: this.#options.configPath,
-      loadConfigOptions: configLoadOptions(this.#options),
-      config,
-      logger: this.#logger
-    });
-    this.#server = server;
-    const started = await server.start();
-    this.#setState({
-      status: "running",
-      config,
-      started,
-      ...(started.admin === undefined ? {} : { endpoint: `http://${started.admin.host}:${started.admin.port}` }),
-      notices: [`Runtime 已启动：${started.host}:${started.port}。`]
-    });
+    this.#server = new LocalRuntimeProcess(this.#options);
+    const connection = await this.#server.start(this.#abort.signal);
+    await this.#connectRemoteRuntime(connection);
   }
 
-  async #connectRemoteRuntime(): Promise<void> {
-    const connection = await resolveRuntimeConnection({
-      ...(this.#options.endpoint === undefined ? {} : { endpoint: this.#options.endpoint }),
-      ...(this.#options.token === undefined ? {} : { token: this.#options.token }),
-      ...(this.#options.profile === undefined ? {} : { profile: this.#options.profile }),
-      ...(this.#options.profilePath === undefined ? {} : { profilePath: this.#options.profilePath })
-    });
+  async #connectRemoteRuntime(local?: { endpoint: string; token: string }): Promise<void> {
+    const connection =
+      local ??
+      (await resolveRuntimeConnection({
+        ...(this.#options.endpoint === undefined ? {} : { endpoint: this.#options.endpoint }),
+        ...(this.#options.token === undefined ? {} : { token: this.#options.token }),
+        ...(this.#options.profile === undefined ? {} : { profile: this.#options.profile }),
+        ...(this.#options.profilePath === undefined ? {} : { profilePath: this.#options.profilePath })
+      }));
+    if (this.#abort.signal.aborted) return;
     this.#client = new RuntimeAdminClient({
       endpoint: connection.endpoint,
+      fetch: (url, init) =>
+        fetch(url, {
+          ...init,
+          signal: AbortSignal.any([this.#abort.signal, init?.signal ?? AbortSignal.timeout(15_000)])
+        }),
       ...(connection.token === undefined ? {} : { token: connection.token })
     });
     await this.#refreshRemoteState();
+    if (this.#abort.signal.aborted) return;
     this.#startRemoteLogStream();
     this.#setState({
       status: "running",
       endpoint: connection.endpoint,
-      notices: [
-        `已连接 Admin API：${connection.endpoint}${connection.profile === undefined ? "" : ` (${connection.profile})`}。`
-      ]
+      notices: [`已连接 Admin API：${connection.endpoint}。`]
     });
   }
 
@@ -343,14 +323,7 @@ export class RuntimeConsoleController {
         port,
         ...(adminHost === undefined || adminPort === undefined ? {} : { admin: { host: adminHost, port: adminPort } })
       },
-      config: {
-        ...this.#state.config,
-        runtime: {
-          ...this.#state.config?.runtime,
-          mode: runtime?.mode === "attached" || runtime?.mode === "hosted" ? runtime.mode : "local",
-          logLevel: parseLogLevel(runtime?.logLevel)
-        }
-      } as RuntimeConfig,
+      logLevel: parseLogLevel(runtime?.logLevel),
       ...(channels === undefined ? {} : { channels })
     });
   }
@@ -360,7 +333,7 @@ export class RuntimeConsoleController {
       return;
     }
 
-    this.#setState({ config: value.config as unknown as RuntimeConfig });
+    this.#setState({ config: value.config });
   }
 
   #applyRemoteChannels(value: unknown): void {
@@ -409,7 +382,7 @@ export class RuntimeConsoleController {
     }
 
     if (isRecord(value.config)) {
-      this.#setState({ config: value.config as unknown as RuntimeConfig });
+      this.#setState({ config: value.config });
     }
 
     if (Array.isArray(value.channels)) {
@@ -424,6 +397,13 @@ export class RuntimeConsoleController {
   }
 
   #setState(patch: Partial<ConsoleState>): void {
+    if (
+      this.#abort.signal.aborted &&
+      patch.status !== "stopping" &&
+      patch.status !== "stopped" &&
+      patch.status !== "failed"
+    )
+      return;
     this.#state = { ...this.#state, ...patch };
 
     for (const listener of this.#listeners) {

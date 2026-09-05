@@ -47,24 +47,29 @@ export class RuntimeAdminClient {
     return this.#get("/admin/channels");
   }
 
+  /** 查询会话分支 */
   branches(sessionId?: string): Promise<unknown> {
     const query = sessionId === undefined ? "" : `?sessionId=${encodeURIComponent(sessionId)}`;
     return this.#get(`/admin/branches${query}`);
   }
 
+  /** 获取指定分支 */
   branch(branchId: string): Promise<unknown> {
     return this.#get(`/admin/branches/${encodeURIComponent(branchId)}`);
   }
 
+  /** 查询分支任务 */
   tasks(branchId?: string): Promise<unknown> {
     const query = branchId === undefined ? "" : `?branchId=${encodeURIComponent(branchId)}`;
     return this.#get(`/admin/tasks${query}`);
   }
 
+  /** 获取指定任务 */
   task(taskId: string): Promise<unknown> {
     return this.#get(`/admin/tasks/${encodeURIComponent(taskId)}`);
   }
 
+  /** 请求取消指定任务 */
   cancelTask(taskId: string): Promise<unknown> {
     return this.#request(`/admin/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
   }
@@ -80,6 +85,22 @@ export class RuntimeAdminClient {
   /** 重新加载运行时配置 */
   reload(): Promise<unknown> {
     return this.#request("/admin/reload", { method: "POST" });
+  }
+
+  /** 修改服务端持久化频道配置，调用 reload 后应用 */
+  updateChannelConfig(channelId: string, patch: Readonly<Record<string, unknown>>): Promise<unknown> {
+    return this.#request(`/admin/config/channels/${encodeURIComponent(channelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch)
+    });
+  }
+
+  /** 新增服务端持久化频道配置，调用 reload 后应用 */
+  addChannelConfig(channelId: string, config: Readonly<Record<string, unknown>>): Promise<unknown> {
+    return this.#request(`/admin/config/channels/${encodeURIComponent(channelId)}`, {
+      method: "POST",
+      body: JSON.stringify(config)
+    });
   }
 
   /** 请求关闭运行时 */

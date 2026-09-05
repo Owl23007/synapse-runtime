@@ -33,10 +33,25 @@ for (const pkg of packages) {
   for (const name of dependencies) {
     if (pkg.group === "packages" && byName.get(name).group === "apps")
       failures.push(`${pkg.name} depends on application ${name}`);
+    if (pkg.group === "apps" && byName.get(name).group === "apps")
+      failures.push(`${pkg.name} depends on another application ${name}`);
+    if (pkg.name === "@synapse/runtime-client") failures.push(`Runtime client depends on implementation ${name}`);
+    if (
+      pkg.name === "@synapse/runtime-tui" &&
+      ![
+        "@synapse/runtime-client",
+        "@synapse/runtime-config",
+        "@synapse/runtime-user-config",
+        "@synapse/runtime-i18n"
+      ].includes(name)
+    )
+      failures.push(`TUI depends on server implementation ${name}`);
     if (mechanisms.has(pkg.name)) failures.push(`${pkg.name} infrastructure imports business package ${name}`);
     if (pkg.name === "@synapse/runtime-agent-loop" && name === "@synapse/runtime-agent-api-provider")
       failures.push("Agent loop depends on concrete HTTP provider");
   }
+  if (pkg.name === "@synapse/runtime-server" && ["ink", "react"].some((name) => name in (pkg.dependencies ?? {})))
+    failures.push("Runtime server depends on TUI rendering libraries");
   for (const path of files(resolve(pkg.dir, "src"))) {
     const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
     const imports = [];

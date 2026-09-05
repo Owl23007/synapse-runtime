@@ -36,6 +36,7 @@ export class RuntimeServer {
   #startPromise: Promise<RuntimeServerStartResult> | undefined;
   #stopPromise: Promise<void> | undefined;
   #stopped = false;
+  #listening: RuntimeServerStartResult | undefined;
   readonly #startedAt = new Date().toISOString();
 
   constructor(options: RuntimeServerOptions) {
@@ -130,6 +131,7 @@ export class RuntimeServer {
         logger: this.#logger
       });
       const result = serverStartResult({ app: this.#app, config: this.#config, admin: adminResult });
+      this.#listening = result;
       this.#logger.info("Synapse Runtime server started.", { ...result });
       return result;
     } catch (error) {
@@ -171,6 +173,7 @@ export class RuntimeServer {
   #configureAdmin(): void {
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
+      getListening: () => this.#listening,
       app: this.#adminApp,
       getConfig: () => this.#config,
       getConfigPath: () => this.#configPath,

@@ -53,6 +53,9 @@ importers:
       '@synapse/runtime-channel-qq-official':
         specifier: workspace:*
         version: link:../../packages/channel-qq-official
+      '@synapse/runtime-client':
+        specifier: workspace:*
+        version: link:../../packages/runtime-client
       '@synapse/runtime-config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -83,15 +86,9 @@ importers:
       '@synapse/runtime-user-config':
         specifier: workspace:*
         version: link:../../packages/user-config
-      ink:
-        specifier: ^5.2.1
-        version: 5.2.1(@types/react@18.3.18)(react@18.3.1)
       nova-http:
         specifier: ^0.1.1
         version: 0.1.1
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
       smol-toml:
         specifier: ^1.7.0
         version: 1.7.0
@@ -101,6 +98,24 @@ importers:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
+
+  apps/tui:
+    dependencies:
+      '@synapse/runtime-client':
+        specifier: workspace:*
+        version: link:../../packages/runtime-client
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@synapse/runtime-user-config':
+        specifier: workspace:*
+        version: link:../../packages/user-config
+      ink:
+        specifier: ^5.2.1
+        version: 5.2.1(@types/react@18.3.18)(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
     devDependencies:
       '@types/react':
         specifier: ^18.3.18
@@ -236,6 +251,8 @@ importers:
         version: 4.5.4
 
   packages/protocol: {}
+
+  packages/runtime-client: {}
 
   packages/runtime-core:
     dependencies:

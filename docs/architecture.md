@@ -6,7 +6,9 @@
 
 | 位置                          | 职责                                                     | 不应承担                              |
 | ----------------------------- | -------------------------------------------------------- | ------------------------------------- |
-| `apps/runtime`                | CLI、控制台、HTTP 宿主、适配器选择、部署策略、配置组合   | 可复用业务契约                        |
+| `apps/runtime`                | 服务端 CLI、HTTP 宿主、适配器选择、部署策略、配置组合    | 终端渲染、客户端交互                  |
+| `apps/tui`                    | 独立终端客户端、连接选择、可选子进程管理                 | 服务端实例、业务配置加载与文件编辑    |
+| `packages/runtime-client`     | Admin HTTP/SSE 客户端                                    | 服务端实现、React/Ink、文件存储       |
 | `packages/config`             | 配置令牌、合并、校验流程、优先级、临时覆盖、变更事件     | RuntimeConfig、渠道清单、全局默认权限 |
 | `packages/i18n`               | 命名空间、懒加载、缓存、回退、翻译、完整性检查           | 导入所有业务文案、选择部署语言        |
 | `packages/user-config`        | 原始配置与 CLI profile 的读写、原子替换                  | 业务默认值、运行时临时覆盖            |
@@ -17,7 +19,11 @@
 
 包名与目录分开考虑：`@synapse/runtime-server` 是位于 `apps/runtime` 的应用包，不再存在 `packages/runtime-server` 源码入口
 
-CLI 按命令加载服务端或控制台，查询帮助、管理远程连接不需要预先加载 SQLite 和 React/Ink
+`synapse-runtime` 与 `synapse-tui` 是两个独立入口。Runtime 不依赖 React/Ink；TUI 不依赖 Runtime 应用或核心实现。两个应用都消费 `runtime-client`，通过 HTTP/SSE 管理同一套服务端能力
+
+TUI 默认连接已有服务，退出只断开连接。`--spawn --runtime-entry <cli.js>` 显式指定本地 Runtime 入口，创建独立 Node 子进程；子进程监听临时 loopback Admin 端口，令牌由父进程生成并通过环境传递。IPC 只报告就绪和管理生命周期，配置与频道操作仍走 Admin API。退出、启动失败或启动取消时回收所属子进程
+
+频道启停属于运行时操作；频道字段编辑与新增写入服务端的主配置文件，校验后原子保存，再由 `/reload` 应用。TUI 不在客户端机器上猜测或修改部署文件。高优先级工作区、用户或环境覆盖仍按配置链路生效，主文件编辑不会越过这些覆盖
 
 ## 配置链路
 
@@ -65,7 +71,7 @@ pnpm config:check
 pnpm i18n:check
 ```
 
-`architecture:check` 使用 TypeScript AST 和工作区清单检查未声明依赖、跨包相对导入、未导出子路径、运行时依赖循环及基础设施反向依赖。`config:check` 默认验证不需要密钥的最小配置；检查具体部署文件时执行：
+`architecture:check` 使用 TypeScript AST 和工作区清单检查未声明依赖、跨包相对导入、未导出子路径、运行时依赖循环及基础设施反向依赖，也禁止应用互相依赖和 TUI 导入服务端实现。`pnpm test` 包含真实 Runtime/TUI 进程的连接、认证、配置落盘与退出回收测试，须先构建。`config:check` 默认验证不需要密钥的最小配置；检查具体部署文件时执行：
 
 ```bash
 node apps/runtime/dist/check.js config examples/runtime.config.toml --env-file .env

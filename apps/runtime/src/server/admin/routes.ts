@@ -7,13 +7,16 @@ import {
 } from "@synapse/runtime-core";
 import type { Handler, Nova, NovaRequest, NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
-import type { RuntimeServerLogger } from "../../types.js";
+import type { RuntimeServerLogger, RuntimeServerStartResult } from "../../types.js";
 import { readJsonBody, sendJson } from "../http.js";
 import { authorizeAdminRequest } from "./auth.js";
 import { isChannelAdminPatch, parsePositiveInt, type ChannelAdminPatch } from "./dto.js";
 import { streamLogEvents } from "./logs-sse.js";
+import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
+/** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly getListening?: () => RuntimeServerStartResult | undefined;
   readonly app: Nova;
   readonly getConfig: () => RuntimeConfig;
   readonly getConfigPath: () => string | undefined;
@@ -38,6 +41,7 @@ export interface AdminRouteDeps {
   readonly localize: (key: string, params?: Record<string, string>) => string;
 }
 
+/** 注册统一认证保护的 Runtime 管理接口 */
 export function registerAdminRoutes(deps: AdminRouteDeps): void {
   deps.app.use("/admin", (request: NovaRequest, response: NovaResponse, next: () => void) => {
     if (!authorizeAdminRequest(deps.getConfig().admin, request, response)) {
@@ -53,6 +57,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     "/admin/status",
     asyncRoute(deps, async (_request: NovaRequest, response: NovaResponse) => {
       const config = deps.getConfig();
+      const listening = deps.getListening?.();
       sendJson(response, 200, {
         ok: true,
         protocolVersion: 1,
@@ -62,12 +67,12 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
           startedAt: deps.getStartedAt()
         },
         server: {
-          host: config.server.host,
-          port: config.server.port
+          host: listening?.host ?? config.server.host,
+          port: listening?.port ?? config.server.port
         },
         admin: {
-          host: config.admin.host,
-          port: config.admin.port
+          host: listening?.admin?.host ?? config.admin.host,
+          port: listening?.admin?.port ?? config.admin.port
         },
         channels: await deps.getChannelSummaries()
       });
@@ -79,6 +84,35 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
       config: redactConfig(deps.getConfig())
     });
   });
+  for (const method of ["post", "patch"] as const) {
+    deps.app[method](
+      "/admin/config/channels/:id",
+      asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+        const configPath = deps.getConfigPath();
+        if (!configPath) {
+          sendJson(response, 409, { ok: false, error: "config_path_not_available" });
+          return;
+        }
+        const value = readJsonBody(request);
+        if (!request.params.id || !value || typeof value !== "object" || Array.isArray(value)) {
+          sendJson(response, 400, { ok: false, error: "invalid_channel_config" });
+          return;
+        }
+        try {
+          const edit = method === "post" ? addChannelConfigFile : updateChannelConfigFile;
+          await edit(configPath, request.params.id, value as Record<string, unknown>);
+          sendJson(response, 200, { ok: true, reloadRequired: true });
+        } catch (error) {
+          if (!(error instanceof ChannelConfigEditError)) throw error;
+          sendJson(
+            response,
+            error.code === "channel_not_found" ? 404 : error.code === "channel_already_exists" ? 409 : 400,
+            { ok: false, error: error.code }
+          );
+        }
+      })
+    );
+  }
   deps.app.get(
     "/admin/channels",
     asyncRoute(deps, async (_request: NovaRequest, response: NovaResponse) => {

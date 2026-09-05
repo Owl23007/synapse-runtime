@@ -1,10 +1,11 @@
-import { redactConfig, type RuntimeConfig } from "../config/index.js";
+import { redactConfig } from "@synapse/runtime-config";
 import { Box, Text, useApp, useInput } from "ink";
 import { createElement, useEffect, useMemo, useState, type ReactElement } from "react";
 import type { RuntimeConsoleController } from "./controller.js";
 import { toStructuredLog } from "./log-view-model.js";
 import type { ConsoleLevel, ConsoleLogEntry, ConsoleState } from "./types.js";
 
+/** 渲染连接 Runtime 的终端界面 */
 export function RuntimeConsoleApp({ controller }: { readonly controller: RuntimeConsoleController }): ReactElement {
   const { exit } = useApp();
   const [state, setState] = useState(controller.snapshot);
@@ -61,7 +62,7 @@ export function RuntimeConsoleApp({ controller }: { readonly controller: Runtime
 
 function Header({ state }: { readonly state: ConsoleState }) {
   const server = state.started === undefined ? "not listening" : `${state.started.host}:${state.started.port}`;
-  const logLevel = state.config?.runtime.logLevel ?? "unknown";
+  const logLevel = state.logLevel ?? "unknown";
 
   return createElement(
     Box,
@@ -96,8 +97,8 @@ function renderBody(state: ConsoleState) {
         "/reload                         通过 Admin API 重载配置",
         "/channel enable <id>            启用频道",
         "/channel disable <id>           停用频道",
-        "/channel set <id> <key> <value> 修改本地配置字段（仅 --spawn 模式）",
-        "/channel add-qq-official <id> ... 新增本地 QQ 官方频道（仅 --spawn 模式）",
+        "/channel set <id> <key> <value> 修改服务端配置字段，/reload 生效",
+        "/channel add-qq-official <id> ... 新增服务端 QQ 官方频道，/reload 生效",
         "/quit                           退出控制台"
       ].map((line) => createElement(Text, { key: line }, line))
     );
@@ -112,25 +113,19 @@ function renderBody(state: ConsoleState) {
   }
 
   if (state.view === "channels") {
-    return createElement(ChannelPanel, { config: state.config, channels: state.channels });
+    return createElement(ChannelPanel, { channels: state.channels });
   }
 
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(ChannelPanel, { config: state.config, channels: state.channels }),
+    createElement(ChannelPanel, { channels: state.channels }),
     createElement(Box, { marginTop: 1 }, createElement(Text, { bold: true }, "最近日志")),
     createElement(LogPanel, { logs: state.logs.slice(-8), expanded: false })
   );
 }
 
-function ChannelPanel({
-  config,
-  channels
-}: {
-  readonly config: RuntimeConfig | undefined;
-  readonly channels: ConsoleState["channels"];
-}) {
+function ChannelPanel({ channels }: { readonly channels: ConsoleState["channels"] }) {
   if (channels !== undefined) {
     if (channels.length === 0) {
       return createElement(Text, { color: "gray" }, "暂无频道。");
@@ -152,26 +147,7 @@ function ChannelPanel({
     );
   }
 
-  const localChannels = Object.entries(config?.channels ?? {});
-
-  if (localChannels.length === 0) {
-    return createElement(Text, { color: "gray" }, "暂无频道。");
-  }
-
-  return createElement(
-    Box,
-    { flexDirection: "column" },
-    createElement(Text, { bold: true }, "频道"),
-    ...localChannels.map(([channelId, channel]) => {
-      const mode = channel.adapter === "qq-official" ? channel.mode : channel.transport;
-      const target = channel.adapter === "qq-official" ? (channel.webhookPath ?? "-") : channel.endpoint;
-      return createElement(
-        Text,
-        { key: channelId, color: channel.enabled ? "green" : "gray" },
-        `${channelId.padEnd(18)} ${formatEnabled(channel.enabled).padEnd(6)} ${channel.adapter.padEnd(12)} ${mode} ${target}`
-      );
-    })
-  );
+  return createElement(Text, { color: "gray" }, "频道尚未加载。");
 }
 
 function LogPanel({ logs, expanded }: { readonly logs: readonly ConsoleLogEntry[]; readonly expanded: boolean }) {
@@ -210,7 +186,7 @@ function LogPanel({ logs, expanded }: { readonly logs: readonly ConsoleLogEntry[
   );
 }
 
-function ConfigPanel({ config }: { readonly config: RuntimeConfig | undefined }) {
+function ConfigPanel({ config }: { readonly config: ConsoleState["config"] }) {
   if (config === undefined) {
     return createElement(Text, { color: "gray" }, "配置未加载。");
   }

@@ -1,4 +1,4 @@
-export { RuntimeAdminClient, type RuntimeAdminClientOptions } from "./admin-client.js";
+export { RuntimeAdminClient, type RuntimeAdminClientOptions } from "@synapse/runtime-client";
 export { createAgentFromConfig, createChatProvider } from "./composition/agent-factory.js";
 export { createChannelAdapter } from "./composition/channel-factory.js";
 export { loadEnvFile } from "./env.js";

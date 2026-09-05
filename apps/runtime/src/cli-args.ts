@@ -3,7 +3,6 @@ import type { ConfigCliOptions } from "./config/cli-options.js";
 export type CliCommand =
   | "start"
   | "serve"
-  | "console"
   | "status"
   | "logs"
   | "channels"
@@ -37,7 +36,6 @@ export interface CliOptions extends ConfigCliOptions {
 const CLI_COMMANDS: ReadonlySet<string> = new Set([
   "start",
   "serve",
-  "console",
   "status",
   "logs",
   "channels",

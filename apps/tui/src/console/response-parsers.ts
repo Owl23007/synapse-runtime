@@ -68,5 +68,5 @@ export function parseLogLevel(value: unknown): "debug" | "info" | "warn" | "erro
 
 /** 判断未知值是否为记录对象 */
 export function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

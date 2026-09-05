@@ -1,7 +1,7 @@
-import type { RuntimeServerLogger } from "../types.js";
 import type { ConsoleLevel, ConsoleLogEntry } from "./types.js";
 
-export class ConsoleLogStore implements RuntimeServerLogger {
+/** 保存终端自身的有限日志缓冲 */
+export class ConsoleLogStore {
   readonly #entries: ConsoleLogEntry[] = [];
   readonly #listeners = new Set<() => void>();
   #nextId = 1;
