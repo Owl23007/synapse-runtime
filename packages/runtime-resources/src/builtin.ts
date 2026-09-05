@@ -1,93 +1,9 @@
-import type { LocaleCatalog } from "./locale.js";
+import enCoreErrorCatalogConfig from "./locales/en.json" with { type: "json" };
+import zhCNCoreErrorCatalogConfig from "./locales/zh-CN.json" with { type: "json" };
+import { LocaleCatalogSchema, type LocaleCatalog } from "./locale.js";
 
-/** Runtime 首批内置中文错误资源，外部 Catalog 可按 Key 覆盖 */
-export const zhCNCoreErrorCatalog: LocaleCatalog = {
-  locale: "zh-CN",
-  messages: {
-    "agent.request_timeout": "模型请求超时，请稍后重试。",
-    "agent.request_failed": "模型请求失败，请稍后重试。",
-    "agent.stream_failed": "模型流式响应中断，请稍后重试。",
-    "agent.provider_unavailable": "模型服务当前不可用，请稍后重试。",
-    "runtime.internal_error": "运行时发生内部错误，请稍后重试。",
-    "runtime.configuration_invalid": "运行时配置无效：{reason}。",
-    "tool.execution_failed": "工具执行失败：{tool}。",
-    "tool.not_found": "未找到工具：{tool}。",
-    "permission.denied": "没有执行此操作的权限。",
-    "conversation.not_found": "未找到对应的会话。",
-    "admin.branch_not_found": "未找到对应的分支。",
-    "admin.task_not_found": "未找到对应的任务。",
-    "admin.missing_task_id": "缺少任务标识。",
-    "admin.task_cancel_failed": "取消任务失败，请稍后重试。",
-    "admin.missing_channel_id": "缺少 Channel 标识。",
-    "admin.channel_not_found": "未找到对应的 Channel。",
-    "admin.invalid_channel_patch": "Channel 更新参数无效。",
-    "admin.channel_patch_failed": "更新 Channel 失败，请稍后重试。",
-    "admin.reload_config_path_not_available": "当前无法获取配置文件路径。",
-    "admin.reload_failed": "重新加载配置失败，请检查配置后重试。",
-    "config.invalid": "配置无效：{reason}。",
-    "context.compose_failed": "上下文合成失败，请稍后重试。",
-    "presentation.profile_not_found": "未找到可用的表达配置。",
-    "prompt.duplicate": "提示词配置重复：{id}。",
-    "prompt.not_found": "未找到提示词配置：{id}。",
-    "prompt.disabled": "提示词配置未启用：{id}。",
-    "prompt.variables_missing": "提示词配置缺少变量：{variables}。",
-    "prompt.recipe_not_found": "未找到用途 {purpose} 对应的提示词配方。",
-    "prompt.dimension_variant_not_found": "提示词配方 {recipe} 缺少维度 {dimension} 的场景值：{value}。",
-    "prompt.stage_mismatch": "提示词 {id} 的阶段 {actual} 与配方阶段 {expected} 不一致。",
-    "resource.reference_not_found": "资源 {kind} 引用了不存在的项目：{id}。",
-    "resource.duplicate": "资源 {kind} 存在重复定义：{id}。",
-    "skill.tool_required": "Skill {skill} 缺少必需工具：{tool}。",
-    "skill.conflict": "Skill {left} 与 {right} 不能同时激活。",
-    "skill.exclusive_group": "同一排他组中不能激活多个 Skill：{group}。",
-    "skill.purpose_mismatch": "Skill {skill} 不支持模型调用用途：{purpose}。",
-    "skill.prompt_authority_invalid": "Skill {skill} 无权将提示词 {prompt} 注入 {slot} 区域。",
-    "skill.activation_not_allowed": "Skill {skill} 不允许显式激活。",
-    "locale.message_unavailable": "暂时无法提供此错误的说明，请稍后重试。"
-  }
-};
+/** Runtime 内置中文错误资源，可由外部 Catalog 按 Key 覆盖 */
+export const zhCNCoreErrorCatalog: LocaleCatalog = LocaleCatalogSchema.parse(zhCNCoreErrorCatalogConfig);
 
 /** Runtime 内置英文错误资源，可由外部 Catalog 按 Key 覆盖 */
-export const enCoreErrorCatalog: LocaleCatalog = {
-  locale: "en",
-  messages: {
-    "agent.request_timeout": "The model request timed out. Please try again later.",
-    "agent.request_failed": "The model request failed. Please try again later.",
-    "agent.stream_failed": "The model stream was interrupted. Please try again later.",
-    "agent.provider_unavailable": "The model service is currently unavailable. Please try again later.",
-    "runtime.internal_error": "An internal runtime error occurred. Please try again later.",
-    "runtime.configuration_invalid": "The runtime configuration is invalid: {reason}.",
-    "tool.execution_failed": "Tool execution failed: {tool}.",
-    "tool.not_found": "Tool not found: {tool}.",
-    "permission.denied": "You do not have permission to perform this operation.",
-    "conversation.not_found": "The requested conversation was not found.",
-    "admin.branch_not_found": "The requested branch was not found.",
-    "admin.task_not_found": "The requested task was not found.",
-    "admin.missing_task_id": "A task ID is required.",
-    "admin.task_cancel_failed": "Failed to cancel the task. Please try again later.",
-    "admin.missing_channel_id": "A channel ID is required.",
-    "admin.channel_not_found": "The requested channel was not found.",
-    "admin.invalid_channel_patch": "The channel update parameters are invalid.",
-    "admin.channel_patch_failed": "Failed to update the channel. Please try again later.",
-    "admin.reload_config_path_not_available": "The configuration file path is not available.",
-    "admin.reload_failed": "Failed to reload the configuration. Please check it and try again.",
-    "config.invalid": "Configuration is invalid: {reason}.",
-    "context.compose_failed": "Failed to compose context. Please try again later.",
-    "presentation.profile_not_found": "No usable presentation profile was found.",
-    "prompt.duplicate": "Duplicate prompt configuration: {id}.",
-    "prompt.not_found": "Prompt configuration not found: {id}.",
-    "prompt.disabled": "Prompt configuration is disabled: {id}.",
-    "prompt.variables_missing": "Prompt configuration is missing variables: {variables}.",
-    "prompt.recipe_not_found": "No prompt recipe was found for purpose: {purpose}.",
-    "prompt.dimension_variant_not_found": "Prompt recipe {recipe} has no value {value} for dimension {dimension}.",
-    "prompt.stage_mismatch": "Prompt {id} stage {actual} does not match recipe stage {expected}.",
-    "resource.reference_not_found": "Resource {kind} references a missing item: {id}.",
-    "resource.duplicate": "Resource {kind} has a duplicate definition: {id}.",
-    "skill.tool_required": "Skill {skill} requires tool: {tool}.",
-    "skill.conflict": "Skills {left} and {right} cannot be activated together.",
-    "skill.exclusive_group": "More than one skill cannot be activated in exclusive group: {group}.",
-    "skill.purpose_mismatch": "Skill {skill} does not support model invocation purpose: {purpose}.",
-    "skill.prompt_authority_invalid": "Skill {skill} is not authorized to inject prompt {prompt} into slot {slot}.",
-    "skill.activation_not_allowed": "Skill {skill} cannot be explicitly activated.",
-    "locale.message_unavailable": "A description for this error is temporarily unavailable. Please try again later."
-  }
-};
+export const enCoreErrorCatalog: LocaleCatalog = LocaleCatalogSchema.parse(enCoreErrorCatalogConfig);

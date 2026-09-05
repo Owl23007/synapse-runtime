@@ -67,7 +67,7 @@ default = "zh-CN"
 catalogPath = "resources/locales.zh-CN.yaml"
 ```
 
-错误逻辑使用稳定的错误码和 message key，展示边界再根据 `locale.default` 渲染用户可见文本。内置提供 `zh-CN` 和 `en` 默认消息，`en-US` 等英文语言标签会复用 `en`；自定义 catalog 可覆盖或补充 message key。模板变量使用单花括号，例如 `{reason}`。
+错误逻辑使用稳定的错误码和 message key，展示边界再根据 `locale.default` 渲染用户可见文本。内置提供 `zh-CN` 和 `en` 默认消息，分别位于 `packages/runtime-resources/src/locales/zh-CN.json` 与 `packages/runtime-resources/src/locales/en.json`；`en-US` 等英文语言标签会复用 `en`。自定义 catalog 可覆盖或补充 message key。模板变量使用单花括号，例如 `{reason}`。
 
 ## Prompt Registry
 
