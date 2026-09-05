@@ -1,337 +1,100 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { z } from "zod";
+import { AgentSettingsSchema } from "./schema/agent.js";
+import { ChannelConfigSchema, ChannelIdSchema } from "./schema/channels.js";
+import {
+  ConversationSettingsSchema,
+  MemorySettingsSchema,
+  RuntimeContextSettingsSchema
+} from "./schema/conversation.js";
+import { DEFAULT_PERMISSIONS, PermissionPolicySchema } from "./schema/permissions.js";
+import { LocaleSettingsSchema, PresentationSettingsSchema, PromptBundleSettingsSchema } from "./schema/resources.js";
+import { AdminSettingsSchema, RuntimeSettingsSchema, ServerSettingsSchema } from "./schema/runtime.js";
+import { ToolSettingsSchema } from "./schema/tools.js";
 
-export const DEFAULT_RUNTIME_DATA_DIR = join(homedir(), ".synapse", "runtime");
+// 保留原有 Schema 导入入口，领域模块仅依赖自身及共享定义，避免循环依赖
+export {
+  PermissionPolicySchema,
+  RiskLevelSchema,
+  DEFAULT_PERMISSIONS,
+  type PermissionPolicy,
+  type RiskLevel
+} from "./schema/permissions.js";
+export {
+  DEFAULT_RUNTIME_DATA_DIR,
+  RuntimeModeSchema,
+  LogLevelSchema,
+  RuntimeSettingsSchema,
+  ServerSettingsSchema,
+  AdminSettingsSchema,
+  type RuntimeMode,
+  type LogLevel,
+  type RuntimeSettings,
+  type ServerSettings,
+  type AdminSettings
+} from "./schema/runtime.js";
+export {
+  TriggerModeSchema,
+  ConversationTriggerPolicySchema,
+  ContextPolicySchema,
+  RuntimeContextSettingsSchema,
+  MemorySettingsSchema,
+  ConversationSettingsSchema,
+  type TriggerMode,
+  type ConversationTriggerPolicy,
+  type ContextPolicy,
+  type RuntimeContextSettings,
+  type MemorySettings,
+  type ConversationSettings
+} from "./schema/conversation.js";
+export {
+  LocaleSettingsSchema,
+  PromptBundleSettingsSchema,
+  PresentationModeSchema,
+  PresentationSettingsSchema,
+  type LocaleSettings,
+  type PromptBundleSettings,
+  type PresentationMode,
+  type PresentationSettings
+} from "./schema/resources.js";
+export {
+  BraveWebSearchSettingsSchema,
+  SearxngWebSearchSettingsSchema,
+  WebSearchSettingsSchema,
+  WebToolSettingsSchema,
+  ToolSettingsSchema,
+  type BraveWebSearchSettings,
+  type SearxngWebSearchSettings,
+  type WebSearchSettings,
+  type WebToolSettings,
+  type ToolSettings
+} from "./schema/tools.js";
+export {
+  AgentProviderIdSchema,
+  OpenAiCompatibleAgentProviderConfigSchema,
+  EchoAgentProviderConfigSchema,
+  AgentProviderConfigSchema,
+  AgentSettingsSchema,
+  type AgentProviderId,
+  type OpenAiCompatibleAgentProviderConfig,
+  type EchoAgentProviderConfig,
+  type AgentProviderConfig,
+  type AgentSettings
+} from "./schema/agent.js";
+export {
+  OneBot11ChannelConfigSchema,
+  QqOfficialChannelConfigSchema,
+  ChannelConfigSchema,
+  ChannelIdSchema,
+  type OneBot11ChannelConfig,
+  type QqOfficialChannelConfig,
+  type ChannelConfig
+} from "./schema/channels.js";
 
 /**
- * Policies accepted by the production configuration surface.
+ * 组合各领域配置并校验跨领域约束
  *
- * The permission package still models future workflow states, but the runtime
- * does not yet persist and resume them. Exposing those values here would turn
- * `confirm`, `sandbox`, and `rate_limit` into indistinguishable denials.
+ * 为保持现有配置兼容性，各配置段继续保留未知字段，默认值及校验规则由领域模块维护
  */
-export const PermissionPolicySchema = z.enum(["allow", "deny"]);
-
-export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
-
-export const RuntimeModeSchema = z.enum(["local", "attached", "hosted"]);
-
-export const LogLevelSchema = z.enum(["trace", "debug", "info", "warn", "error", "fatal"]);
-
-const OptionalSecretSchema = z.preprocess((value) => (value === "" ? undefined : value), z.string().min(1).optional());
-
-export const DEFAULT_PERMISSIONS = {
-  "channel.qq.send_group_message": "allow",
-  "channel.qq.send_channel_message": "allow",
-  "channel.qq.send_private_message": "deny",
-  "channel.qq.manage_group": "deny",
-  "channel.qq.send_media": "deny",
-  "network.web.search": "allow",
-  "network.web.fetch": "allow"
-} as const;
-
-export const RuntimeSettingsSchema = z
-  .object({
-    mode: RuntimeModeSchema.default("local"),
-    dataDir: z.string().min(1).default(DEFAULT_RUNTIME_DATA_DIR),
-    logLevel: LogLevelSchema.default("info")
-  })
-  .passthrough();
-
-export const ServerSettingsSchema = z
-  .object({
-    host: z.string().min(1).default("0.0.0.0"),
-    port: z.number().int().min(0).max(65535).default(3000),
-    publicBaseUrl: z.string().url().optional()
-  })
-  .passthrough();
-
-export const AdminSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(true),
-    host: z.string().min(1).default("127.0.0.1"),
-    port: z.number().int().min(0).max(65535).default(3766),
-    token: OptionalSecretSchema,
-    allowedOrigins: z.array(z.string().min(1)).default(["http://127.0.0.1:3766", "http://localhost:3766"]),
-    allowedRemoteAddresses: z.array(z.string().min(1)).default(["127.0.0.1", "::1", "::ffff:127.0.0.1"]),
-    logBufferSize: z.number().int().min(100).max(10_000).default(300)
-  })
-  .passthrough();
-
-export const TriggerModeSchema = z.enum(["always", "mention", "keyword", "mention_or_keyword", "never"]);
-
-export const ConversationTriggerPolicySchema = z
-  .object({
-    mode: TriggerModeSchema.default("always"),
-    keywords: z.array(z.string().min(1)).default([]),
-    botUserIds: z.array(z.string().min(1)).default([]),
-    commandPrefixes: z.array(z.string().min(1)).default([]),
-    allowCommandWithoutMention: z.boolean().default(true)
-  })
-  .passthrough();
-
-export const ContextPolicySchema = z
-  .object({
-    includeHistory: z.boolean().default(true),
-    maxMessages: z.number().int().positive().default(20)
-  })
-  .passthrough();
-
-export const RuntimeContextSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(true),
-    maxHistoryChars: z.number().int().positive().default(6000),
-    timezone: z.string().min(1).default("UTC"),
-    privateHistoryTtlMinutes: z.number().int().positive().default(720),
-    groupHistoryTtlMinutes: z.number().int().positive().default(30),
-    channelHistoryTtlMinutes: z.number().int().positive().default(30),
-    privateMaxMessages: z.number().int().positive().default(20),
-    groupMaxMessages: z.number().int().positive().default(6),
-    channelMaxMessages: z.number().int().positive().default(8),
-    strategy: z.string().min(1).default("default"),
-    cache: z
-      .object({
-        enabled: z.boolean().default(true)
-      })
-      .default({})
-  })
-  .passthrough();
-
-/** Locale resources used to render user-facing messages. */
-export const LocaleSettingsSchema = z
-  .object({
-    default: z.string().min(1).default("zh-CN"),
-    catalogPath: z.string().min(1).optional()
-  })
-  .passthrough();
-
-/** Prompt Registry switch and its external catalog location. */
-export const PromptBundleSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    catalogPath: z.string().min(1).optional(),
-    defaultPurpose: z.string().min(1).optional()
-  })
-  .passthrough()
-  .superRefine((prompts, ctx) => {
-    if ("defaultPromptId" in prompts) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["defaultPromptId"],
-        message: "prompts.defaultPromptId has been removed; configure prompts.defaultPurpose."
-      });
-    }
-    if (!prompts.enabled) {
-      return;
-    }
-
-    if (prompts.catalogPath === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["catalogPath"],
-        message: "Prompt Registry requires prompts.catalogPath when enabled."
-      });
-    }
-    if (prompts.defaultPurpose === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["defaultPurpose"],
-        message: "Prompt Registry requires prompts.defaultPurpose when enabled."
-      });
-    }
-  });
-
-export const PresentationModeSchema = z.enum(["deterministic", "model"]);
-
-/** Optional final-response presentation layer, kept separate from reasoning. */
-export const PresentationSettingsSchema = z
-  .object({
-    mode: PresentationModeSchema.default("deterministic"),
-    profilePath: z.string().min(1).optional(),
-    defaultProfileId: z.string().min(1).optional()
-  })
-  .passthrough()
-  .superRefine((presentation, ctx) => {
-    if (presentation.mode === "model") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["mode"],
-        message: "Model presentation is not implemented; use deterministic mode."
-      });
-    }
-    if ((presentation.profilePath === undefined) !== (presentation.defaultProfileId === undefined)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [presentation.profilePath === undefined ? "profilePath" : "defaultProfileId"],
-        message: "presentation.profilePath and presentation.defaultProfileId must be configured together."
-      });
-    }
-  });
-
-export const MemorySettingsSchema = z
-  .object({
-    enableDurableMemory: z.boolean().default(false)
-  })
-  .passthrough();
-
-/** Brave 网络搜索配置模式 */
-export const BraveWebSearchSettingsSchema = z
-  .object({
-    provider: z.literal("brave"),
-    apiKey: z.string().min(1),
-    baseUrl: z.string().url().default("https://api.search.brave.com/res/v1/web/search")
-  })
-  .passthrough();
-
-/** SearXNG 网络搜索配置模式 */
-export const SearxngWebSearchSettingsSchema = z
-  .object({
-    provider: z.literal("searxng"),
-    baseUrl: z.string().url()
-  })
-  .passthrough();
-
-/** 网络搜索提供商配置模式 */
-export const WebSearchSettingsSchema = z.discriminatedUnion("provider", [
-  BraveWebSearchSettingsSchema,
-  SearxngWebSearchSettingsSchema
-]);
-
-/** 内置网络工具配置模式 */
-export const WebToolSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    allowedDomains: z.array(z.string().min(1)).default([]),
-    deniedDomains: z.array(z.string().min(1)).default([]),
-    allowPrivateNetwork: z.boolean().default(false),
-    timeoutMs: z.number().int().min(100).max(120_000).default(15_000),
-    maxResponseBytes: z.number().int().min(1024).max(10_000_000).default(2_000_000),
-    maxContentChars: z.number().int().min(1000).max(200_000).default(24_000),
-    maxRedirects: z.number().int().min(0).max(10).default(5),
-    cacheTtlMs: z.number().int().positive().max(86_400_000).default(300_000),
-    userAgent: z.string().min(1).default("SynapseRuntime/0.1"),
-    search: WebSearchSettingsSchema.optional()
-  })
-  .passthrough();
-
-/** 内置工具集合配置模式 */
-export const ToolSettingsSchema = z
-  .object({
-    web: WebToolSettingsSchema.default({})
-  })
-  .passthrough();
-
-export const ConversationSettingsSchema = z
-  .object({
-    privateTrigger: ConversationTriggerPolicySchema.default({ mode: "always" }),
-    groupTrigger: ConversationTriggerPolicySchema.default({ mode: "mention" }),
-    contextPolicy: ContextPolicySchema.default({})
-  })
-  .passthrough();
-
-export const AgentProviderIdSchema = z
-  .string()
-  .min(1)
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, {
-    message: "Agent provider id must start with a letter or number and contain only letters, numbers, _ or -."
-  });
-
-const ChatProviderTuningSchema = {
-  temperature: z.number().min(0).max(2).optional(),
-  maxTokens: z.number().int().positive().optional(),
-  topP: z.number().min(0).max(1).optional(),
-  headers: z.record(z.string().min(1), z.string()).default({}),
-  extraBody: z.record(z.string().min(1), z.unknown()).default({})
-} as const;
-
-export const OpenAiCompatibleAgentProviderConfigSchema = z
-  .object({
-    type: z.literal("openai-compatible"),
-    apiKey: z.string().min(1),
-    baseUrl: z.string().url(),
-    model: z.string().min(1),
-    ...ChatProviderTuningSchema
-  })
-  .passthrough();
-
-export const EchoAgentProviderConfigSchema = z
-  .object({
-    type: z.literal("echo"),
-    prefix: z.string().default("")
-  })
-  .passthrough();
-
-export const AgentProviderConfigSchema = z.discriminatedUnion("type", [
-  OpenAiCompatibleAgentProviderConfigSchema,
-  EchoAgentProviderConfigSchema
-]);
-
-export const AgentSettingsSchema = z
-  .object({
-    default: AgentProviderIdSchema.optional(),
-    providers: z.record(AgentProviderIdSchema, AgentProviderConfigSchema).default({})
-  })
-  .passthrough()
-  .superRefine((agent, ctx) => {
-    if ("systemPrompt" in agent) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["systemPrompt"],
-        message: "agent.systemPrompt has been removed; configure a Prompt Bundle."
-      });
-    }
-    if (agent.default === undefined) {
-      return;
-    }
-
-    if (agent.providers[agent.default] === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["default"],
-        message: `Default agent provider "${agent.default}" is not defined in agent.providers.`
-      });
-    }
-  });
-
-export const OneBot11ChannelConfigSchema = z
-  .object({
-    adapter: z.literal("onebot11"),
-    provider: z.string().min(1).default("napcat"),
-    transport: z.literal("websocket").default("websocket"),
-    endpoint: z.string().min(1),
-    accessToken: OptionalSecretSchema,
-    enabled: z.boolean().default(true),
-    riskLevel: RiskLevelSchema.default("high")
-  })
-  .passthrough();
-
-export const QqOfficialChannelConfigSchema = z
-  .object({
-    adapter: z.literal("qq-official"),
-    appId: z.string().min(1),
-    appSecret: z.string().min(1),
-    mode: z.literal("webhook").default("webhook"),
-    apiBaseUrl: z.string().url().optional(),
-    tokenEndpoint: z.string().url().optional(),
-    webhookPath: z.string().min(1).optional(),
-    enabled: z.boolean().default(false),
-    riskLevel: RiskLevelSchema.default("low")
-  })
-  .passthrough();
-
-export const ChannelConfigSchema = z.discriminatedUnion("adapter", [
-  OneBot11ChannelConfigSchema,
-  QqOfficialChannelConfigSchema
-]);
-
-export const ChannelIdSchema = z
-  .string()
-  .min(1)
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, {
-    message: "Channel id must start with a letter or number and contain only letters, numbers, _ or -."
-  });
-
 export const RuntimeConfigSchema = z
   .object({
     runtime: RuntimeSettingsSchema.default({}),
@@ -365,39 +128,5 @@ export const RuntimeConfigSchema = z
     }
   });
 
-export type PermissionPolicy = z.infer<typeof PermissionPolicySchema>;
-export type RiskLevel = z.infer<typeof RiskLevelSchema>;
-export type RuntimeMode = z.infer<typeof RuntimeModeSchema>;
-export type LogLevel = z.infer<typeof LogLevelSchema>;
-export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
-export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
-export type AdminSettings = z.infer<typeof AdminSettingsSchema>;
-export type TriggerMode = z.infer<typeof TriggerModeSchema>;
-export type ConversationTriggerPolicy = z.infer<typeof ConversationTriggerPolicySchema>;
-export type ContextPolicy = z.infer<typeof ContextPolicySchema>;
-export type RuntimeContextSettings = z.infer<typeof RuntimeContextSettingsSchema>;
-export type LocaleSettings = z.infer<typeof LocaleSettingsSchema>;
-export type PromptBundleSettings = z.infer<typeof PromptBundleSettingsSchema>;
-export type PresentationMode = z.infer<typeof PresentationModeSchema>;
-export type PresentationSettings = z.infer<typeof PresentationSettingsSchema>;
-export type MemorySettings = z.infer<typeof MemorySettingsSchema>;
-/** Brave 网络搜索配置 */
-export type BraveWebSearchSettings = z.infer<typeof BraveWebSearchSettingsSchema>;
-/** SearXNG 网络搜索配置 */
-export type SearxngWebSearchSettings = z.infer<typeof SearxngWebSearchSettingsSchema>;
-/** 网络搜索提供商配置 */
-export type WebSearchSettings = z.infer<typeof WebSearchSettingsSchema>;
-/** 内置网络工具配置 */
-export type WebToolSettings = z.infer<typeof WebToolSettingsSchema>;
-/** 内置工具集合配置 */
-export type ToolSettings = z.infer<typeof ToolSettingsSchema>;
-export type ConversationSettings = z.infer<typeof ConversationSettingsSchema>;
-export type AgentProviderId = z.infer<typeof AgentProviderIdSchema>;
-export type OpenAiCompatibleAgentProviderConfig = z.infer<typeof OpenAiCompatibleAgentProviderConfigSchema>;
-export type EchoAgentProviderConfig = z.infer<typeof EchoAgentProviderConfigSchema>;
-export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>;
-export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
-export type OneBot11ChannelConfig = z.infer<typeof OneBot11ChannelConfigSchema>;
-export type QqOfficialChannelConfig = z.infer<typeof QqOfficialChannelConfigSchema>;
-export type ChannelConfig = z.infer<typeof ChannelConfigSchema>;
+/** 运行时完整配置 */
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
