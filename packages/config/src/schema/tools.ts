@@ -43,7 +43,7 @@ export const WebToolSettingsSchema = z
 /** 内置工具集合配置模式 */
 export const ToolSettingsSchema = z
   .object({
-    web: WebToolSettingsSchema.default({})
+    web: WebToolSettingsSchema.prefault({})
   })
   .passthrough();
 

@@ -69,7 +69,10 @@ export function parseConfigObject(value: unknown, options: LoadConfigOptions = {
     };
     const expanded = expandEnv(value, expandOptions);
 
-    const config = RuntimeConfigSchema.parse(expanded);
+    const config = RuntimeConfigSchema.parse(expanded, {
+      // 保留必填字段的既有错误提示，避免依赖升级改变配置诊断契约
+      error: (issue) => (issue.code === "invalid_type" && issue.input === undefined ? "Required" : undefined)
+    });
     return normalizeConfigPaths(config, options);
   } catch (error) {
     if (error instanceof ConfigError) {

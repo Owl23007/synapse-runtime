@@ -7,26 +7,27 @@ export * from "./schema/index.js";
 /**
  * 组合各领域配置并校验跨领域约束
  *
- * 为保持现有配置兼容性，各配置段继续保留未知字段，默认值及校验规则由领域模块维护
+ * 配置段使用 prefault 补充解析前输入，使缺省配置仍经过内部字段的默认值与校验流程
  */
 export const RuntimeConfigSchema = z
   .object({
-    runtime: schemas.RuntimeSettingsSchema.default({}),
-    server: schemas.ServerSettingsSchema.default({}),
-    admin: schemas.AdminSettingsSchema.default({}),
-    context: schemas.RuntimeContextSettingsSchema.default({}),
-    locale: schemas.LocaleSettingsSchema.default({}),
-    prompts: schemas.PromptBundleSettingsSchema.default({}),
-    presentation: schemas.PresentationSettingsSchema.default({}),
-    memory: schemas.MemorySettingsSchema.default({}),
-    tools: schemas.ToolSettingsSchema.default({}),
-    agent: schemas.AgentSettingsSchema.default({}),
-    conversation: schemas.ConversationSettingsSchema.default({}),
+    runtime: schemas.RuntimeSettingsSchema.prefault({}),
+    server: schemas.ServerSettingsSchema.prefault({}),
+    admin: schemas.AdminSettingsSchema.prefault({}),
+    context: schemas.RuntimeContextSettingsSchema.prefault({}),
+    locale: schemas.LocaleSettingsSchema.prefault({}),
+    prompts: schemas.PromptBundleSettingsSchema.prefault({}),
+    presentation: schemas.PresentationSettingsSchema.prefault({}),
+    memory: schemas.MemorySettingsSchema.prefault({}),
+    tools: schemas.ToolSettingsSchema.prefault({}),
+    agent: schemas.AgentSettingsSchema.prefault({}),
+    conversation: schemas.ConversationSettingsSchema.prefault({}),
     channels: z.record(schemas.ChannelIdSchema, schemas.ChannelConfigSchema).default({}),
     permissions: z.record(z.string().min(1), schemas.PermissionPolicySchema).default(schemas.DEFAULT_PERMISSIONS)
   })
   .passthrough()
   .superRefine((config, ctx) => {
+    // 代理模式下，禁止启用 onebot11 适配器的频道
     if (config.runtime.mode !== "hosted") {
       return;
     }

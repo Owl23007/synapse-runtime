@@ -39,7 +39,7 @@ export const RuntimeContextSettingsSchema = z
       .object({
         enabled: z.boolean().default(true)
       })
-      .default({})
+      .prefault({})
   })
   .passthrough();
 
@@ -53,9 +53,9 @@ export const MemorySettingsSchema = z
 /** 会话路由配置模式 */
 export const ConversationSettingsSchema = z
   .object({
-    privateTrigger: ConversationTriggerPolicySchema.default({ mode: "always" }),
-    groupTrigger: ConversationTriggerPolicySchema.default({ mode: "mention" }),
-    contextPolicy: ContextPolicySchema.default({})
+    privateTrigger: ConversationTriggerPolicySchema.prefault({ mode: "always" }),
+    groupTrigger: ConversationTriggerPolicySchema.prefault({ mode: "mention" }),
+    contextPolicy: ContextPolicySchema.prefault({})
   })
   .passthrough();
 
