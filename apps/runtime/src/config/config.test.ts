@@ -1,0 +1,468 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { ConfigError } from "@synapse/runtime-config";
+import { loadConfigFile, parseConfigContent, parseConfigObject } from "./loader.js";
+import { redactConfig } from "@synapse/runtime-config";
+import { DEFAULT_RUNTIME_DATA_DIR } from "./schema.js";
+
+describe("runtime config", () => {
+  it("defaults runtime dataDir to the user profile", () => {
+    const config = parseConfigContent("", "runtime.config.toml");
+
+    expect(config.runtime.dataDir).toBe(DEFAULT_RUNTIME_DATA_DIR);
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "runtime"));
+  });
+
+  it("expands home-relative runtime dataDir values", () => {
+    const config = parseConfigContent(
+      `
+[runtime]
+dataDir = "~/.synapse/custom-runtime"
+`,
+      "runtime.config.toml"
+    );
+
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "custom-runtime"));
+  });
+
+  it("trims runtime dataDir before expanding home-relative values", () => {
+    const config = parseConfigContent(
+      `
+[runtime]
+dataDir = " ~/.synapse/custom-runtime "
+`,
+      "/home/ubuntu/apps/synapse-runtime/examples/runtime.config.toml"
+    );
+
+    expect(config.runtime.dataDir).toBe(join(homedir(), ".synapse", "custom-runtime"));
+    expect(config.runtime.dataDir).not.toContain("/apps/synapse-runtime/~");
+  });
+
+  it("resolves relative runtime dataDir values from the config file directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-config-"));
+    const configDir = join(dir, "config");
+    const configPath = join(configDir, "runtime.config.toml");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      `
+[runtime]
+dataDir = ".synapse"
+`,
+      "utf8"
+    );
+
+    const config = await loadConfigFile(configPath);
+
+    expect(config.runtime.dataDir).toBe(resolve(configDir, ".synapse"));
+  });
+
+  it("loads toml, expands env placeholders and applies defaults", () => {
+    const config = parseConfigContent(
+      `
+[channels."qq-local"]
+adapter = "onebot11"
+endpoint = "ws://127.0.0.1:3001"
+accessToken = "$\{NAPCAT_TOKEN}"
+`,
+      "runtime.config.toml",
+      { env: { NAPCAT_TOKEN: "secret-token" } }
+    );
+
+    expect(config.runtime.mode).toBe("local");
+    expect(config.context).toMatchObject({
+      enabled: true,
+      maxHistoryChars: 6000
+    });
+    expect(config.memory).toMatchObject({
+      enableDurableMemory: false
+    });
+    expect(config.channels["qq-local"]).toMatchObject({
+      adapter: "onebot11",
+      provider: "napcat",
+      transport: "websocket",
+      accessToken: "secret-token",
+      enabled: true,
+      riskLevel: "high"
+    });
+    expect(config.permissions["channel.qq.manage_group"]).toBe("deny");
+    expect(config.permissions["channel.qq.send_private_message"]).toBe("deny");
+  });
+
+  it("rejects channel transports and permission workflows that are not implemented", () => {
+    expect(() =>
+      parseConfigObject({
+        channels: {
+          local: { adapter: "onebot11", endpoint: "ws://127.0.0.1:3001", transport: "http" }
+        }
+      })
+    ).toThrow();
+    expect(() =>
+      parseConfigObject({
+        channels: {
+          official: {
+            adapter: "qq-official",
+            appId: "app",
+            appSecret: "secret",
+            mode: "websocket"
+          }
+        }
+      })
+    ).toThrow();
+    expect(() => parseConfigObject({ permissions: { "tool.write": "confirm" } })).toThrow();
+  });
+
+  it("supports explicit openai-compatible providers in toml configs", () => {
+    const config = parseConfigContent(
+      `
+[agent]
+default = "openai"
+
+[agent.providers.openai]
+type = "openai-compatible"
+apiKey = "$\{OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
+model = "gpt-4.1-mini"
+topP = 0.8
+
+[agent.providers.openai.headers]
+"HTTP-Referer" = "https://example.com"
+
+[agent.providers.openai.extraBody]
+seed = 7
+`,
+      "runtime.config.toml",
+      { env: { OPENAI_API_KEY: "openai-key" } }
+    );
+
+    expect(config.agent.providers.openai).toMatchObject({
+      type: "openai-compatible",
+      apiKey: "openai-key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4.1-mini",
+      topP: 0.8,
+      headers: {
+        "HTTP-Referer": "https://example.com"
+      },
+      extraBody: {
+        seed: 7
+      }
+    });
+  });
+
+  it("supports private openai-compatible gateways", () => {
+    const config = parseConfigContent(
+      `
+[agent]
+default = "private-gateway"
+
+[agent.providers.private-gateway]
+type = "openai-compatible"
+apiKey = "$\{LLM_GATEWAY_API_KEY}"
+baseUrl = "https://llm-gateway.internal/v1"
+model = "company-chat-prod"
+`,
+      "runtime.config.toml",
+      { env: { LLM_GATEWAY_API_KEY: "gateway-key" } }
+    );
+
+    expect(config.agent.providers["private-gateway"]).toMatchObject({
+      type: "openai-compatible",
+      apiKey: "gateway-key",
+      baseUrl: "https://llm-gateway.internal/v1",
+      model: "company-chat-prod"
+    });
+  });
+
+  it("supports json configs", () => {
+    const config = parseConfigContent(
+      JSON.stringify({
+        runtime: { logLevel: "debug" },
+        agent: {
+          default: "qwen",
+          providers: {
+            qwen: {
+              type: "openai-compatible",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
+            }
+          }
+        },
+        channels: {
+          "qq-official": {
+            adapter: "qq-official",
+            appId: "app-id",
+            appSecret: "app-secret"
+          }
+        }
+      }),
+      "runtime.config.json"
+    );
+
+    expect(config.runtime.logLevel).toBe("debug");
+    expect(config.admin).toMatchObject({
+      enabled: true,
+      host: "127.0.0.1",
+      port: 3766
+    });
+    expect(config.agent.providers.qwen).toMatchObject({
+      type: "openai-compatible",
+      apiKey: "qwen-key",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      model: "qwen-plus"
+    });
+    expect(config.channels["qq-official"]).toMatchObject({
+      adapter: "qq-official",
+      mode: "webhook",
+      enabled: false,
+      riskLevel: "low"
+    });
+  });
+
+  it("supports runtime context settings", () => {
+    const config = parseConfigContent(
+      `
+[context]
+enabled = false
+maxHistoryChars = 1200
+`,
+      "runtime.config.toml"
+    );
+
+    expect(config.context).toMatchObject({
+      enabled: false,
+      maxHistoryChars: 1200,
+      strategy: "default",
+      cache: { enabled: true }
+    });
+  });
+
+  it("defaults to the Chinese locale and disables prompt compilation explicitly", () => {
+    const config = parseConfigObject({});
+
+    expect(config.locale).toEqual({ default: "zh-CN" });
+    expect(config.prompts).toEqual({ enabled: false });
+    expect(config.presentation).toEqual({ mode: "deterministic" });
+    expect(config.agent).toEqual({ providers: {} });
+  });
+
+  it("normalizes external resource paths relative to the config file", () => {
+    const config = parseConfigContent(
+      `
+[locale]
+catalogPath = "resources/locales.zh-CN.yaml"
+
+[prompts]
+enabled = true
+catalogPath = "~/synapse/prompts.zh-CN.yaml"
+defaultPurpose = "reasoning.chat_reply"
+
+[presentation]
+profilePath = "resources/presentation-profiles.yaml"
+defaultProfileId = "default"
+`,
+      "/opt/synapse/config/runtime.config.toml"
+    );
+
+    expect(config.locale.catalogPath).toBe(resolve("/opt/synapse/config/resources/locales.zh-CN.yaml"));
+    expect(config.prompts.catalogPath).toBe(join(homedir(), "synapse", "prompts.zh-CN.yaml"));
+    expect(config.presentation.profilePath).toBe(resolve("/opt/synapse/config/resources/presentation-profiles.yaml"));
+    expect(config.presentation.defaultProfileId).toBe("default");
+  });
+
+  it("requires a presentation profile id and path together", () => {
+    expect(() => parseConfigObject({ presentation: { profilePath: "profiles.yaml" } })).toThrow(
+      /presentation\.defaultProfileId/
+    );
+    expect(() => parseConfigObject({ presentation: { defaultProfileId: "default" } })).toThrow(
+      /presentation\.profilePath/
+    );
+  });
+
+  it("requires a complete Prompt Bundle and rejects removed prompt fields", () => {
+    expect(() => parseConfigObject({ prompts: { enabled: true } })).toThrow(/prompts\.catalogPath/);
+    expect(() =>
+      parseConfigObject({
+        prompts: { enabled: true, catalogPath: "prompts.yaml", defaultPromptId: "chat.reasoning" }
+      })
+    ).toThrow(/prompts\.defaultPromptId/);
+    expect(() => parseConfigObject({ agent: { systemPrompt: "legacy prompt" } })).toThrow(/agent\.systemPrompt/);
+  });
+
+  it("rejects model presentation until the isolated presentation call is implemented", () => {
+    expect(() => parseConfigObject({ presentation: { mode: "model" } })).toThrow(
+      /Model presentation is not implemented/
+    );
+  });
+
+  it("accepts durable memory when explicitly enabled", () => {
+    const config = parseConfigContent(
+      `
+[memory]
+enableDurableMemory = true
+`,
+      "runtime.config.toml"
+    );
+    expect(config.memory.enableDurableMemory).toBe(true);
+  });
+
+  it("supports guarded web tools with Brave search", () => {
+    const config = parseConfigContent(
+      `
+[tools.web]
+enabled = true
+allowedDomains = ["docs.example.com"]
+deniedDomains = ["private.example.com"]
+timeoutMs = 8000
+maxContentChars = 12000
+
+[tools.web.search]
+provider = "brave"
+apiKey = "$\{BRAVE_SEARCH_API_KEY}"
+`,
+      "runtime.config.toml",
+      { env: { BRAVE_SEARCH_API_KEY: "brave-key" } }
+    );
+
+    expect(config.tools.web).toMatchObject({
+      enabled: true,
+      allowedDomains: ["docs.example.com"],
+      deniedDomains: ["private.example.com"],
+      allowPrivateNetwork: false,
+      timeoutMs: 8000,
+      maxResponseBytes: 2_000_000,
+      maxContentChars: 12000,
+      maxRedirects: 5,
+      search: {
+        provider: "brave",
+        apiKey: "brave-key",
+        baseUrl: "https://api.search.brave.com/res/v1/web/search"
+      }
+    });
+    expect(config.permissions["network.web.search"]).toBe("allow");
+    expect(config.permissions["network.web.fetch"]).toBe("allow");
+  });
+
+  it("supports self-hosted SearXNG search", () => {
+    const config = parseConfigObject({
+      tools: {
+        web: {
+          enabled: true,
+          search: {
+            provider: "searxng",
+            baseUrl: "https://search.example.com/search"
+          }
+        }
+      }
+    });
+
+    expect(config.tools.web.search).toEqual({
+      provider: "searxng",
+      baseUrl: "https://search.example.com/search"
+    });
+  });
+
+  it("fails when a required env placeholder is missing", () => {
+    expect(() =>
+      parseConfigObject({
+        channels: {
+          "qq-local": {
+            adapter: "onebot11",
+            endpoint: "$\{NAPCAT_ENDPOINT}"
+          }
+        }
+      })
+    ).toThrow(ConfigError);
+  });
+
+  it("rejects a default agent provider that is not defined", () => {
+    expect(() =>
+      parseConfigObject({
+        agent: {
+          default: "missing",
+          providers: {
+            qwen: {
+              type: "openai-compatible",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
+            }
+          }
+        }
+      })
+    ).toThrow(/Default agent provider "missing" is not defined/);
+  });
+
+  it("requires explicit endpoint and model for openai-compatible providers", () => {
+    expect(() =>
+      parseConfigObject({
+        agent: {
+          default: "private-gateway",
+          providers: {
+            "private-gateway": {
+              type: "openai-compatible",
+              apiKey: "gateway-key"
+            }
+          }
+        }
+      })
+    ).toThrow(/baseUrl: Required/);
+  });
+
+  it("rejects legacy qwen provider types", () => {
+    expect(() =>
+      parseConfigObject({
+        agent: {
+          default: "qwen",
+          providers: {
+            qwen: {
+              type: "qwen",
+              apiKey: "qwen-key",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              model: "qwen-plus"
+            }
+          }
+        }
+      })
+    ).toThrow(/Invalid discriminator value/);
+  });
+
+  it("rejects enabled onebot channels in hosted mode", () => {
+    expect(() =>
+      parseConfigObject({
+        runtime: { mode: "hosted" },
+        channels: {
+          "qq-local": {
+            adapter: "onebot11",
+            endpoint: "ws://127.0.0.1:3001"
+          }
+        }
+      })
+    ).toThrow(/Hosted mode cannot enable onebot11 channels/);
+  });
+
+  it("redacts secret fields without mutating the source", () => {
+    const config = parseConfigObject({
+      channels: {
+        "qq-official": {
+          adapter: "qq-official",
+          appId: "app-id",
+          appSecret: "app-secret"
+        }
+      }
+    });
+
+    const redacted = redactConfig(config);
+
+    expect(redacted.channels["qq-official"]).toMatchObject({
+      adapter: "qq-official",
+      appSecret: "[REDACTED]"
+    });
+    expect(config.channels["qq-official"]).toMatchObject({
+      appSecret: "app-secret"
+    });
+  });
+});

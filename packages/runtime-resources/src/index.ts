@@ -1,15 +1,7 @@
 export { enCoreErrorCatalog, zhCNCoreErrorCatalog } from "./builtin.js";
-export {
-  createErrorDescriptor,
-  ErrorDescriptorSchema,
-  ResourceError,
-  type ErrorDescriptor,
-  type LocalizedError
-} from "./errors.js";
+export { ResourceError } from "./errors.js";
 export {
   compilePromptBundleFileSync,
-  loadLocaleCatalogFile,
-  loadLocaleCatalogFileSync,
   loadPresentationProfileCatalogFile,
   loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFile,
@@ -26,13 +18,6 @@ export {
   type PromptRecipe,
   type ResolvedPromptRecipe
 } from "./bundle.js";
-export {
-  LocaleCatalogSchema,
-  LocaleResolver,
-  renderLocaleTemplate,
-  type LocaleCatalog,
-  type MissingLocaleKeyHandler
-} from "./locale.js";
 export {
   PresentationProfileCatalogSchema,
   PresentationProfileSchema,

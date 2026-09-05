@@ -33,17 +33,93 @@ importers:
         specifier: ^2.0.5
         version: 2.1.9(@types/node@20.19.43)
 
+  apps/runtime:
+    dependencies:
+      '@synapse/runtime-agent-api-provider':
+        specifier: workspace:*
+        version: link:../../packages/agent-api-provider
+      '@synapse/runtime-agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
+      '@synapse/runtime-channel':
+        specifier: workspace:*
+        version: link:../../packages/channel
+      '@synapse/runtime-channel-onebot11':
+        specifier: workspace:*
+        version: link:../../packages/channel-onebot11
+      '@synapse/runtime-channel-qq-official':
+        specifier: workspace:*
+        version: link:../../packages/channel-qq-official
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@synapse/runtime-conversation':
+        specifier: workspace:*
+        version: link:../../packages/conversation
+      '@synapse/runtime-core':
+        specifier: workspace:*
+        version: link:../../packages/runtime-core
+      '@synapse/runtime-i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@synapse/runtime-permission':
+        specifier: workspace:*
+        version: link:../../packages/permission
+      '@synapse/runtime-protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@synapse/runtime-resources':
+        specifier: workspace:*
+        version: link:../../packages/runtime-resources
+      '@synapse/runtime-tool-runtime':
+        specifier: workspace:*
+        version: link:../../packages/tool-runtime
+      '@synapse/runtime-tool-web':
+        specifier: workspace:*
+        version: link:../../packages/tool-web
+      '@synapse/runtime-user-config':
+        specifier: workspace:*
+        version: link:../../packages/user-config
+      ink:
+        specifier: ^5.2.1
+        version: 5.2.1(@types/react@18.3.18)(react@18.3.1)
+      nova-http:
+        specifier: ^0.1.1
+        version: 0.1.1
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      smol-toml:
+        specifier: ^1.7.0
+        version: 1.7.0
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.18
+        version: 18.3.18
+
   packages/agent-api-provider:
     dependencies:
       '@synapse/runtime-agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
       '@synapse/runtime-conversation':
         specifier: workspace:*
         version: link:../conversation
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/agent-core:
     dependencies:
@@ -68,21 +144,33 @@ importers:
       '@synapse/runtime-channel':
         specifier: workspace:*
         version: link:../channel
+      '@synapse/runtime-permission':
+        specifier: workspace:*
+        version: link:../permission
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
       ws:
         specifier: ^8.21.0
         version: 8.21.0
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/channel-qq-official:
     dependencies:
       '@synapse/runtime-channel':
         specifier: workspace:*
         version: link:../channel
+      '@synapse/runtime-permission':
+        specifier: workspace:*
+        version: link:../permission
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/config:
     dependencies:
@@ -98,11 +186,33 @@ importers:
 
   packages/conversation:
     dependencies:
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
-  packages/permission: {}
+  packages/i18n:
+    dependencies:
+      yaml:
+        specifier: ^2.5.0
+        version: 2.9.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+
+  packages/permission:
+    dependencies:
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/protocol: {}
 
@@ -136,76 +246,24 @@ importers:
 
   packages/runtime-resources:
     dependencies:
-      '@synapse/runtime-conversation':
-        specifier: workspace:*
-        version: link:../conversation
-      yaml:
-        specifier: ^2.5.0
-        version: 2.9.0
-      zod:
-        specifier: ^3.23.8
-        version: 3.25.76
-
-  packages/runtime-server:
-    dependencies:
-      '@synapse/runtime-agent-api-provider':
-        specifier: workspace:*
-        version: link:../agent-api-provider
-      '@synapse/runtime-agent-core':
-        specifier: workspace:*
-        version: link:../agent-core
-      '@synapse/runtime-channel':
-        specifier: workspace:*
-        version: link:../channel
-      '@synapse/runtime-channel-onebot11':
-        specifier: workspace:*
-        version: link:../channel-onebot11
-      '@synapse/runtime-channel-qq-official':
-        specifier: workspace:*
-        version: link:../channel-qq-official
       '@synapse/runtime-config':
         specifier: workspace:*
         version: link:../config
       '@synapse/runtime-conversation':
         specifier: workspace:*
         version: link:../conversation
-      '@synapse/runtime-core':
+      '@synapse/runtime-i18n':
         specifier: workspace:*
-        version: link:../runtime-core
-      '@synapse/runtime-permission':
-        specifier: workspace:*
-        version: link:../permission
-      '@synapse/runtime-protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@synapse/runtime-resources':
-        specifier: workspace:*
-        version: link:../runtime-resources
-      '@synapse/runtime-tool-runtime':
-        specifier: workspace:*
-        version: link:../tool-runtime
-      '@synapse/runtime-tool-web':
-        specifier: workspace:*
-        version: link:../tool-web
-      ink:
-        specifier: ^5.2.1
-        version: 5.2.1(@types/react@18.3.18)(react@18.3.1)
-      nova-http:
-        specifier: ^0.1.1
-        version: 0.1.1
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      smol-toml:
-        specifier: ^1.7.0
-        version: 1.7.0
+        version: link:../i18n
       yaml:
-        specifier: ^2.9.0
+        specifier: ^2.5.0
         version: 2.9.0
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.18
-        version: 18.3.18
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+      zod-config:
+        specifier: npm:zod@^4.5.4
+        version: zod@4.5.4
 
   packages/tool-runtime:
     dependencies:
@@ -215,9 +273,24 @@ importers:
 
   packages/tool-web:
     dependencies:
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../tool-runtime
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
+  packages/user-config:
+    dependencies:
+      smol-toml:
+        specifier: ^1.7.0
+        version: 1.7.0
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
 packages:
 

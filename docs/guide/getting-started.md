@@ -33,7 +33,7 @@ pnpm start
 等价的直接命令：
 
 ```bash
-node packages/runtime-server/dist/cli.js start \
+node apps/runtime/dist/cli.js start \
   --config examples/runtime.config.toml \
   --env-file .env
 ```

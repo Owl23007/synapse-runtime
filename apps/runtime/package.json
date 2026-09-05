@@ -1,0 +1,52 @@
+{
+  "name": "@synapse/runtime-server",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "synapse-runtime": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@synapse/runtime-agent-api-provider": "workspace:*",
+    "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-channel": "workspace:*",
+    "@synapse/runtime-channel-onebot11": "workspace:*",
+    "@synapse/runtime-channel-qq-official": "workspace:*",
+    "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-conversation": "workspace:*",
+    "@synapse/runtime-core": "workspace:*",
+    "@synapse/runtime-i18n": "workspace:*",
+    "@synapse/runtime-permission": "workspace:*",
+    "@synapse/runtime-protocol": "workspace:*",
+    "@synapse/runtime-resources": "workspace:*",
+    "@synapse/runtime-tool-runtime": "workspace:*",
+    "@synapse/runtime-tool-web": "workspace:*",
+    "@synapse/runtime-user-config": "workspace:*",
+    "ink": "^5.2.1",
+    "nova-http": "^0.1.1",
+    "react": "^18.3.1",
+    "smol-toml": "^1.7.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18"
+  }
+}

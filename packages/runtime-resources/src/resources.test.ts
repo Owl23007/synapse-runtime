@@ -1,15 +1,14 @@
+import { LocaleResolver, loadLocaleCatalogFileSync } from "@synapse/runtime-i18n";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  LocaleResolver,
   PromptBundleCompiler,
   PresentationProfileCatalogSchema,
   PromptDefinitionSchema,
   PromptRegistry,
   ResourceError,
-  loadLocaleCatalogFileSync,
   loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFileSync,
   enCoreErrorCatalog,

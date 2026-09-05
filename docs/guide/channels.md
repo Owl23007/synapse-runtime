@@ -78,6 +78,6 @@ riskLevel = "low"
 新增 adapter 时，建议放在独立 package 中实现 `ChannelAdapter`，然后：
 
 1. 在 `@synapse/runtime-config` 中补充 adapter config schema。
-2. 在 `packages/runtime-server/src/composition/channel-factory.ts` 中补充创建逻辑。
+2. 在 `apps/runtime/src/composition/channel-factory.ts` 中补充创建逻辑。
 3. 平台 payload 细节保留在 adapter package 内，不向 Agent 泄漏。
 4. 每个 package 只从 `src/index.ts` 导出稳定 public API。

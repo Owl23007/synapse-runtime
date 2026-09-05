@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
     }
   },
   "scripts": {
@@ -20,6 +24,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@synapse/runtime-tool-runtime": "workspace:*"
+    "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-tool-runtime": "workspace:*",
+    "zod": "^4.5.4"
   }
 }

@@ -1,6 +1,6 @@
 import enCoreErrorCatalogConfig from "./locales/en.json" with { type: "json" };
 import zhCNCoreErrorCatalogConfig from "./locales/zh-CN.json" with { type: "json" };
-import { LocaleCatalogSchema, type LocaleCatalog } from "./locale.js";
+import { LocaleCatalogSchema, type LocaleCatalog } from "@synapse/runtime-i18n";
 
 /** Runtime 内置中文错误资源，可由外部 Catalog 按 Key 覆盖 */
 export const zhCNCoreErrorCatalog: LocaleCatalog = LocaleCatalogSchema.parse(zhCNCoreErrorCatalogConfig);

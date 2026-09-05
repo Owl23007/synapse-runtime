@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { LocaleCatalogSchema, type LocaleCatalog } from "./locale.js";
 import { PromptDefinitionSchema, PromptRegistry, type PromptDefinition } from "./prompt.js";
 import { PresentationProfileCatalogSchema, type PresentationProfileCatalog } from "./presentation.js";
 import { PromptBundleSchema, PromptBundleCompiler, type PromptBundle } from "./bundle.js";
@@ -14,19 +13,9 @@ function parseResource(content: string, filePath: string): unknown {
   return extname(filePath).toLowerCase() === ".json" ? JSON.parse(content) : parseYaml(content);
 }
 
-/** 同步加载并校验 Locale Catalog */
-export function loadLocaleCatalogFileSync(filePath: string): LocaleCatalog {
-  return LocaleCatalogSchema.parse(parseResource(readFileSync(filePath, "utf8"), filePath));
-}
-
 /** 同步加载并构建 Prompt Registry */
 export function loadPromptCatalogFileSync(filePath: string): PromptRegistry {
   return new PromptRegistry(PromptCatalogSchema.parse(parseResource(readFileSync(filePath, "utf8"), filePath)).prompts);
-}
-
-/** 异步接口加载并校验 Locale Catalog */
-export async function loadLocaleCatalogFile(filePath: string): Promise<LocaleCatalog> {
-  return loadLocaleCatalogFileSync(filePath);
 }
 
 /** 异步接口加载并构建 Prompt Registry */

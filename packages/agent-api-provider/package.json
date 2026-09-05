@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
     }
   },
   "scripts": {
@@ -21,7 +25,9 @@
   },
   "dependencies": {
     "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-conversation": "workspace:*",
-    "@synapse/runtime-protocol": "workspace:*"
+    "@synapse/runtime-protocol": "workspace:*",
+    "zod": "^4.5.4"
   }
 }
