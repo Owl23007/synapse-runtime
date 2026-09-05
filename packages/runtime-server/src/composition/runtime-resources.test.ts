@@ -3,9 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseConfigObject } from "@synapse/runtime-config";
 import { describe, expect, it } from "vitest";
-import { createPresentationProfileFromConfig } from "./runtime-resources.js";
+import { createLocaleResolverFromConfig, createPresentationProfileFromConfig } from "./runtime-resources.js";
 
 describe("runtime presentation resources", () => {
+  it("uses built-in English messages when English is the configured locale", () => {
+    const config = parseConfigObject({ locale: { default: "en-US" } });
+    const resolver = createLocaleResolverFromConfig(config, { info() {}, warn() {}, error() {} });
+
+    expect(resolver.resolve("admin.task_not_found")).toBe("The requested task was not found.");
+  });
+
   it("loads the selected deterministic profile during composition", () => {
     const directory = mkdtempSync(join(tmpdir(), "runtime-presentation-"));
     const profilePath = join(directory, "profiles.yaml");

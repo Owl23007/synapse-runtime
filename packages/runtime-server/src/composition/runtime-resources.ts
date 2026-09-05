@@ -4,6 +4,7 @@ import {
   loadPresentationProfileCatalogFileSync,
   LocaleResolver,
   resolvePresentationProfile,
+  enCoreErrorCatalog,
   zhCNCoreErrorCatalog,
   type PresentationProfile
 } from "@synapse/runtime-resources";
@@ -11,7 +12,7 @@ import type { RuntimeServerLogger } from "../types.js";
 
 /** 加载并组合内置与用户提供的本地化资源。 */
 export function createLocaleResolverFromConfig(config: RuntimeConfig, logger: RuntimeServerLogger): LocaleResolver {
-  const resolver = new LocaleResolver([zhCNCoreErrorCatalog], config.locale.default, (event) => {
+  const resolver = new LocaleResolver([zhCNCoreErrorCatalog, enCoreErrorCatalog], config.locale.default, (event) => {
     logger.warn("Locale key is missing.", event);
   });
   if (config.locale.catalogPath !== undefined) {

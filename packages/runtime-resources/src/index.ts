@@ -1,4 +1,4 @@
-export { zhCNCoreErrorCatalog } from "./builtin.js";
+export { enCoreErrorCatalog, zhCNCoreErrorCatalog } from "./builtin.js";
 export {
   createErrorDescriptor,
   ErrorDescriptorSchema,

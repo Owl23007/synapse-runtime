@@ -34,7 +34,7 @@ strategy = "default"
 enabled = true
 
 [locale]
-# P0 ships with zh-CN. Resource paths are relative to this configuration file and support ~.
+# Built-in messages support zh-CN and en. Resource paths are relative to this configuration file and support ~.
 default = "zh-CN"
 catalogPath = "resources/locales.zh-CN.yaml"
 

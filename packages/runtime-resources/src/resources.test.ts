@@ -12,17 +12,29 @@ import {
   loadLocaleCatalogFileSync,
   loadPresentationProfileCatalogFileSync,
   loadPromptCatalogFileSync,
+  enCoreErrorCatalog,
   zhCNCoreErrorCatalog
 } from "./index.js";
 
 describe("locale resources", () => {
   it("uses the fallback catalog and retains missing placeholders", () => {
-    const resolver = new LocaleResolver([zhCNCoreErrorCatalog]);
+    const resolver = new LocaleResolver([zhCNCoreErrorCatalog, enCoreErrorCatalog]);
     expect(resolver.localizeError({ code: "TIMEOUT", key: "agent.request_timeout" }, "en-US").message).toBe(
-      "模型请求超时，请稍后重试。"
+      "The model request timed out. Please try again later."
     );
     expect(resolver.resolve("unknown.key")).toBe("暂时无法提供此错误的说明，请稍后重试。");
     expect(resolver.resolve("runtime.configuration_invalid")).toContain("{reason}");
+  });
+  it("provides English built-in messages for en language tags", () => {
+    const resolver = new LocaleResolver([zhCNCoreErrorCatalog, enCoreErrorCatalog], "en-US");
+
+    expect(resolver.resolve("agent.request_timeout")).toBe("The model request timed out. Please try again later.");
+    expect(resolver.resolve("agent.request_timeout", {}, "en")).toBe(
+      "The model request timed out. Please try again later."
+    );
+    expect(resolver.resolve("unknown.key")).toBe(
+      "A description for this error is temporarily unavailable. Please try again later."
+    );
   });
   it("merges partial catalogs without discarding built-in messages", () => {
     const resolver = new LocaleResolver([zhCNCoreErrorCatalog]);

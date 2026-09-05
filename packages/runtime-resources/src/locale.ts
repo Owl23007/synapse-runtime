@@ -49,11 +49,15 @@ export class LocaleResolver {
 
   /** 解析指定 Key 并插入安全参数 */
   resolve(key: string, params: Record<string, string> = {}, locale = this.fallbackLocale): string {
-    const template = this.catalogs.get(locale)?.messages[key] ?? this.catalogs.get(this.fallbackLocale)?.messages[key];
+    const template = this.#catalogFor(locale)?.messages[key] ?? this.#catalogFor(this.fallbackLocale)?.messages[key];
     if (template === undefined) {
       this.onMissingKey?.({ key, locale, fallbackLocale: this.fallbackLocale });
       // 缺失 Key 不直接回显内部标识，避免把实现细节暴露给用户
-      return "暂时无法提供此错误的说明，请稍后重试。";
+      return (
+        this.#catalogFor(locale)?.messages["locale.message_unavailable"] ??
+        this.#catalogFor(this.fallbackLocale)?.messages["locale.message_unavailable"] ??
+        "暂时无法提供此错误的说明，请稍后重试。"
+      );
     }
     return renderLocaleTemplate(template, params);
   }
@@ -61,6 +65,11 @@ export class LocaleResolver {
   /** 将结构化错误转换为指定语言的用户可见错误 */
   localizeError(error: ErrorDescriptor, locale = this.fallbackLocale): LocalizedError {
     return { ...error, locale, message: this.resolve(error.key, error.params, locale) };
+  }
+
+  /** 按完整语言标签或基础语言标签获取 Catalog，使 en-US 可复用 en 默认资源 */
+  #catalogFor(locale: string): LocaleCatalog | undefined {
+    return this.catalogs.get(locale) ?? this.catalogs.get(locale.split("-", 1)[0] ?? locale);
   }
 }
 
