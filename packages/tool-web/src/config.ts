@@ -1,3 +1,4 @@
+import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod";
 
 /** Brave 网络搜索配置模式 */
@@ -61,3 +62,10 @@ export type WebToolSettings = z.infer<typeof WebToolSettingsSchema>;
 
 /** 内置工具集合配置 */
 export type ToolSettings = z.infer<typeof ToolSettingsSchema>;
+
+/** 模块配置令牌，默认值与校验由所属模块维护 */
+export const toolsConfig = defineConfig({
+  id: "tools",
+  defaults: ToolSettingsSchema.parse({}),
+  parse: (value: unknown) => ToolSettingsSchema.parse(value)
+});

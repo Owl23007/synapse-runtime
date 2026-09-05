@@ -1,0 +1,9 @@
+{
+  "duplicate": "Duplicate prompt configuration: {id}.",
+  "not_found": "Prompt configuration not found: {id}.",
+  "disabled": "Prompt configuration is disabled: {id}.",
+  "variables_missing": "Prompt configuration is missing variables: {variables}.",
+  "recipe_not_found": "No prompt recipe was found for purpose: {purpose}.",
+  "dimension_variant_not_found": "Prompt recipe {recipe} has no value {value} for dimension {dimension}.",
+  "stage_mismatch": "Prompt {id} stage {actual} does not match recipe stage {expected}."
+}

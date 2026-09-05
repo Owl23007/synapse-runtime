@@ -1,6 +1,6 @@
 # 配置
 
-Runtime 配置由 `@synapse/runtime-config` 加载。Loader 支持 TOML、YAML 和 JSON；仓库内的示例文件是 `examples/runtime.config.toml`。
+Runtime 配置由 `apps/runtime/src/config` 组合加载，通用机制由 `@synapse/runtime-config` 提供。Loader 支持 TOML、YAML 和 JSON；仓库内的示例文件是 `examples/runtime.config.toml`。
 
 ## 顶层配置段
 
@@ -168,3 +168,17 @@ maxMessages = 20
 - `deny`
 
 `confirm`、`sandbox` 和 `rate_limit` 尚未具备可恢复工作流，因此当前公开配置会拒绝这些值，而不是把它们静默当作 `deny`。
+
+## 来源覆盖与循环设置
+
+支持 `--workspace-config <path>` 和 `--user-config <path>`，用户配置路径也可通过 `SYNAPSE_USER_CONFIG` 指定。覆盖顺序为模块默认值、应用配置、主文件、workspace 文件、user 文件、环境变量、CLI；服务重载保留同一组来源选项
+
+环境变量通过双下划线定位模块字段，例如 `SYNAPSE__agentLoop__maxSteps=12`。嵌套对象合并，数组替换，权限表按整表替换
+
+```toml
+[agentLoop]
+maxSteps = 8
+maxToolCalls = 16
+```
+
+配置文件中的资源路径始终相对于各自来源文件所在目录，临时配置覆盖不会自动写回文件

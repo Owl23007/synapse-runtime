@@ -1,0 +1,12 @@
+# 可直接通过 config:check 的最小应用配置，不依赖本地密钥
+[runtime]
+mode = "local"
+
+[locale]
+default = "zh-CN"
+
+[agent]
+default = "echo"
+
+[agent.providers.echo]
+type = "echo"

@@ -1,3 +1,4 @@
+import type { ConfigCliOptions } from "../config/cli-options.js";
 import type { RuntimeConfig } from "../config/index.js";
 import type { RuntimeServerStartResult } from "../types.js";
 
@@ -5,7 +6,8 @@ export type ConsoleLevel = "debug" | "info" | "warn" | "error";
 export type ConsoleStatus = "idle" | "starting" | "running" | "stopping" | "stopped" | "failed";
 export type ConsoleView = "overview" | "logs" | "config" | "channels" | "help";
 
-export interface RuntimeConsoleOptions {
+/** 控制台连接与本地应用启动参数 */
+export interface RuntimeConsoleOptions extends ConfigCliOptions {
   readonly configPath: string;
   readonly envFile?: string;
   readonly endpoint?: string;

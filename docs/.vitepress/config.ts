@@ -39,6 +39,7 @@ export default defineConfig({
           text: "开发文档",
           items: [
             { text: "包结构", link: "/reference/packages" },
+            { text: "Harness 架构对照", link: "/monorepo-review" },
             { text: "命令", link: "/reference/commands" },
             { text: "配置 Schema", link: "/reference/config" },
             { text: "安全", link: "/reference/security" },

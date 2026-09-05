@@ -1,4 +1,3 @@
-export { enCoreErrorCatalog, zhCNCoreErrorCatalog } from "./builtin.js";
 export { ResourceError } from "./errors.js";
 export {
   compilePromptBundleFileSync,

@@ -1,0 +1,4 @@
+{
+  "internal_error": "运行时发生内部错误，请稍后重试。",
+  "configuration_invalid": "运行时配置无效：{reason}。"
+}

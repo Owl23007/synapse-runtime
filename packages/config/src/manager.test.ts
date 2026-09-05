@@ -133,6 +133,7 @@ describe("modular configuration", () => {
   });
   it("rejects unsafe merge and environment paths", async () => {
     expect(() => deepMerge({}, JSON.parse('{"__proto__":{"polluted":true}}'))).toThrow();
+    expect(() => deepMerge({}, JSON.parse('{"nested":{"__proto__":{"polluted":true}}}'))).toThrow();
     await expect(
       new EnvConfigSource("env", 1, "APP", { APP__constructor__prototype__polluted: "true" }).load()
     ).rejects.toThrow();

@@ -1,12 +1,5 @@
+import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod-config";
-
-/** 用户可见消息的语言资源配置模式 */
-export const LocaleSettingsSchema = z
-  .object({
-    default: z.string().min(1).default("zh-CN"),
-    catalogPath: z.string().min(1).optional()
-  })
-  .passthrough();
 
 /** 提示词注册表开关与外部目录配置模式 */
 export const PromptBundleSettingsSchema = z
@@ -72,9 +65,6 @@ export const PresentationSettingsSchema = z
     }
   });
 
-/** 用户可见消息的语言资源配置 */
-export type LocaleSettings = z.infer<typeof LocaleSettingsSchema>;
-
 /** 提示词注册表开关与外部目录配置 */
 export type PromptBundleSettings = z.infer<typeof PromptBundleSettingsSchema>;
 
@@ -83,3 +73,17 @@ export type PresentationMode = z.infer<typeof PresentationModeSchema>;
 
 /** 独立于推理的最终回复表达配置 */
 export type PresentationSettings = z.infer<typeof PresentationSettingsSchema>;
+
+/** 模块配置令牌，默认值与校验由所属模块维护 */
+export const promptsConfig = defineConfig({
+  id: "prompts",
+  defaults: PromptBundleSettingsSchema.parse({}),
+  parse: (value: unknown) => PromptBundleSettingsSchema.parse(value)
+});
+
+/** 模块配置令牌，默认值与校验由所属模块维护 */
+export const presentationConfig = defineConfig({
+  id: "presentation",
+  defaults: PresentationSettingsSchema.parse({}),
+  parse: (value: unknown) => PresentationSettingsSchema.parse(value)
+});

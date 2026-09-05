@@ -1,4 +1,8 @@
-import { LocaleResolver, loadLocaleCatalogFileSync } from "@synapse/runtime-i18n";
+import { loadLocaleCatalogFileSync } from "@synapse/runtime-i18n/node";
+import { loadApplicationCatalog } from "./locales.js";
+const enCoreErrorCatalog = loadApplicationCatalog("en");
+const zhCNCoreErrorCatalog = loadApplicationCatalog("zh-CN");
+import { LocaleResolver } from "@synapse/runtime-i18n";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,10 +14,8 @@ import {
   PromptRegistry,
   ResourceError,
   loadPresentationProfileCatalogFileSync,
-  loadPromptCatalogFileSync,
-  enCoreErrorCatalog,
-  zhCNCoreErrorCatalog
-} from "./index.js";
+  loadPromptCatalogFileSync
+} from "@synapse/runtime-resources";
 
 describe("locale resources", () => {
   it("uses the fallback catalog and retains missing placeholders", () => {

@@ -15,6 +15,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js"
     }
   },
   "scripts": {
@@ -26,6 +30,7 @@
   "dependencies": {
     "@synapse/runtime-agent-api-provider": "workspace:*",
     "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-agent-loop": "workspace:*",
     "@synapse/runtime-channel": "workspace:*",
     "@synapse/runtime-channel-onebot11": "workspace:*",
     "@synapse/runtime-channel-qq-official": "workspace:*",

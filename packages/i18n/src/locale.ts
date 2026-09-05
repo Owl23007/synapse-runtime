@@ -1,3 +1,4 @@
+import { I18nManager } from "./manager.js";
 import { z } from "zod";
 import type { ErrorDescriptor, LocalizedError } from "./errors.js";
 
@@ -13,63 +14,50 @@ export type LocaleCatalog = z.infer<typeof LocaleCatalogSchema>;
 /** Locale Key 缺失时的可观测性回调 */
 export type MissingLocaleKeyHandler = (event: { key: string; locale: string; fallbackLocale: string }) => void;
 
-/** 负责 Catalog 合并、语言回退和模板渲染的解析器 */
+/** 面向结构化错误的 Catalog 视图，翻译与缓存统一委托国际化管理器 */
 export class LocaleResolver {
-  private readonly catalogs = new Map<string, LocaleCatalog>();
+  readonly i18n: I18nManager;
   readonly fallbackLocale: string;
 
-  private readonly onMissingKey: MissingLocaleKeyHandler | undefined;
-
-  /** 使用给定 Catalog 和默认回退语言创建解析器 */
+  /** 宿主提供语言策略和资源，解析器不加载任何内置业务文案 */
   constructor(
     catalogs: readonly LocaleCatalog[] = [],
-    fallbackLocale = "zh-CN",
-    onMissingKey?: MissingLocaleKeyHandler
+    locale = catalogs[0]?.locale ?? "en",
+    onMissingKey?: MissingLocaleKeyHandler,
+    fallbackLocale = locale
   ) {
-    this.fallbackLocale = fallbackLocale;
-    this.onMissingKey = onMissingKey;
+    this.fallbackLocale = locale;
+    this.i18n = new I18nManager({ defaultLocale: locale, fallbackLocale, ...(onMissingKey ? { onMissingKey } : {}) });
     for (const catalog of catalogs) this.add(catalog);
   }
 
-  /** 合并同语言 Catalog，后加入的同名 Key 覆盖内置值 */
+  /** 合并宿主提供的资源覆盖，每个键按所属命名空间保存 */
   add(catalog: LocaleCatalog): this {
     const parsed = LocaleCatalogSchema.parse(catalog);
-    const existing = this.catalogs.get(parsed.locale);
-    this.catalogs.set(
-      parsed.locale,
-      existing === undefined
-        ? parsed
-        : {
-            locale: parsed.locale,
-            messages: { ...existing.messages, ...parsed.messages }
-          }
-    );
+    const namespaces = new Map<string, Record<string, string>>();
+    for (const [key, value] of Object.entries(parsed.messages)) {
+      const separator = key.indexOf(".");
+      const namespace = separator < 0 ? "messages" : key.slice(0, separator);
+      const messages = namespaces.get(namespace) ?? {};
+      messages[separator < 0 ? key : key.slice(separator + 1)] = value;
+      namespaces.set(namespace, messages);
+    }
+    for (const [namespace, messages] of namespaces) this.i18n.addResource(namespace, parsed.locale, messages);
     return this;
   }
 
-  /** 解析指定 Key 并插入安全参数 */
-  resolve(key: string, params: Record<string, string> = {}, locale = this.fallbackLocale): string {
-    const template = this.#catalogFor(locale)?.messages[key] ?? this.#catalogFor(this.fallbackLocale)?.messages[key];
-    if (template === undefined) {
-      this.onMissingKey?.({ key, locale, fallbackLocale: this.fallbackLocale });
-      // 缺失 Key 不直接回显内部标识，避免把实现细节暴露给用户
-      return (
-        this.#catalogFor(locale)?.messages["locale.message_unavailable"] ??
-        this.#catalogFor(this.fallbackLocale)?.messages["locale.message_unavailable"] ??
-        "暂时无法提供此错误的说明，请稍后重试。"
-      );
-    }
-    return renderLocaleTemplate(template, params);
+  /** 渲染错误消息；缺失时优先使用宿主提供的通用错误说明 */
+  resolve(key: string, params: Record<string, string> = {}, locale = this.i18n.locale): string {
+    const fullKey = key.includes(".") ? key : `messages.${key}`;
+    const value = this.i18n.t(fullKey, params, locale);
+    if (this.i18n.inspect(fullKey, locale).template !== undefined) return value;
+    const fallback = this.i18n.inspect("locale.message_unavailable", locale);
+    return fallback.template === undefined ? key : this.i18n.t("locale.message_unavailable", {}, locale);
   }
 
-  /** 将结构化错误转换为指定语言的用户可见错误 */
-  localizeError(error: ErrorDescriptor, locale = this.fallbackLocale): LocalizedError {
+  /** 将结构化错误转换为宿主选择语言的用户可见消息 */
+  localizeError(error: ErrorDescriptor, locale = this.i18n.locale): LocalizedError {
     return { ...error, locale, message: this.resolve(error.key, error.params, locale) };
-  }
-
-  /** 按完整语言标签或基础语言标签获取 Catalog，使 en-US 可复用 en 默认资源 */
-  #catalogFor(locale: string): LocaleCatalog | undefined {
-    return this.catalogs.get(locale) ?? this.catalogs.get(locale.split("-", 1)[0] ?? locale);
   }
 }
 

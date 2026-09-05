@@ -1,4 +1,4 @@
-import type { ChatCompletionMessage, ChatTokenUsage, ChatToolCall, ChatToolChoice } from "./types.js";
+import type { ChatCompletionMessage, ChatTokenUsage, ChatToolCall, ChatToolChoice } from "@synapse/runtime-agent-core";
 
 /** 将内部消息映射为 OpenAI 兼容消息 */
 export function messageForProvider(message: ChatCompletionMessage): unknown {

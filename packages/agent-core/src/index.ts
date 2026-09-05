@@ -10,3 +10,4 @@ export type {
   AgentStep
 } from "./types.js";
 export { InMemoryAgentRegistry } from "./in-memory-registry.js";
+export * from "./chat.js";

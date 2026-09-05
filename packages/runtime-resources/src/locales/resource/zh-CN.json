@@ -1,0 +1,4 @@
+{
+  "reference_not_found": "资源 {kind} 引用了不存在的项目：{id}。",
+  "duplicate": "资源 {kind} 存在重复定义：{id}。"
+}

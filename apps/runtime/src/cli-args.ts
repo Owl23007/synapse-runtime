@@ -1,3 +1,4 @@
+import type { ConfigCliOptions } from "./config/cli-options.js";
 /** CLI 支持的命令类型 */
 export type CliCommand =
   | "start"
@@ -14,7 +15,7 @@ export type CliCommand =
   | "use";
 
 /** 已解析的 CLI 选项 */
-export interface CliOptions {
+export interface CliOptions extends ConfigCliOptions {
   readonly command: CliCommand;
   readonly configPath: string;
   readonly envFile?: string;
@@ -57,6 +58,8 @@ const CLI_COMMANDS: ReadonlySet<string> = new Set([
 export function parseArgs(args: readonly string[], onHelp: () => never): CliOptions {
   let command: CliCommand = "start";
   let configPath = "runtime.config.toml";
+  let workspaceConfigPath: string | undefined;
+  let userConfigPath: string | undefined;
   let envFile: string | undefined;
   let adminHost: string | undefined;
   let adminPort: number | undefined;
@@ -85,6 +88,14 @@ export function parseArgs(args: readonly string[], onHelp: () => never): CliOpti
 
     if (arg === "--config" || arg === "-c") {
       configPath = readRequiredValue(args, index, `${arg} requires a file path.`);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--workspace-config" || arg === "--user-config") {
+      const path = readRequiredValue(args, index, `${arg} requires a file path.`);
+      if (arg === "--workspace-config") workspaceConfigPath = path;
+      else userConfigPath = path;
       index += 1;
       continue;
     }
@@ -189,6 +200,8 @@ export function parseArgs(args: readonly string[], onHelp: () => never): CliOpti
   return {
     command,
     configPath,
+    ...(workspaceConfigPath === undefined ? {} : { workspaceConfigPath }),
+    ...(userConfigPath === undefined ? {} : { userConfigPath }),
     ...(envFile === undefined ? {} : { envFile }),
     ...(adminHost === undefined ? {} : { adminHost }),
     ...(adminPort === undefined ? {} : { adminPort }),

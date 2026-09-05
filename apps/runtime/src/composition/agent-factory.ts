@@ -1,9 +1,7 @@
+import type { ChatCompletionProvider } from "@synapse/runtime-agent-core";
+import { ApiChatAgent } from "@synapse/runtime-agent-loop";
 import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
-import {
-  ApiChatAgent,
-  OpenAiCompatibleChatProvider,
-  type ChatCompletionProvider
-} from "@synapse/runtime-agent-api-provider";
+import { OpenAiCompatibleChatProvider } from "@synapse/runtime-agent-api-provider";
 import type { AgentProviderConfig, RuntimeConfig } from "../config/index.js";
 import { getTextContent, textMessage } from "@synapse/runtime-protocol";
 import type { RuntimeFetch } from "../types.js";
@@ -31,6 +29,8 @@ export function createAgentFromConfig(config: RuntimeConfig, options: { readonly
 
   return new ApiChatAgent({
     id: providerId,
+    maxSteps: config.agentLoop.maxSteps,
+    maxToolCalls: config.agentLoop.maxToolCalls,
     provider: createChatProvider(providerId, providerConfig, options)
   });
 }

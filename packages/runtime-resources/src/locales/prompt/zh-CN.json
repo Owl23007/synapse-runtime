@@ -1,0 +1,9 @@
+{
+  "duplicate": "提示词配置重复：{id}。",
+  "not_found": "未找到提示词配置：{id}。",
+  "disabled": "提示词配置未启用：{id}。",
+  "variables_missing": "提示词配置缺少变量：{variables}。",
+  "recipe_not_found": "未找到用途 {purpose} 对应的提示词配方。",
+  "dimension_variant_not_found": "提示词配方 {recipe} 缺少维度 {dimension} 的场景值：{value}。",
+  "stage_mismatch": "提示词 {id} 的阶段 {actual} 与配方阶段 {expected} 不一致。"
+}

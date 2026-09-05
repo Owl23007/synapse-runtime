@@ -18,7 +18,10 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "prepare": "husky install",
-    "lint-staged": "lint-staged"
+    "lint-staged": "lint-staged",
+    "config:check": "node apps/runtime/dist/check.js config examples/minimal.config.toml",
+    "i18n:check": "node apps/runtime/dist/check.js i18n",
+    "architecture:check": "node tools/check-boundaries.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

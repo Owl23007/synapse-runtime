@@ -5,3 +5,7 @@ export * from "@synapse/runtime-resources/config";
 export * from "@synapse/runtime-tool-web/config";
 export * from "./runtime.js";
 export * from "./channels.js";
+export * from "@synapse/runtime-core/config";
+export * from "./locale.js";
+export * from "./permissions.js";
+export * from "@synapse/runtime-agent-loop/config";

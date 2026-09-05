@@ -1,8 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { extname } from "node:path";
-import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-
+import { readRawConfig, writeRawConfig } from "@synapse/runtime-user-config";
+/** 更新用户选择的渠道字段，不写入业务默认值 */
 export async function updateChannelConfigFile(
   configPath: string,
   channelId: string,
@@ -19,6 +16,7 @@ export async function updateChannelConfigFile(
   await writeRawConfig(configPath, root);
 }
 
+/** 将新渠道写入用户配置数据 */
 export async function addChannelConfigFile(
   configPath: string,
   channelId: string,
@@ -36,37 +34,6 @@ export async function addChannelConfigFile(
   root.channels = channels;
 
   await writeRawConfig(configPath, root);
-}
-
-async function readRawConfig(configPath: string): Promise<unknown> {
-  const content = await readFile(configPath, "utf8");
-  const extension = extname(configPath).toLowerCase();
-
-  if (extension === ".toml" || extension === "") {
-    return parseToml(content);
-  }
-
-  if (extension === ".json") {
-    return JSON.parse(content) as unknown;
-  }
-
-  return parseYaml(content);
-}
-
-async function writeRawConfig(configPath: string, raw: unknown): Promise<void> {
-  const extension = extname(configPath).toLowerCase();
-
-  if (extension === ".toml" || extension === "") {
-    await writeFile(configPath, stringifyToml(ensureRecord(raw)), "utf8");
-    return;
-  }
-
-  if (extension === ".json") {
-    await writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
-    return;
-  }
-
-  await writeFile(configPath, stringifyYaml(raw), "utf8");
 }
 
 function ensureRecord(value: unknown): Record<string, unknown> {

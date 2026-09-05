@@ -16,6 +16,10 @@
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js"
     }
   },
   "scripts": {
@@ -24,6 +28,7 @@
   },
   "dependencies": {
     "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-i18n": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "zod": "^4.5.4"
   }

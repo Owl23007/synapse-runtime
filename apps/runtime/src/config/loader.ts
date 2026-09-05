@@ -7,9 +7,15 @@ import { ZodError } from "zod";
 import { expandEnv, type EnvSource } from "@synapse/runtime-config";
 import { ConfigError } from "@synapse/runtime-config";
 import { RuntimeConfigSchema, type RuntimeConfig } from "./schema.js";
+import { EnvConfigSource, MemoryConfigSource, type ConfigSource } from "@synapse/runtime-config";
+import { createApplicationConfigManager, readApplicationConfig } from "./manager.js";
 
 /** 加载并规范化运行时配置 */
 export interface LoadConfigOptions {
+  readonly applicationConfig?: Record<string, unknown>;
+  readonly workspaceConfigPath?: string;
+  readonly userConfigPath?: string;
+  readonly cliOverrides?: Record<string, unknown>;
   readonly env?: EnvSource;
   readonly allowUndefinedEnv?: boolean;
   readonly baseDir?: string;
@@ -31,7 +37,54 @@ export async function loadConfigFile(filePath: string, options: LoadConfigOption
     throw new ConfigError("CONFIG_FILE_READ_FAILED", `打开配置文件失败 "${filePath}".`, error);
   }
 
-  return parseConfigContent(content, filePath, options);
+  const env = options.env ?? process.env;
+  const fileSource = (id: string, priority: number, path: string, initial?: string): ConfigSource => ({
+    id,
+    priority,
+    async load() {
+      const raw = expandEnv(parseRawConfig(initial ?? (await readFile(path, "utf8")), path), {
+        env,
+        ...(options.allowUndefinedEnv === undefined ? {} : { allowUndefined: options.allowUndefinedEnv })
+      });
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+        throw new Error("Configuration must be an object");
+      return { modules: normalizeSourcePaths(raw as Record<string, unknown>, dirname(resolve(path))) };
+    }
+  });
+  const sources: ConfigSource[] = [
+    new MemoryConfigSource("application", 10, { modules: options.applicationConfig ?? {} }),
+    fileSource(filePath, 20, filePath, content)
+  ];
+  if (options.workspaceConfigPath)
+    sources.push(fileSource(options.workspaceConfigPath, 30, options.workspaceConfigPath));
+  const userConfigPath = options.userConfigPath ?? env.SYNAPSE_USER_CONFIG;
+  if (userConfigPath) sources.push(fileSource(userConfigPath, 40, userConfigPath));
+  sources.push(new EnvConfigSource("environment", 50, "SYNAPSE", env));
+  sources.push(new MemoryConfigSource("cli", 60, { modules: options.cliOverrides ?? {} }));
+  const manager = createApplicationConfigManager(sources);
+  await manager.resolve();
+  return normalizeConfigPaths(readApplicationConfig(manager), {
+    ...options,
+    baseDir: options.baseDir ?? dirname(resolve(filePath))
+  });
+}
+
+/** 每个来源的相对路径以该文件所在目录解释，合并后不能再丢失来源语义 */
+function normalizeSourcePaths(value: Record<string, unknown>, baseDir: string): Record<string, unknown> {
+  const result = structuredClone(value);
+  for (const [section, field] of [
+    ["runtime", "dataDir"],
+    ["locale", "catalogPath"],
+    ["prompts", "catalogPath"],
+    ["presentation", "profilePath"]
+  ] as const) {
+    const candidate = result[section];
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      const record = candidate as Record<string, unknown>;
+      if (typeof record[field] === "string") record[field] = resolve(baseDir, expandHomeDir(record[field].trim()));
+    }
+  }
+  return result;
 }
 
 /**

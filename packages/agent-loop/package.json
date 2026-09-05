@@ -1,0 +1,33 @@
+{
+  "name": "@synapse/runtime-agent-loop",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@synapse/runtime-agent-core": "workspace:*",
+    "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-conversation": "workspace:*",
+    "@synapse/runtime-protocol": "workspace:*",
+    "zod": "^4.5.4"
+  }
+}

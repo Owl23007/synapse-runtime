@@ -1,0 +1,6 @@
+{
+  "request_timeout": "模型请求超时，请稍后重试。",
+  "request_failed": "模型请求失败，请稍后重试。",
+  "stream_failed": "模型流式响应中断，请稍后重试。",
+  "provider_unavailable": "模型服务当前不可用，请稍后重试。"
+}

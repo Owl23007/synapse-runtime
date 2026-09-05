@@ -1,0 +1,4 @@
+{
+  "internal_error": "An internal runtime error occurred. Please try again later.",
+  "configuration_invalid": "The runtime configuration is invalid: {reason}."
+}

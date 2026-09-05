@@ -1,6 +1,8 @@
-import type { RuntimeConfig } from "./config/index.js";
+import type { RuntimeConfig, LoadConfigOptions } from "./config/index.js";
 
+/** 应用实例及其配置来源，重载时沿用同一组覆盖规则 */
 export interface RuntimeServerOptions {
+  readonly loadConfigOptions?: LoadConfigOptions;
   readonly config: RuntimeConfig;
   readonly configPath?: string;
   readonly awaitDispatch?: boolean;

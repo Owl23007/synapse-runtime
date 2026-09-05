@@ -20,6 +20,7 @@ export const RuntimeConfigSchema = z
     memory: schemas.MemorySettingsSchema.prefault({}),
     tools: schemas.ToolSettingsSchema.prefault({}),
     agent: schemas.AgentSettingsSchema.prefault({}),
+    agentLoop: schemas.AgentLoopSettingsSchema.prefault({}),
     conversation: schemas.ConversationSettingsSchema.prefault({}),
     channels: z.record(schemas.ChannelIdSchema, schemas.ChannelConfigSchema).default({}),
     permissions: z.record(z.string().min(1), schemas.PermissionPolicySchema).default(schemas.DEFAULT_PERMISSIONS)

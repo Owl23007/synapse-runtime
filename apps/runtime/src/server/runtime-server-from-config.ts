@@ -6,7 +6,7 @@ export async function startRuntimeServerFromConfigFile(
   configPath: string,
   options: Omit<RuntimeServerOptions, "config"> = {}
 ): Promise<RuntimeServer> {
-  const config = await loadConfigFile(configPath);
+  const config = await loadConfigFile(configPath, options.loadConfigOptions);
   const server = new RuntimeServer({ ...options, config, configPath });
   await server.start();
   return server;

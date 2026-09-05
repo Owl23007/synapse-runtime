@@ -1,3 +1,4 @@
+import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod";
 
 /** 模型提供商本地标识模式 */
@@ -84,3 +85,10 @@ export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>;
 
 /** 默认模型与提供商集合配置 */
 export type AgentSettings = z.infer<typeof AgentSettingsSchema>;
+
+/** 模块配置令牌，默认值与校验由所属模块维护 */
+export const agentConfig = defineConfig({
+  id: "agent",
+  defaults: AgentSettingsSchema.parse({}),
+  parse: (value: unknown) => AgentSettingsSchema.parse(value)
+});

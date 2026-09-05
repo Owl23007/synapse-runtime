@@ -1,8 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { extname } from "node:path";
-import { parse as parseToml } from "smol-toml";
-import { parse as parseYaml } from "yaml";
-
 /** 配置来源，数值越高优先级越高 */
 export interface ConfigSource {
   readonly id: string;
@@ -19,28 +14,6 @@ export class MemoryConfigSource implements ConfigSource {
   ) {}
   async load(): Promise<Record<string, unknown>> {
     return structuredClone(this.value);
-  }
-}
-
-/** 从 TOML、YAML 或 JSON 文件读取配置 */
-export class FileConfigSource implements ConfigSource {
-  constructor(
-    readonly id: string,
-    readonly priority: number,
-    readonly path: string
-  ) {}
-  async load(): Promise<Record<string, unknown>> {
-    const content = await readFile(this.path, "utf8");
-    const extension = extname(this.path).toLowerCase();
-    const value =
-      extension === ".json"
-        ? JSON.parse(content)
-        : extension === ".yaml" || extension === ".yml"
-          ? parseYaml(content)
-          : parseToml(content);
-    if (value === null || typeof value !== "object" || Array.isArray(value))
-      throw new Error(`Config source "${this.id}" must contain an object.`);
-    return value as Record<string, unknown>;
   }
 }
 

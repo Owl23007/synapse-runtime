@@ -1,0 +1,12 @@
+{
+  "branch_not_found": "未找到对应的分支。",
+  "task_not_found": "未找到对应的任务。",
+  "missing_task_id": "缺少任务标识。",
+  "task_cancel_failed": "取消任务失败，请稍后重试。",
+  "missing_channel_id": "缺少 Channel 标识。",
+  "channel_not_found": "未找到对应的 Channel。",
+  "invalid_channel_patch": "Channel 更新参数无效。",
+  "channel_patch_failed": "更新 Channel 失败，请稍后重试。",
+  "reload_config_path_not_available": "当前无法获取配置文件路径。",
+  "reload_failed": "重新加载配置失败，请检查配置后重试。"
+}

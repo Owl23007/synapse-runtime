@@ -1,0 +1,8 @@
+{
+  "tool_required": "Skill {skill} requires tool: {tool}.",
+  "conflict": "Skills {left} and {right} cannot be activated together.",
+  "exclusive_group": "More than one skill cannot be activated in exclusive group: {group}.",
+  "purpose_mismatch": "Skill {skill} does not support model invocation purpose: {purpose}.",
+  "prompt_authority_invalid": "Skill {skill} is not authorized to inject prompt {prompt} into slot {slot}.",
+  "activation_not_allowed": "Skill {skill} cannot be explicitly activated."
+}

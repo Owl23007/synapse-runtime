@@ -1,14 +1,2 @@
-export type {
-  ApiChatAgentOptions,
-  ChatCompletionMessage,
-  ChatCompletionProvider,
-  ChatCompletionRequest,
-  ChatCompletionResult,
-  ChatRole,
-  ChatTokenUsage,
-  ChatToolCall,
-  ChatToolChoice,
-  ChatToolDefinition,
-  OpenAiCompatibleChatProviderOptions
-} from "./types.js";
-export { ApiChatAgent, OpenAiCompatibleChatProvider } from "./provider.js";
+export { OpenAiCompatibleChatProvider } from "./provider.js";
+export type { OpenAiCompatibleChatProviderOptions, FetchLike, FetchInitLike, FetchResponseLike } from "./types.js";

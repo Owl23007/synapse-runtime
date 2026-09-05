@@ -1,0 +1,4 @@
+{
+  "execution_failed": "Tool execution failed: {tool}.",
+  "not_found": "Tool not found: {tool}."
+}

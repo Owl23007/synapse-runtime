@@ -17,6 +17,7 @@ const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 export class RuntimeServer {
   #config: RuntimeConfig;
+  readonly #loadConfigOptions: RuntimeServerOptions["loadConfigOptions"];
   readonly #configPath: string | undefined;
   readonly #logger: RuntimeServerLogger;
   readonly #awaitDispatch: boolean;
@@ -40,6 +41,7 @@ export class RuntimeServer {
   constructor(options: RuntimeServerOptions) {
     this.#config = options.config;
     this.#configPath = options.configPath;
+    this.#loadConfigOptions = options.loadConfigOptions;
     this.#logBuffer = new RuntimeLogBuffer(this.#config.admin.logBufferSize);
     this.#logger = createLevelLogger(
       createTeeLogger([this.#logBuffer, options.logger ?? DEFAULT_LOGGER]),
@@ -207,7 +209,7 @@ export class RuntimeServer {
         throw new Error("Runtime server is shutting down and cannot reload its configuration.");
       }
 
-      const nextConfig = await loadConfigFile(this.#configPath);
+      const nextConfig = await loadConfigFile(this.#configPath, this.#loadConfigOptions);
       validateAdminSecurity(nextConfig.admin);
       await this.#replaceRuntimeConfig(nextConfig);
       this.#logger.info("Admin reloaded runtime config.", {

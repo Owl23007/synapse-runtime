@@ -1,0 +1,4 @@
+{
+  "reference_not_found": "Resource {kind} references a missing item: {id}.",
+  "duplicate": "Resource {kind} has a duplicate definition: {id}."
+}

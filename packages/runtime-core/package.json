@@ -12,6 +12,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js"
     }
   },
   "scripts": {
@@ -22,11 +30,14 @@
   "dependencies": {
     "@synapse/runtime-agent-core": "workspace:*",
     "@synapse/runtime-channel": "workspace:*",
+    "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-conversation": "workspace:*",
+    "@synapse/runtime-i18n": "workspace:*",
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
-    "better-sqlite3": "^12.11.1"
+    "better-sqlite3": "^12.11.1",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13"

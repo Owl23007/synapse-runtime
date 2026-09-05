@@ -1,0 +1,8 @@
+{
+  "tool_required": "Skill {skill} 缺少必需工具：{tool}。",
+  "conflict": "Skill {left} 与 {right} 不能同时激活。",
+  "exclusive_group": "同一排他组中不能激活多个 Skill：{group}。",
+  "purpose_mismatch": "Skill {skill} 不支持模型调用用途：{purpose}。",
+  "prompt_authority_invalid": "Skill {skill} 无权将提示词 {prompt} 注入 {slot} 区域。",
+  "activation_not_allowed": "Skill {skill} 不允许显式激活。"
+}

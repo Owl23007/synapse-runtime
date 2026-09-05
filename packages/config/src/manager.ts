@@ -156,7 +156,7 @@ export class ConfigManager {
     override = this.#overrides.get(definition),
     useOverride = true
   ): ConfigInspection<unknown> {
-    let value: unknown = structuredClone(definition.defaults ?? {});
+    let value: unknown = structuredClone(definition.defaults === undefined ? {} : definition.defaults);
     let source = "defaults";
     const sources = [{ source, value: structuredClone(value) }];
     try {

@@ -41,6 +41,9 @@ importers:
       '@synapse/runtime-agent-core':
         specifier: workspace:*
         version: link:../../packages/agent-core
+      '@synapse/runtime-agent-loop':
+        specifier: workspace:*
+        version: link:../../packages/agent-loop
       '@synapse/runtime-channel':
         specifier: workspace:*
         version: link:../../packages/channel
@@ -111,12 +114,9 @@ importers:
       '@synapse/runtime-config':
         specifier: workspace:*
         version: link:../config
-      '@synapse/runtime-conversation':
+      '@synapse/runtime-i18n':
         specifier: workspace:*
-        version: link:../conversation
-      '@synapse/runtime-protocol':
-        specifier: workspace:*
-        version: link:../protocol
+        version: link:../i18n
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -132,6 +132,24 @@ importers:
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../tool-runtime
+
+  packages/agent-loop:
+    dependencies:
+      '@synapse/runtime-agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
+      '@synapse/runtime-conversation':
+        specifier: workspace:*
+        version: link:../conversation
+      '@synapse/runtime-protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/channel:
     dependencies:
@@ -180,15 +198,15 @@ importers:
       yaml:
         specifier: ^2.5.0
         version: 2.9.0
-      zod:
-        specifier: ^4.5.4
-        version: 4.5.4
 
   packages/conversation:
     dependencies:
       '@synapse/runtime-config':
         specifier: workspace:*
         version: link:../config
+      '@synapse/runtime-i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@synapse/runtime-protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -210,6 +228,9 @@ importers:
       '@synapse/runtime-config':
         specifier: workspace:*
         version: link:../config
+      '@synapse/runtime-i18n':
+        specifier: workspace:*
+        version: link:../i18n
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -224,9 +245,15 @@ importers:
       '@synapse/runtime-channel':
         specifier: workspace:*
         version: link:../channel
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
       '@synapse/runtime-conversation':
         specifier: workspace:*
         version: link:../conversation
+      '@synapse/runtime-i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@synapse/runtime-permission':
         specifier: workspace:*
         version: link:../permission
@@ -239,6 +266,9 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -267,6 +297,9 @@ importers:
 
   packages/tool-runtime:
     dependencies:
+      '@synapse/runtime-i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@synapse/runtime-permission':
         specifier: workspace:*
         version: link:../permission

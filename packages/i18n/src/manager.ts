@@ -10,6 +10,7 @@ export type TranslationKey<T> = {
 
 /** 模块拥有的命名空间和按语言加载的资源 */
 export interface I18nDefinition<T extends Messages = Messages> {
+  readonly resourcePaths?: Readonly<Record<string, URL>>;
   readonly namespace: string;
   readonly canonicalLocale: string;
   readonly resources: Readonly<Record<string, () => T | { default: T } | Promise<T | { default: T }>>>;
@@ -99,6 +100,7 @@ export class I18nManager {
               const messages = typeof resource.default === "object" ? resource.default : resource;
               if (this.#definitions.get(namespace) === definition)
                 this.addResource(namespace, language, messages as Messages);
+              return undefined;
             })
             .catch((cause: unknown) => {
               throw new Error(`Locale load failed: ${namespace}/${language}`, { cause });
@@ -139,9 +141,9 @@ export class I18nManager {
       if (typeof params.count === "number") {
         const category = new Intl.PluralRules(language).select(params.count);
         result = this.#lookup(`${key}.${category}`, locale, [language]);
-        if (!result.template) result = this.#lookup(`${key}.other`, locale, [language]);
+        if (result.template === undefined) result = this.#lookup(`${key}.other`, locale, [language]);
       }
-      if (!result?.template) result = this.#lookup(key, locale, [language]);
+      if (result?.template === undefined) result = this.#lookup(key, locale, [language]);
       if (result.template !== undefined) break;
     }
     if (result?.template === undefined) {
@@ -220,15 +222,17 @@ export function checkTranslations(canonical: Messages, translated: Messages): st
   const source = flatten(canonical),
     target = flatten(translated);
   const issues: string[] = [];
-  const parameters = (text: string) =>
-    [...text.matchAll(/\{([^}]+)\}/g)]
-      .map((match) => match[1])
-      .toSorted()
-      .join("|");
   for (const [key, value] of Object.entries(source)) {
     if (target[key] === undefined) issues.push(`missing: ${key}`);
     else if (parameters(value) !== parameters(target[key])) issues.push(`invalid interpolation: ${key}`);
   }
   for (const key of Object.keys(target)) if (source[key] === undefined) issues.push(`extra: ${key}`);
   return issues;
+}
+
+function parameters(text: string): string {
+  return [...text.matchAll(/\{([^}]+)\}/g)]
+    .map((match) => match[1])
+    .toSorted()
+    .join("|");
 }

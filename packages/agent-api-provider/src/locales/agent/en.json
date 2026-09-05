@@ -1,0 +1,6 @@
+{
+  "request_timeout": "The model request timed out. Please try again later.",
+  "request_failed": "The model request failed. Please try again later.",
+  "stream_failed": "The model stream was interrupted. Please try again later.",
+  "provider_unavailable": "The model service is currently unavailable. Please try again later."
+}

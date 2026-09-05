@@ -1,0 +1,4 @@
+{
+  "execution_failed": "工具执行失败：{tool}。",
+  "not_found": "未找到工具：{tool}。"
+}

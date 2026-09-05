@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { atomicWriteFile } from "./storage.js";
 import type {
   RuntimeCliProfile,
   RuntimeCliProfileConfig,
@@ -15,6 +16,7 @@ export type {
   RuntimeConnectionOptions
 } from "./profile-types.js";
 
+/** 未指定连接时使用的本地管理服务地址 */
 export const DEFAULT_RUNTIME_ENDPOINT = "http://127.0.0.1:3766";
 
 /** 返回 CLI 配置文件默认路径 */
@@ -45,8 +47,8 @@ export async function saveProfileConfig(
   config: RuntimeCliProfileConfig,
   profilePath = getDefaultProfilePath()
 ): Promise<void> {
-  await mkdir(dirname(profilePath), { recursive: true });
-  await writeFile(profilePath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  const parsed = parseProfileConfig(config);
+  await atomicWriteFile(profilePath, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 
 /** 新增或更新运行时连接 profile */

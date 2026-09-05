@@ -1,0 +1,12 @@
+{
+  "branch_not_found": "The requested branch was not found.",
+  "task_not_found": "The requested task was not found.",
+  "missing_task_id": "A task ID is required.",
+  "task_cancel_failed": "Failed to cancel the task. Please try again later.",
+  "missing_channel_id": "A channel ID is required.",
+  "channel_not_found": "The requested channel was not found.",
+  "invalid_channel_patch": "The channel update parameters are invalid.",
+  "channel_patch_failed": "Failed to update the channel. Please try again later.",
+  "reload_config_path_not_available": "The configuration file path is not available.",
+  "reload_failed": "Failed to reload the configuration. Please check it and try again."
+}

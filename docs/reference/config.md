@@ -1,6 +1,6 @@
 # Config Schema 参考
 
-本页总结当前 `@synapse/runtime-config` schema。完整示例见 `examples/runtime.config.toml`。
+本页总结当前应用组合的模块 schema（`apps/runtime/src/config`）。完整示例见 `examples/runtime.config.toml`。
 
 ## `runtime`
 

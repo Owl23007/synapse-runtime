@@ -1,5 +1,5 @@
 import type { AgentRuntimeContext } from "@synapse/runtime-agent-core";
-import { ApiChatAgent } from "@synapse/runtime-agent-api-provider";
+import { ApiChatAgent } from "@synapse/runtime-agent-loop";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { textMessage } from "@synapse/runtime-protocol";

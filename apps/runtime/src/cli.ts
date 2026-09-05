@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { startRuntimeConsole } from "./console.js";
-import { loadConfigFile, type RuntimeConfig } from "./config/index.js";
+import { loadConfigFile } from "./config/index.js";
+import { configLoadOptions } from "./config/cli-options.js";
 import { RuntimeAdminClient } from "./admin-client.js";
 import { parseArgs, type CliOptions } from "./cli-args.js";
 import { loadEnvFile } from "./env.js";
@@ -11,12 +11,12 @@ import {
   resolveRuntimeConnection,
   useProfile
 } from "@synapse/runtime-user-config";
-import { RuntimeServer } from "./server/runtime-server.js";
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2), printHelp);
 
   if (options.command === "console") {
+    const { startRuntimeConsole } = await import("./console.js");
     await startRuntimeConsole(options);
     return;
   }
@@ -42,8 +42,10 @@ async function main(): Promise<void> {
     loadEnvFile(options.envFile);
   }
 
-  const config = applyCliOverrides(await loadConfigFile(options.configPath), options);
-  const server = new RuntimeServer({ config, configPath: options.configPath });
+  const loadConfigOptions = configLoadOptions(options);
+  const config = await loadConfigFile(options.configPath, loadConfigOptions);
+  const { RuntimeServer } = await import("./server/runtime-server.js");
+  const server = new RuntimeServer({ config, configPath: options.configPath, loadConfigOptions });
   await server.start();
 
   const shutdown = async () => {
@@ -141,28 +143,6 @@ async function runProfileCommand(options: CliOptions): Promise<void> {
   console.log(JSON.stringify({ ok: true, profilePath, ...config }, null, 2));
 }
 
-function applyCliOverrides(config: RuntimeConfig, options: CliOptions): RuntimeConfig {
-  if (options.adminHost === undefined && options.adminPort === undefined && options.adminTokenEnv === undefined) {
-    return config;
-  }
-
-  const token = options.adminTokenEnv === undefined ? config.admin.token : process.env[options.adminTokenEnv];
-
-  if (options.adminTokenEnv !== undefined && token === undefined) {
-    throw new Error(`Environment variable "${options.adminTokenEnv}" is not set.`);
-  }
-
-  return {
-    ...config,
-    admin: {
-      ...config.admin,
-      ...(options.adminHost === undefined ? {} : { host: options.adminHost }),
-      ...(options.adminPort === undefined ? {} : { port: options.adminPort }),
-      ...(token === undefined ? {} : { token })
-    }
-  };
-}
-
 function printHelp(): never {
   console.log(`Usage: synapse-runtime [command] [options]
 
@@ -183,6 +163,8 @@ Commands:
 
 Options:
   -c, --config <path>   Runtime config file. Defaults to runtime.config.toml
+  --workspace-config <path>  Workspace configuration overrides
+  --user-config <path>  User configuration overrides
   --env-file <path>     Optional .env file loaded before config expansion
   --admin-host <host>   Override admin API host
   --admin-port <port>   Override admin API port

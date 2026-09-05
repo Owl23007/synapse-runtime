@@ -12,9 +12,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 export function deepMerge<T>(base: T, override: unknown): T {
   if (override === undefined) return base;
-  if (!isPlainObject(base) || !isPlainObject(override)) return override as T;
+  if (Array.isArray(override)) return override.map((item) => deepMerge(undefined, item)) as T;
+  if (!isPlainObject(override)) return override as T;
 
-  const result: Record<string, unknown> = { ...base };
+  const result: Record<string, unknown> = isPlainObject(base) ? { ...base } : {};
   for (const [key, value] of Object.entries(override)) {
     if (["__proto__", "prototype", "constructor"].includes(key)) throw new Error(`Unsafe config key: ${key}`);
     result[key] = value === undefined ? result[key] : deepMerge(result[key], value);

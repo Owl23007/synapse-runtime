@@ -28,6 +28,10 @@
 | `pnpm docs:build`   | 构建 VitePress 静态站点                                    |
 | `pnpm docs:preview` | 预览已构建的 VitePress 站点                                |
 
+| `pnpm architecture:check` | 检查包依赖方向、循环和导入边界 |
+| `pnpm config:check` | 检查最小配置示例 |
+| `pnpm i18n:check` | 检查模块语言资源完整性 |
+
 ## Runtime CLI
 
 ```bash

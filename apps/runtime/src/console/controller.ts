@@ -1,3 +1,4 @@
+import { configLoadOptions } from "../config/cli-options.js";
 import type { RuntimeConfig } from "../config/index.js";
 import { RuntimeAdminClient } from "../admin-client.js";
 import { loadEnvFile } from "../env.js";
@@ -235,7 +236,7 @@ export class RuntimeConsoleController {
 
   async #loadConfig(): Promise<RuntimeConfig> {
     const { loadConfigFile } = await import("../config/index.js");
-    return loadConfigFile(this.#options.configPath);
+    return loadConfigFile(this.#options.configPath, configLoadOptions(this.#options));
   }
 
   async #startLocalRuntime(): Promise<void> {
@@ -244,7 +245,12 @@ export class RuntimeConsoleController {
     }
 
     const config = await this.#loadConfig();
-    const server = new RuntimeServer({ config, logger: this.#logger });
+    const server = new RuntimeServer({
+      configPath: this.#options.configPath,
+      loadConfigOptions: configLoadOptions(this.#options),
+      config,
+      logger: this.#logger
+    });
     this.#server = server;
     const started = await server.start();
     this.#setState({
