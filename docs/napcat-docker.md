@@ -16,6 +16,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
+这里的 `.env` 只为 Compose 文件做容器编排插值，不是 Runtime 配置来源。
+
 首次启动后打开 NapCat WebUI：
 
 ```text
@@ -57,7 +59,13 @@ endpoint = "ws://192.168.1.10:3001"
 
 ## Runtime 环境变量
 
-在项目根目录 `.env` 中设置：
+在项目根目录从统一模板创建 Runtime 凭据文件：
+
+```bash
+cp .env.example .env
+```
+
+然后在根目录 `.env` 中设置：
 
 ```dotenv
 NAPCAT_TOKEN=your-token

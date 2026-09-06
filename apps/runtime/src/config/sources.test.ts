@@ -6,7 +6,7 @@ import { loadConfigFile } from "./loader.js";
 import { createApplicationConfigManager, runtimeConfig } from "./manager.js";
 import { MemoryConfigSource } from "@synapse/runtime-config";
 
-describe("application source composition", () => {
+describe("runtime configuration layers", () => {
   it("applies file, workspace, user, environment and CLI precedence without persisting defaults", async () => {
     const dir = await mkdtemp(join(tmpdir(), "synapse-sources-"));
     const app = join(dir, "app.json"),
@@ -44,6 +44,17 @@ describe("application source composition", () => {
     await writeFile(path, "{}");
     await expect(loadConfigFile(path, { env: {}, cliOverrides: { admin: { port: -1 } } })).rejects.toThrow(
       /module=admin, source=cli/
+    );
+  });
+
+  it("reports stable layer names instead of source file paths", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "synapse-layers-"));
+    const deployment = join(dir, "runtime.json");
+    const user = join(dir, "user.json");
+    await writeFile(deployment, "{}");
+    await writeFile(user, JSON.stringify({ admin: { port: -1 } }));
+    await expect(loadConfigFile(deployment, { userConfigPath: user, env: {} })).rejects.toThrow(
+      /module=admin, source=user/
     );
   });
 });

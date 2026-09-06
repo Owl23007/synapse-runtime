@@ -30,9 +30,13 @@ TUI 默认连接已有服务，退出只断开连接。`--spawn --runtime-entry 
 `loadConfigFile()` 位于应用层，其来源按以下顺序覆盖：
 
 ```text
-模块默认值 → applicationConfig → 主配置文件 → workspace 文件
+模块默认值 → frameworkConfig → deployment 主文件 → workspace 文件
            → user 文件 → SYNAPSE__ 环境变量 → CLI → 临时运行时覆盖
 ```
+
+这些来源对应四类持久状态：框架态由发布包提供；部署态描述一个 Runtime 实例；工作区态随项目共享；用户态默认位于 `~/.synapse/config.toml`。`runtime.dataDir` 下的数据库、日志和缓存是运行数据，不是配置来源。框架安全约束由 schema 和组合层维护，不能靠高优先级配置关闭
+
+部署主文件是最终配置的主要声明，env 只有两种职责：解析文件中的 `${VAR}` 以避免凭据落盘，以及通过 `SYNAPSE__...` 提供进程级覆盖。env 不维护独立的配置结构，也不能取代可审计的配置文件
 
 应用配置文件仍采用 `[agent]`、`[channels]` 等清晰的部署段；应用将这些段映射到通用来源的 `modules.<id>`，执行时再组合为已解析的 `RuntimeConfig` 视图
 
@@ -56,7 +60,7 @@ TUI 默认连接已有服务，退出只断开连接。`--spawn --runtime-entry 
 
 ## 用户数据
 
-`~/.synapse/cli.json` 保存 CLI 连接选择，部署配置保存模块覆盖，`runtime.dataDir` 保存会话等运行数据，三者不是同一套存储
+`~/.synapse/config.toml` 保存用户级模块覆盖，`~/.synapse/cli.json` 保存 CLI 连接选择，部署配置保存实例选择，`runtime.dataDir` 保存会话等运行数据，四者不是同一套存储
 
 原始配置读写不会补入业务默认值。配置写入使用同目录临时文件与替换操作；profile 写入前验证引用完整性。这里不提供跨进程配置事务或远程配置中心
 

@@ -8,6 +8,9 @@ Each fixture must use `channel-protocol-fixture/v1`, match the channel and
 direction encoded by its directory, and use one of the evidence statuses
 accepted by `fixtures/channel-protocol-fixture.schema.json`.
 
+The `environment` object records evidence provenance for a capture. It is not a
+Runtime dotenv file or a configuration source.
+
 Before committing:
 
 1. Replace reusable credentials, signatures, cookies, tokens, and secrets with

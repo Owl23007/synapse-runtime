@@ -1,6 +1,8 @@
 # 配置
 
-Runtime 配置由 `apps/runtime/src/config` 组合加载，通用机制由 `@synapse/runtime-config` 提供。Loader 支持 TOML、YAML 和 JSON；仓库内的示例文件是 `examples/runtime.config.toml`。
+Runtime 配置由 `apps/runtime/src/config` 组合加载，文件解析、dotenv 与来源合并统一由 `@synapse/runtime-config` 提供。Loader 支持 TOML、YAML 和 JSON；仓库内的部署示例是 `examples/runtime.config.toml`。
+
+显式配置文件是 Runtime 配置的主载体：模块结构、功能开关、资源路径和非敏感参数应写入配置文件并接受版本管理。env 不承载另一套完整配置，只用于给 `${VAR}` 占位符注入凭据、定位额外配置文件，以及通过 `SYNAPSE__<module>__<field>` 做进程级临时覆盖
 
 ## 顶层配置段
 
@@ -171,9 +173,11 @@ maxMessages = 20
 
 ## 来源覆盖与循环设置
 
-支持 `--workspace-config <path>` 和 `--user-config <path>`，用户配置路径也可通过 `SYNAPSE_USER_CONFIG` 指定。覆盖顺序为模块默认值、应用配置、主文件、workspace 文件、user 文件、环境变量、CLI；服务重载保留同一组来源选项
+配置分为框架态、部署态、工作区态、用户态和进程态。框架态保存内置默认值与不可绕过的 schema 约束；部署态是 `--config` 指向的主文件；工作区态和用户态只保存各自选择的覆盖值；会话、日志和数据库属于运行数据，不参与配置合并
 
-环境变量通过双下划线定位模块字段，例如 `SYNAPSE__agentLoop__maxSteps=12`。嵌套对象合并，数组替换，权限表按整表替换
+支持 `--workspace-config <path>` 和 `--user-config <path>`。未显式指定用户配置时，CLI 会在存在 `~/.synapse/config.toml` 时自动加载；也可通过 `SYNAPSE_USER_CONFIG` 指定其他路径。覆盖顺序为模块默认值、框架配置、部署文件、workspace 文件、user 文件、环境变量、CLI；服务重载保留同一组来源选项
+
+环境变量通过双下划线定位模块字段，例如 `SYNAPSE__agentLoop__maxSteps=12`。这类值高于文件来源，适合容器注入和临时覆盖，不应代替主配置文件。嵌套对象合并，数组替换，权限表按整表替换
 
 ```toml
 [agentLoop]

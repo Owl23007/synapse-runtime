@@ -161,12 +161,19 @@ export class ConfigManager {
     const sources = [{ source, value: structuredClone(value) }];
     try {
       for (const snapshot of snapshots) {
+        const previousSource = source;
         source = snapshot.source;
         const modules = snapshot.value.modules;
-        if (modules === undefined) continue;
+        if (modules === undefined) {
+          source = previousSource;
+          continue;
+        }
         if (modules === null || typeof modules !== "object" || Array.isArray(modules))
           throw new Error("modules must be an object");
-        if (!Object.hasOwn(modules, definition.id)) continue;
+        if (!Object.hasOwn(modules, definition.id)) {
+          source = previousSource;
+          continue;
+        }
         let candidate = structuredClone((modules as Record<string, unknown>)[definition.id]);
         if (candidate === undefined) continue;
         sources.push({ source, value: structuredClone(candidate) });

@@ -13,6 +13,7 @@ describe("runtime-server export surface", () => {
       "createChannelAdapter",
       "createChatProvider",
       "getDefaultProfilePath",
+      "getDefaultUserConfigPath",
       "loadEnvFile",
       "loadProfileConfig",
       "resolveRuntimeConnection",

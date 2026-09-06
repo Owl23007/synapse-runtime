@@ -1,7 +1,7 @@
 import { checkTranslations, type Messages } from "@synapse/runtime-i18n";
 import { applicationLocales } from "./composition/locales.js";
 import { loadConfigFile } from "./config/loader.js";
-import { loadEnvFile } from "./env.js";
+import { loadEnvFile } from "@synapse/runtime-config/node";
 
 const [command, ...args] = process.argv.slice(2);
 try {

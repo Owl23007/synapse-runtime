@@ -3,7 +3,7 @@ import { loadConfigFile } from "./config/index.js";
 import { configLoadOptions } from "./config/cli-options.js";
 import { RuntimeAdminClient } from "@synapse/runtime-client";
 import { parseArgs, type CliOptions } from "./cli-args.js";
-import { loadEnvFile } from "./env.js";
+import { loadEnvFile } from "@synapse/runtime-config/node";
 import {
   connectProfile,
   getDefaultProfilePath,
@@ -14,6 +14,10 @@ import {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2), printHelp);
+
+  if (options.envFile !== undefined) {
+    loadEnvFile(options.envFile);
+  }
 
   if (options.spawn || (options.command === "start" && options.positional?.[0] === "console")) {
     throw new Error("TUI 已独立，请使用 synapse-tui 启动控制台");
@@ -34,10 +38,6 @@ async function main(): Promise<void> {
   if (options.command === "connect" || options.command === "profiles" || options.command === "use") {
     await runProfileCommand(options);
     return;
-  }
-
-  if (options.envFile !== undefined) {
-    loadEnvFile(options.envFile);
   }
 
   const loadConfigOptions = configLoadOptions(options);

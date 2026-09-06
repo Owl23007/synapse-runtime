@@ -5,6 +5,19 @@ export interface ConfigSource {
   load(): Promise<Record<string, unknown>>;
 }
 
+/** 标准配置来源的稳定优先级，数值越大越接近用户的即时选择 */
+export const STANDARD_CONFIG_SOURCE_PRIORITY = {
+  framework: 10,
+  deployment: 20,
+  workspace: 30,
+  user: 40,
+  environment: 50,
+  cli: 60
+} as const;
+
+/** 标准配置来源标识 */
+export type StandardConfigSourceId = keyof typeof STANDARD_CONFIG_SOURCE_PRIORITY;
+
 /** 内存配置来源，可用于应用配置与测试 */
 export class MemoryConfigSource implements ConfigSource {
   constructor(

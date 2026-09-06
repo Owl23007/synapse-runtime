@@ -46,8 +46,6 @@
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
     "nova-http": "^0.1.1",
-    "smol-toml": "^1.7.0",
-    "yaml": "^2.9.0",
     "zod": "^4.5.4"
   }
 }

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { readRawConfig, writeRawConfig } from "@synapse/runtime-user-config";
+import { readRawConfigFile, writeRawConfigFile } from "@synapse/runtime-config/node";
 import { parseConfigObject } from "./loader.js";
 
 const writes = new Map<string, Promise<void>>();
@@ -61,7 +61,7 @@ async function persistChannel(
   } catch {
     /* 前一次编辑失败不阻塞后续有效写入 */
   }
-  const raw = await readRawConfig(key);
+  const raw = await readRawConfigFile(key);
   if (!isRecord(raw) || (raw.channels !== undefined && !isRecord(raw.channels)))
     throw new ChannelConfigEditError("invalid_channel_config");
   const channels = { ...(raw.channels as Record<string, unknown> | undefined) };
@@ -75,7 +75,7 @@ async function persistChannel(
   } catch {
     throw new ChannelConfigEditError("invalid_channel_config");
   }
-  await writeRawConfig(key, next);
+  await writeRawConfigFile(key, next);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

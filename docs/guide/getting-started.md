@@ -23,7 +23,14 @@ pnpm typecheck
 
 ## 启动 Runtime
 
-默认启动脚本会读取 `examples/runtime.config.toml`，并加载 `.env`。
+先从版本化示例创建当前部署自己的配置与凭据文件：
+
+```bash
+cp examples/runtime.config.toml runtime.config.toml
+cp .env.example .env
+```
+
+`runtime.config.toml` 是部署态主配置，完整结构和普通配置值都应写在这里；`.env` 只为配置中的 `${VAR}` 提供脱敏值，或提供少量进程级覆盖。两者都不会提交到仓库。默认启动脚本读取这两个文件。
 
 ```bash
 pnpm build
@@ -34,7 +41,7 @@ pnpm start
 
 ```bash
 node apps/runtime/dist/cli.js start \
-  --config examples/runtime.config.toml \
+  --config runtime.config.toml \
   --env-file .env
 ```
 

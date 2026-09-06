@@ -1,18 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join, resolve } from "node:path";
-import { parse as parseToml } from "smol-toml";
-import { parse as parseYaml } from "yaml";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { ZodError } from "zod";
 import { expandEnv, type EnvSource } from "@synapse/runtime-config";
 import { ConfigError } from "@synapse/runtime-config";
+import { parseConfigFileContent } from "@synapse/runtime-config/node";
 import { RuntimeConfigSchema, type RuntimeConfig } from "./schema.js";
-import { EnvConfigSource, MemoryConfigSource, type ConfigSource } from "@synapse/runtime-config";
+import {
+  EnvConfigSource,
+  MemoryConfigSource,
+  STANDARD_CONFIG_SOURCE_PRIORITY,
+  type ConfigSource
+} from "@synapse/runtime-config";
 import { createApplicationConfigManager, readApplicationConfig } from "./manager.js";
 
 /** 加载并规范化运行时配置 */
 export interface LoadConfigOptions {
-  readonly applicationConfig?: Record<string, unknown>;
+  readonly frameworkConfig?: Record<string, unknown>;
   readonly workspaceConfigPath?: string;
   readonly userConfigPath?: string;
   readonly cliOverrides?: Record<string, unknown>;
@@ -52,15 +56,19 @@ export async function loadConfigFile(filePath: string, options: LoadConfigOption
     }
   });
   const sources: ConfigSource[] = [
-    new MemoryConfigSource("application", 10, { modules: options.applicationConfig ?? {} }),
-    fileSource(filePath, 20, filePath, content)
+    new MemoryConfigSource("framework", STANDARD_CONFIG_SOURCE_PRIORITY.framework, {
+      modules: options.frameworkConfig ?? {}
+    }),
+    fileSource("deployment", STANDARD_CONFIG_SOURCE_PRIORITY.deployment, filePath, content)
   ];
   if (options.workspaceConfigPath)
-    sources.push(fileSource(options.workspaceConfigPath, 30, options.workspaceConfigPath));
+    sources.push(fileSource("workspace", STANDARD_CONFIG_SOURCE_PRIORITY.workspace, options.workspaceConfigPath));
   const userConfigPath = options.userConfigPath ?? env.SYNAPSE_USER_CONFIG;
-  if (userConfigPath) sources.push(fileSource(userConfigPath, 40, userConfigPath));
-  sources.push(new EnvConfigSource("environment", 50, "SYNAPSE", env));
-  sources.push(new MemoryConfigSource("cli", 60, { modules: options.cliOverrides ?? {} }));
+  if (userConfigPath) sources.push(fileSource("user", STANDARD_CONFIG_SOURCE_PRIORITY.user, userConfigPath));
+  sources.push(new EnvConfigSource("environment", STANDARD_CONFIG_SOURCE_PRIORITY.environment, "SYNAPSE", env));
+  sources.push(
+    new MemoryConfigSource("cli", STANDARD_CONFIG_SOURCE_PRIORITY.cli, { modules: options.cliOverrides ?? {} })
+  );
   const manager = createApplicationConfigManager(sources);
   await manager.resolve();
   return normalizeConfigPaths(readApplicationConfig(manager), {
@@ -196,30 +204,9 @@ function expandHomeDir(pathValue: string): string {
 
 /** 解析原始配置内容为对象，支持 TOML、YAML 和 JSON 格式 */
 function parseRawConfig(content: string, sourcePath: string): unknown {
-  const extension = extname(sourcePath).toLowerCase();
-
   try {
-    if (extension === ".json") {
-      return JSON.parse(content) as unknown;
-    }
-
-    if (extension === ".toml" || extension === "") {
-      return parseToml(content) as unknown;
-    }
-
-    if (extension === ".yaml" || extension === ".yml") {
-      return parseYaml(content) as unknown;
-    }
-
-    throw new ConfigError(
-      "CONFIG_PARSE_FAILED",
-      `不支持的运行时配置扩展名 "${extension}". 请使用 .toml, .yaml, .yml 或 .json.`
-    );
+    return parseConfigFileContent(content, sourcePath);
   } catch (error) {
-    if (error instanceof ConfigError) {
-      throw error;
-    }
-
     throw new ConfigError("CONFIG_PARSE_FAILED", `加载"${sourcePath}"失败.`, error);
   }
 }

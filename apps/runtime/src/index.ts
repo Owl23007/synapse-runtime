@@ -1,11 +1,12 @@
 export { RuntimeAdminClient, type RuntimeAdminClientOptions } from "@synapse/runtime-client";
 export { createAgentFromConfig, createChatProvider } from "./composition/agent-factory.js";
 export { createChannelAdapter } from "./composition/channel-factory.js";
-export { loadEnvFile } from "./env.js";
+export { loadEnvFile } from "@synapse/runtime-config/node";
 export {
   DEFAULT_RUNTIME_ENDPOINT,
   connectProfile,
   getDefaultProfilePath,
+  getDefaultUserConfigPath,
   loadProfileConfig,
   resolveRuntimeConnection,
   saveProfileConfig,

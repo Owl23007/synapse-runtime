@@ -11,7 +11,7 @@ docs/.vitepress/dist/
 .env
 .env.*
 !.env.example
-!.env.template
+/runtime.config.toml
 deploy/napcat/data/
 *.db
 *.db-shm
