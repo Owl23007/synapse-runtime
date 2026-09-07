@@ -36,7 +36,7 @@
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
