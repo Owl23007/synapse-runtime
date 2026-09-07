@@ -28,9 +28,9 @@
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
     "ink": "^5.2.1",
-    "react": "^18.3.1"
+    "react": "^19.2.8"
   },
   "devDependencies": {
-    "@types/react": "^18.3.18"
+    "@types/react": "^19.2.18"
   }
 }
