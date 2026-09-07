@@ -90,14 +90,12 @@ export class ContextComposer {
       recent
         .filter((message) => message.sourceEventId !== input.currentSourceEventId)
         .filter((message) => isWithinHistoryTtl(message.createdAt, referenceMs, input.historyTtlMinutes))
-        .map(
-          (message): PromptContextMessage => ({
-            role: message.role,
-            content: `[${message.createdAt}] ${message.text}`,
-            messageId: message.id,
-            createdAt: message.createdAt
-          })
-        ),
+        .map((message): PromptContextMessage => ({
+          role: message.role,
+          content: `[${message.createdAt}] ${message.text}`,
+          messageId: message.id,
+          createdAt: message.createdAt
+        })),
       this.#maxHistoryChars
     );
 
