@@ -349,7 +349,7 @@ function memoryScopeType(value: string | null): "identity" | "workspace" | undef
 
 function asyncRoute(deps: Pick<AdminRouteDeps, "logger" | "localize">, handler: Handler): Handler {
   return (request, response) => {
-    void Promise.resolve(handler(request, response)).catch((error) => {
+    return Promise.resolve(handler(request, response)).catch((error) => {
       deps.logger.error("HTTP route handler failed.", {
         error: error instanceof Error ? error.message : String(error)
       });

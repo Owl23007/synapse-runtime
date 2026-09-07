@@ -126,6 +126,7 @@ export class QqOfficialWebhookRegistry {
         }
       });
       this.#track(this.#inFlightRequests, operation);
+      return operation;
     };
   }
 

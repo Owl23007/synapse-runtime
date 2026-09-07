@@ -51,7 +51,7 @@ export class RuntimeServer {
     this.#awaitDispatch = options.awaitDispatch ?? false;
     this.#fetch = options.fetch;
     this.#app = createApp({ maxBodySize: MAX_JSON_BODY_BYTES });
-    this.#adminApp = createApp({ maxBodySize: MAX_JSON_BODY_BYTES });
+    this.#adminApp = createApp({ maxBodySize: MAX_JSON_BODY_BYTES, requestTimeout: 0 });
     this.#webhookRegistry = new QqOfficialWebhookRegistry({
       app: this.#app,
       awaitDispatch: this.#awaitDispatch,

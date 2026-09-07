@@ -84,8 +84,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/user-config
       nova-http:
-        specifier: ^0.1.1
-        version: 0.1.1
+        specifier: ^0.2.0
+        version: 0.2.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -1613,8 +1613,8 @@ packages:
     resolution: {integrity: sha512-Cu6yUpX5Iavugm8BeX7c0wgU9CvOqfd1yM6A1d2q2ZMjym7GjpASv2GdRcTq3Fx+Sb5OgBkEEpw4VnAbY6Y5RA==}
     engines: {node: '>=10'}
 
-  nova-http@0.1.1:
-    resolution: {integrity: sha512-PqeoixOHCb7sudBfbOP/bCuJD+P5lCVq6aQc+lTr0l4nGvQFQLD0j8g0HKPnqwYB+lqF6mLr5n7qBNR23Rr9Cg==}
+  nova-http@0.2.0:
+    resolution: {integrity: sha512-4a19Lm9N43Wkwz5OYPU857J+xX2PTlIH3VFGOSXkrbp+0uAJr9GbURPsVDu4oazgEPEayqOex7vcDh6H/yt2Hw==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3163,7 +3163,7 @@ snapshots:
     dependencies:
       semver: 7.8.5
 
-  nova-http@0.1.1: {}
+  nova-http@0.2.0: {}
 
   npm-run-path@5.3.0:
     dependencies:

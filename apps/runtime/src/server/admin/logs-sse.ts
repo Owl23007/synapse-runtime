@@ -2,47 +2,37 @@ import type { NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
 import type { RuntimeLogEntry } from "../../types.js";
 
-const NOVA_HEADERS_SENT_KEY = "_headersSent";
+/** 以 SSE 流的形式持续推送运行时日志 */
+export async function streamLogEvents(response: NovaResponse, logBuffer: RuntimeLogBuffer): Promise<void> {
+  response
+    .setHeader("content-type", "text/event-stream; charset=utf-8")
+    .setHeader("cache-control", "no-cache, no-transform")
+    .setHeader("connection", "keep-alive")
+    .setHeader("x-accel-buffering", "no");
+  await response.flushHeaders();
 
-export function streamLogEvents(response: NovaResponse, logBuffer: RuntimeLogBuffer): Promise<void> {
-  const socket = response.socket;
-  const responseState = response as unknown as Record<typeof NOVA_HEADERS_SENT_KEY, boolean>;
-  responseState[NOVA_HEADERS_SENT_KEY] = true;
+  let writeTail = Promise.resolve();
+  const enqueue = (chunk: string): void => {
+    writeTail = writeTail.then(() => response.write(chunk)).catch(() => undefined);
+  };
 
-  socket.write(
-    [
-      "HTTP/1.1 200 OK",
-      "content-type: text/event-stream; charset=utf-8",
-      "cache-control: no-cache, no-transform",
-      "connection: keep-alive",
-      "x-accel-buffering: no",
-      "",
-      ": connected",
-      "",
-      ""
-    ].join("\r\n")
-  );
-
+  enqueue(": connected\n\n");
   for (const entry of logBuffer.entries) {
-    writeSseLogEntry(socket, entry);
+    enqueue(formatSseLogEntry(entry));
   }
 
   const unsubscribe = logBuffer.subscribe((entry) => {
-    writeSseLogEntry(socket, entry);
+    enqueue(formatSseLogEntry(entry));
   });
 
-  return new Promise((resolve) => {
-    socket.once("close", () => {
+  await new Promise<void>((resolve) => {
+    response.socket.once("close", () => {
       unsubscribe();
       resolve();
     });
   });
 }
 
-export function writeSseLogEntry(socket: NovaResponse["socket"], entry: RuntimeLogEntry): void {
-  if (socket.destroyed) {
-    return;
-  }
-
-  socket.write(`id: ${entry.id}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`);
+function formatSseLogEntry(entry: RuntimeLogEntry): string {
+  return `id: ${entry.id}\nevent: log\ndata: ${JSON.stringify(entry)}\n\n`;
 }
