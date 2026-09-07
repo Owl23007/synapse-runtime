@@ -30,7 +30,7 @@
     "lint-staged": "^14.0.0",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
-    "typescript": "^5.5.4",
+    "typescript": "^7.0.2",
     "vitest": "^2.0.5"
   },
   "lint-staged": {
