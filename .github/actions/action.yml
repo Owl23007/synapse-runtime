@@ -1,0 +1,19 @@
+name: Set up pnpm workspace
+description: Install Node.js, pnpm, and monorepo dependencies from the root lockfile
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v6
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+
+    - name: Install workspace dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

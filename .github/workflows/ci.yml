@@ -2,24 +2,62 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
 
 jobs:
-  verify:
+  quality:
+    name: Code quality
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm fmt:check
-      - run: pnpm lint
-      - run: pnpm build
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm fixtures:validate
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up workspace
+        uses: ./.github/actions
+
+      - name: Check formatting
+        run: pnpm fmt:check
+
+      - name: Lint source code
+        run: pnpm lint
+
+      - name: Check architecture boundaries
+        run: pnpm architecture:check
+
+      - name: Validate channel fixtures
+        run: pnpm fixtures:validate
+
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up workspace
+        uses: ./.github/actions
+
+      # Integration tests run dist entry points, so build the workspace in dependency order first
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Check types
+        run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm test
