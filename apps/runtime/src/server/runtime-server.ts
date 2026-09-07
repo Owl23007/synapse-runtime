@@ -15,6 +15,7 @@ import { QqOfficialWebhookRegistry } from "./webhook-registry.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
+/** 管理运行时、频道以及网关和管理监听器的完整生命周期 */
 export class RuntimeServer {
   #config: RuntimeConfig;
   readonly #loadConfigOptions: RuntimeServerOptions["loadConfigOptions"];
@@ -28,6 +29,7 @@ export class RuntimeServer {
   readonly #logBuffer: RuntimeLogBuffer;
   readonly #webhookRegistry: QqOfficialWebhookRegistry;
   readonly #channelManager: RuntimeChannelManager;
+  readonly #shutdownController = new AbortController();
   #runtime: RuntimeCore;
   #taskRunner: TaskRunner;
   #contextStore: SqliteRuntimeContextStore | undefined;
@@ -152,6 +154,7 @@ export class RuntimeServer {
     this.#stopped = true;
     this.#logger.info("Stopping Synapse Runtime server.");
     this.#webhookRegistry.pause();
+    this.#shutdownController.abort();
     await this.#cleanupStep("close gateway listener", () => this.#app.close());
     await this.#cleanupStep("close admin listener", () => this.#adminApp.close());
     this.#webhookRegistry.clear();
@@ -187,6 +190,7 @@ export class RuntimeServer {
         this.#channelManager.applyChannelPatch(channelId, channelConfig, patch),
       reloadConfig: () => this.#reloadConfig(),
       shutdown: () => this.stop(),
+      shutdownSignal: this.#shutdownController.signal,
       listBranches: async (sessionId) =>
         sessionId === undefined
           ? (await this.#runtime.conversationStore.getRecoveryState()).activeBranches

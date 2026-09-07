@@ -27,7 +27,7 @@
     "@synapse/runtime-channel": "workspace:*",
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
-    "ws": "^8.21.0",
+    "ws": "^8.21.3",
     "zod": "^4.5.4"
   }
 }

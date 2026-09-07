@@ -32,6 +32,7 @@ export interface AdminRouteDeps {
   ) => Promise<void>;
   readonly reloadConfig: () => Promise<void>;
   readonly shutdown: () => Promise<void>;
+  readonly shutdownSignal: AbortSignal;
   readonly listBranches: (sessionId?: string) => Promise<readonly ConversationBranch[]>;
   readonly getBranch: (branchId: string) => Promise<ConversationBranch | undefined>;
   readonly listTasks: (branchId?: string) => Promise<readonly ConversationTask[]>;
@@ -297,7 +298,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     });
   });
   deps.app.get("/admin/events/stream", (_request: NovaRequest, response: NovaResponse) =>
-    streamLogEvents(response, deps.logBuffer)
+    streamLogEvents(response, deps.logBuffer, deps.shutdownSignal)
   );
   deps.app.post(
     "/admin/reload",
