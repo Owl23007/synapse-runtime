@@ -72,8 +72,8 @@ import type {
 } from "../../transcript/types.js";
 import { SqliteConversationRepository } from "./conversation-store.js";
 import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
-import { SqliteDagRepository } from "./dag-store.js";
-import type { DagStore } from "../../dag/types.js";
+import { SqliteContextGraphRepository } from "./context-graph-store.js";
+import type { ContextGraph } from "../../context-graph/index.js";
 
 /**
  * SQLite 运行时上下文存储配置
@@ -163,13 +163,13 @@ export class SqliteRuntimeContextStore
   readonly #db: Database.Database;
   readonly #conversation: SqliteConversationRepository;
   /** 与其他仓储共享连接和事务边界的上下文演化图 */
-  readonly dag: DagStore;
+  readonly contextGraph: ContextGraph;
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
     this.#db = openRuntimeDatabase(options.databasePath);
     try {
       this.#conversation = new SqliteConversationRepository(this.#db);
-      this.dag = new SqliteDagRepository(this.#db);
+      this.contextGraph = new SqliteContextGraphRepository(this.#db);
     } catch (error) {
       this.#db.close();
       throw error;

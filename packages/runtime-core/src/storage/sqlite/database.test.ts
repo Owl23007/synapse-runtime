@@ -44,7 +44,7 @@ describe("runtime database management", () => {
   it("rolls back all migration work on failure and releases the failed connection", () => {
     withDatabase((path) => {
       const legacy = new Database(path);
-      legacy.exec("CREATE TABLE dag_commit (old_value TEXT)");
+      legacy.exec("CREATE TABLE context_graph_commit (old_value TEXT)");
       legacy.close();
       expect(() => openRuntimeDatabase(path)).toThrow();
       const inspected = new Database(path);
