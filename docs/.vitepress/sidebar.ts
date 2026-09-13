@@ -18,7 +18,10 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
 export const developmentSidebar: DefaultTheme.SidebarItem[] = [
   {
     text: "架构与设计",
-    items: [{ text: "架构说明", link: "/architecture" }]
+    items: [
+      { text: "架构说明", link: "/architecture" },
+      { text: "上下文 Commit 与 Ref", link: "/guide/context-commits" }
+    ]
   },
   {
     text: "技术参考",
