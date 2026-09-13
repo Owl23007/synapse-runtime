@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import type { ConversationType, WorkspaceRef } from "../../context/types.js";
 import type {
   AcceptNormalizedEventInput,
@@ -73,7 +71,9 @@ import type {
   TranscriptStore
 } from "../../transcript/types.js";
 import { SqliteConversationRepository } from "./conversation-store.js";
-import { migrateSqliteRuntimeContextStore } from "./migrations.js";
+import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
+import { SqliteDagRepository } from "./dag-store.js";
+import type { DagStore } from "../../dag/types.js";
 
 /**
  * SQLite 运行时上下文存储配置
@@ -162,15 +162,14 @@ export class SqliteRuntimeContextStore
 {
   readonly #db: Database.Database;
   readonly #conversation: SqliteConversationRepository;
+  /** 与其他仓储共享连接和事务边界的上下文演化图 */
+  readonly dag: DagStore;
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
-    mkdirSync(dirname(options.databasePath), { recursive: true });
-    this.#db = new Database(options.databasePath);
+    this.#db = openRuntimeDatabase(options.databasePath);
     try {
-      this.#db.pragma("journal_mode = WAL");
-      this.#db.pragma("foreign_keys = ON");
-      migrateSqliteRuntimeContextStore(this.#db);
       this.#conversation = new SqliteConversationRepository(this.#db);
+      this.dag = new SqliteDagRepository(this.#db);
     } catch (error) {
       this.#db.close();
       throw error;
@@ -968,8 +967,7 @@ export class SqliteRuntimeContextStore
 
   close(): void {
     // Windows 可能仍持有 WAL 辅助文件，关闭前主动 checkpoint 以保证数据目录可安全迁移或清理
-    this.#db.pragma("wal_checkpoint(TRUNCATE)");
-    this.#db.close();
+    closeRuntimeDatabase(this.#db);
   }
 
   #findBoundWorkspace(input: WorkspaceResolveInput): WorkspaceRef | undefined {
