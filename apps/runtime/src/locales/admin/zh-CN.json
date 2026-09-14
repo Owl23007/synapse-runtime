@@ -8,5 +8,6 @@
   "invalid_channel_patch": "Channel 更新参数无效。",
   "channel_patch_failed": "更新 Channel 失败，请稍后重试。",
   "reload_config_path_not_available": "当前无法获取配置文件路径。",
-  "reload_failed": "重新加载配置失败，请检查配置后重试。"
+  "reload_failed": "重新加载配置失败，请检查配置后重试。",
+  "reload_requires_restart": "这些配置需要重启 Runtime 才能生效：{fields}。当前运行配置继续生效。"
 }

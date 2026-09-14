@@ -12,6 +12,7 @@ import { registerGatewayRoutes } from "./gateway/routes.js";
 import { serverStartResult, startAdminApp } from "./runtime-lifecycle.js";
 import { createRuntimeFromConfig } from "./runtime-factory.js";
 import { QqOfficialWebhookRegistry } from "./webhook-registry.js";
+import { validateReloadConfig } from "./reload-policy.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
@@ -218,6 +219,7 @@ export class RuntimeServer {
 
       const nextConfig = await loadConfigFile(this.#configPath, this.#loadConfigOptions);
       validateAdminSecurity(nextConfig.admin);
+      validateReloadConfig(this.#config, nextConfig);
       await this.#replaceRuntimeConfig(nextConfig);
       this.#logger.info("Admin reloaded runtime config.", {
         configPath: this.#configPath,

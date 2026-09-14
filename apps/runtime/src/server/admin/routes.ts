@@ -12,6 +12,7 @@ import { readJsonBody, sendJson } from "../http.js";
 import { authorizeAdminRequest } from "./auth.js";
 import { isChannelAdminPatch, parsePositiveInt, type ChannelAdminPatch } from "./dto.js";
 import { streamLogEvents } from "./logs-sse.js";
+import { ReloadRequiresRestartError } from "../reload-policy.js";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
@@ -323,6 +324,15 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
         deps.logger.error("Admin reload failed.", {
           error: error instanceof Error ? error.message : String(error)
         });
+        if (error instanceof ReloadRequiresRestartError) {
+          sendJson(response, 409, {
+            ok: false,
+            error: "reload_requires_restart",
+            fields: error.fields,
+            message: deps.localize("admin.reload_requires_restart", { fields: error.fields.join(", ") })
+          });
+          return;
+        }
         sendJson(response, 500, {
           ok: false,
           error: "reload_failed",

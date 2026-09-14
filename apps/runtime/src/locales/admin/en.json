@@ -8,5 +8,6 @@
   "invalid_channel_patch": "The channel update parameters are invalid.",
   "channel_patch_failed": "Failed to update the channel. Please try again later.",
   "reload_config_path_not_available": "The configuration file path is not available.",
-  "reload_failed": "Failed to reload the configuration. Please check it and try again."
+  "reload_failed": "Failed to reload the configuration. Please check it and try again.",
+  "reload_requires_restart": "Restart the runtime to apply these settings: {fields}. The current configuration is still active."
 }
