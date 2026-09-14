@@ -34,7 +34,7 @@ const prds = computed(() =>
       ([path]) => !path.endsWith("/index.md") && !path.endsWith("/archive/README.md") && !path.includes("/templates/")
     )
     .map(([path, source]) => formatPrd(path, source))
-    .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"))
+    .toSorted((left, right) => left.title.localeCompare(right.title, "zh-CN"))
 );
 
 const visiblePrds = computed(() => {

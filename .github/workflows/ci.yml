@@ -59,5 +59,11 @@ jobs:
       - name: Check types
         run: pnpm typecheck
 
+      - name: Validate minimal configuration
+        run: pnpm config:check
+
+      - name: Check translation resources
+        run: pnpm i18n:check
+
       - name: Run tests
         run: pnpm test

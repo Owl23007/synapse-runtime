@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "verify": "pnpm fmt:check && pnpm lint && pnpm architecture:check && pnpm fixtures:validate && pnpm build && pnpm typecheck && pnpm config:check && pnpm i18n:check && pnpm test",
     "build": "pnpm -r build",
     "docs:build": "pnpm --filter @synapse/docs build",
     "docs:dev": "pnpm --filter @synapse/docs dev",

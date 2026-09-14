@@ -29,9 +29,11 @@ const pageByStatus = reactive<Record<PrdStatus, number>>({
 
 const prds = computed(() =>
   Object.entries(modules)
-    .filter(([path]) => !path.endsWith("/index.md") && !path.endsWith("/archive/README.md"))
+    .filter(
+      ([path]) => !path.endsWith("/index.md") && !path.endsWith("/archive/README.md") && !path.includes("/templates/")
+    )
     .map(([path, source]) => formatPrd(path, source))
-    .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"))
+    .toSorted((left, right) => left.title.localeCompare(right.title, "zh-CN"))
 );
 
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase("zh-CN"));
