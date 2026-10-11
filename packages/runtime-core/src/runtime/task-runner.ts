@@ -301,13 +301,19 @@ export class TaskRunner {
   async #withBranchLock<T>(branchId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.#branchLocks.get(branchId);
     let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     this.#branchLocks.set(branchId, current);
-    if (previous) await previous;
+    if (previous) {
+      await previous;
+    }
     try {
       return await operation();
     } finally {
-      if (this.#branchLocks.get(branchId) === current) this.#branchLocks.delete(branchId);
+      if (this.#branchLocks.get(branchId) === current) {
+        this.#branchLocks.delete(branchId);
+      }
       release();
     }
   }
