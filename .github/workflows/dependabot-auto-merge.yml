@@ -1,4 +1,4 @@
-name: Dependabot auto-merge
+name: Dependabot
 
 on:
   pull_request_target:
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   auto-merge:
-    name: Enable Dependabot auto-merge
+    name: Auto-merge
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
