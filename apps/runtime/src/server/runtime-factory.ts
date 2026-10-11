@@ -14,14 +14,20 @@ import {
 } from "../composition/runtime-resources.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse/runtime-resources";
+import type { DockerCommandRunner } from "@synapse/runtime-tool-container";
+import { registerContainerTools } from "../composition/container-tools.js";
 
+/** 运行时装配输入，外部执行边界可由宿主注入用于验证 */
 export interface RuntimeFactoryOptions {
   readonly config: RuntimeConfig;
   readonly channels: InMemoryChannelRegistry;
   readonly logger: RuntimeServerLogger;
   readonly fetch?: RuntimeFetch;
+  /** 默认使用真实 Docker CLI，测试可注入受控进程边界 */
+  readonly containerRunner?: DockerCommandRunner;
 }
 
+/** 已装配的运行时及其由宿主统一管理的资源 */
 export interface RuntimeFactoryResult {
   readonly runtime: RuntimeCore;
   readonly contextStore: SqliteRuntimeContextStore;
@@ -30,6 +36,7 @@ export interface RuntimeFactoryResult {
   readonly localeResolver: LocaleResolver;
 }
 
+/** 根据配置创建生产运行时，装配失败时关闭已经打开的数据库 */
 export function createRuntimeFromConfig(options: RuntimeFactoryOptions): RuntimeFactoryResult {
   const localeResolver = createLocaleResolverFromConfig(options.config, options.logger);
   const presentationProfile = createPresentationProfileFromConfig(options.config);
@@ -39,12 +46,19 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   const conversation = new ConversationRouter(options.config.conversation);
   const tools = new ToolRuntime(new StaticPermissionEngine(options.config.permissions));
   registerBuiltInTools(tools, options.config);
-  const compileInvocation = createInvocationCompiler(options.config, tools);
+  const compileInvocation = createInvocationCompiler(options.config, tools, options.channels);
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
   });
 
   try {
+    registerContainerTools({
+      tools,
+      settings: options.config.container,
+      dataDir: options.config.runtime.dataDir,
+      channels: options.channels,
+      ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
+    });
     const runtime = new RuntimeCore({
       channels: options.channels,
       conversation,
@@ -87,7 +101,8 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
 
 function createInvocationCompiler(
   config: RuntimeConfig,
-  tools: ToolRuntime
+  tools: ToolRuntime,
+  channels: InMemoryChannelRegistry
 ): ((request: AgentRequest) => Promise<ModelInvocationEnvelope>) | undefined {
   if (
     !config.prompts.enabled ||
@@ -108,6 +123,13 @@ function createInvocationCompiler(
     const visibleTools = (
       await Promise.all(
         tools.list().map(async (tool) => {
+          // 群文件工具只向具备实际交付能力的当前群开放，避免模型先生成无法交付的文件
+          if (
+            (tool.name === "container.run" || tool.name === "artifact.upload") &&
+            (request.source.conversationKind !== "group" ||
+              !channels.get(request.source.channelId)?.getCapabilities().uploadGroupFile)
+          )
+            return undefined;
           // 动态权限依赖模型生成的参数，只能在实际调用时最终判断
           if (typeof tool.permission === "function") return tool;
           const decision = await tools.decidePermission({

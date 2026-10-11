@@ -19,6 +19,7 @@ export const RuntimeConfigSchema = z
     presentation: schemas.PresentationSettingsSchema.prefault({}),
     memory: schemas.MemorySettingsSchema.prefault({}),
     tools: schemas.ToolSettingsSchema.prefault({}),
+    container: schemas.ContainerSettingsSchema.prefault({}),
     agent: schemas.AgentSettingsSchema.prefault({}),
     agentLoop: schemas.AgentLoopSettingsSchema.prefault({}),
     conversation: schemas.ConversationSettingsSchema.prefault({}),

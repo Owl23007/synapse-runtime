@@ -74,6 +74,9 @@ importers:
       '@synapse/runtime-resources':
         specifier: workspace:*
         version: link:../../packages/runtime-resources
+      '@synapse/runtime-tool-container':
+        specifier: workspace:*
+        version: link:../../packages/tool-container
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../../packages/tool-runtime

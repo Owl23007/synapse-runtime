@@ -622,6 +622,7 @@ export class RuntimeCore {
       const context: AgentRuntimeContext = {
         tools: this.#tools.withContext({
           sessionId,
+          source: enrichedRequest.source,
           userId: enrichedRequest.userId,
           attemptId,
           lineId,

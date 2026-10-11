@@ -1,0 +1,53 @@
+# 0.1 群聊工件助手，所有路径相对于本文件，凭据从本地 env 文件读取
+[runtime]
+mode = "local"
+dataDir = "../.synapse/group-artifacts"
+
+[server]
+host = "127.0.0.1"
+port = 3000
+
+[admin]
+host = "127.0.0.1"
+port = 3766
+
+[agent]
+default = "chat"
+
+[agent.providers.chat]
+type = "openai-compatible"
+baseUrl = "${MODEL_BASE_URL}"
+apiKey = "${MODEL_API_KEY}"
+model = "${MODEL_NAME}"
+
+[prompts]
+enabled = true
+catalogPath = "resources/prompts.zh-CN.yaml"
+defaultPurpose = "reasoning.chat_reply"
+
+[container]
+enabled = true
+# 预先构建提供文档、表格与图表依赖的镜像，执行时不会自动拉取镜像
+image = "synapse-artifacts:0.1"
+timeoutMs = 120000
+memoryMiB = 512
+workspaceMiB = 64
+maxConcurrent = 2
+maxArtifactBytes = 5242880
+maxTotalBytes = 10485760
+storageMaxBytes = 268435456
+
+[channels.qq]
+adapter = "onebot11"
+provider = "napcat"
+endpoint = "${NAPCAT_WS_URL}"
+accessToken = "${NAPCAT_TOKEN}"
+
+[conversation.groupTrigger]
+mode = "mention"
+botUserIds = ["${QQ_BOT_ID}"]
+
+[permissions]
+"channel.qq.send_group_message" = "allow"
+"channel.qq.upload_group_file" = "allow"
+"container.execute" = "allow"
