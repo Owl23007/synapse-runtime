@@ -76,6 +76,27 @@ Durable Memory 默认关闭。设置为 `true` 后启用 SQLite 记忆持久化�
 
 `tools.web.enabled = true` 时至少注册 `web.fetch`，配置搜索提供商后同时注册 `web.search`
 
+## `container`
+
+容器任务与联网工具独立配置，示例见 `examples/group-artifacts.config.toml`。未知字段会被拒绝，模型不能覆盖镜像、限额或挂载参数。
+
+| Field              | Default            | 范围或说明                                                     |
+| ------------------ | ------------------ | -------------------------------------------------------------- |
+| `enabled`          | `false`            | 部署者显式启用                                                 |
+| `image`            | `python:3.13-slim` | 预先安装的 Linux Python 镜像，示例使用 `synapse-artifacts:0.1` |
+| `timeoutMs`        | `120000`           | 1000–300000                                                    |
+| `memoryMiB`        | `512`              | 64–4096                                                        |
+| `workspaceMiB`     | `64`               | 16–1024，独立临时 `/work`                                      |
+| `cpus`             | `1`                | 0.1–4                                                          |
+| `maxConcurrent`    | `2`                | 1–8，超额返回失败                                              |
+| `maxArtifacts`     | `8`                | 1–16                                                           |
+| `maxArtifactBytes` | `5242880`          | 1024–10485760                                                  |
+| `maxTotalBytes`    | `10485760`         | 1024–20971520，每次输入或输出分别计量                          |
+| `maxLogBytes`      | `8192`             | 256–65536                                                      |
+| `storageMaxBytes`  | `268435456`        | 1048576–10737418240，仅统计工件二进制                          |
+
+配合 `container.execute` 和 `channel.qq.upload_group_file` 权限启用 `container.run` 与 `artifact.upload`。工具仅向具备上传能力的群聊开放，完整流程和恢复边界见[群聊工件助手](../guide/group-artifacts.md)。
+
 ## `agent`
 
 | Field       | Type        | Default  |

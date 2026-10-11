@@ -2,7 +2,7 @@
 
 本地优先的 Agent 运行时，将通道消息、触发路由、上下文、模型与工具调用、权限检查、回复发送和 SQLite 持久化串联起来，提供独立 Runtime 服务与 TUI 管理客户端
 
-0.1 正在实现[基于 DAG 的群聊工件助手](docs/prd/v0.1-dag-artifacts-prd.md)：从群聊需求出发，在本地容器中生成工件并直接上传群文件
+0.1 定位为[基于 DAG 的群聊工件助手](docs/prd/v0.1-dag-artifacts-prd.md)：从群聊需求出发，在本地容器中生成工件并直接上传群文件，后续对话可读取历史结果。部署入口见[群聊工件指南](docs/guide/group-artifacts.md)与 `examples/group-artifacts.config.toml`
 
 ## 开始使用
 

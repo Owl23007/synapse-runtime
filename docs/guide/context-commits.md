@@ -53,7 +53,7 @@ Merge 的首父提交是目标 Ref 当前的 Commit，其他父提交是显式�
 
 `resolveContextPath(scopeId, refName, { maxCommits, maxChars })` 默认最多访问 32 个不同提交，返回的完整 Commit 序列化字符数总和不超过 12000。最多允许访问 1000 个提交。广度回溯照顾多个父来源，共享祖先去重，仅对选中的提交进行拓扑排序，返回父先子后的顺序。提交只能引用更早的提交，因此无需扫描完整祖先来检查环。
 
-超过字符预算的提交整体省略，不截断 JSON；`truncated`、`visitedCommits` 和 `usedChars` 暴露读取限制。该结果是有限的候选上下文，不是完整状态重放，也不是最终 Prompt。字符预算不等同于 Token 预算；最终 Prompt 包装、相关性筛选、摘要选择和 Token 预算留给后续 ContextComposer 接入。
+超过字符预算的提交整体省略，不截断 JSON；`truncated`、`visitedCommits` 和 `usedChars` 暴露读取限制。该结果是有限的候选上下文，不是完整状态重放。生产 `RunContextGraph` 按 `context.maxHistoryChars` 限制 DAG 候选内容，并将提交 ID、父关系、类型和内容作为历史数据加入 Prompt；JSON 包装会有少量额外开销。此预算与消息历史、长期记忆各自的预算独立，不是整个 Prompt 的总上限，统一 Token 预算、相关性筛选和自动摘要属于后续工作。
 
 ## 数据库管理
 

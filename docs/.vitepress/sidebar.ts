@@ -6,6 +6,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
     items: [
       { text: "快速开始", link: "/guide/getting-started" },
       { text: "运行链路", link: "/guide/runtime-flow" },
+      { text: "群聊工件助手", link: "/guide/group-artifacts" },
       { text: "配置", link: "/guide/configuration" },
       { text: "联网工具", link: "/guide/web-tools" },
       { text: "通道", link: "/guide/channels" },

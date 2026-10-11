@@ -1,73 +1,55 @@
 # 当前闭环状态
 
-更新时间：2026-09-14
+更新时间：2026-10-11
 
-本页以当前已实现的产品能力为验收范围。闭环指代码入口、处理结果、失败边界、持久化或资源回收，以及可重复执行的验证；不代表路线图中的所有规划能力已经实现
+0.1 定位为基于 DAG 的群聊 Agent Runtime，产品入口是群成员提出需求，交付形式是本地容器生成工件并直接上传群文件。代码闭环及本地容器验收已完成；真实 QQ 账号与外部模型服务尚未联调，不能据此宣称目标部署已经上线。
 
-## 已闭环能力
+## 已实现的闭环
 
-| 链路                         | 当前状态 | 代码与验证依据                                                 |
-| ---------------------------- | -------- | -------------------------------------------------------------- |
-| Channel 入站归一化           | 已闭环   | OneBot11、QQ Official normalizer 与脱敏 Fixture 测试           |
-| 触发判定                     | 已闭环   | 私聊、群聊 mention、reply、keyword 和 unknown mention 路由测试 |
-| 身份、工作区与最近上下文     | 已闭环   | `runtime-core` ContextComposer、Workspace、Transcript 测试     |
-| Agent 与工具循环             | 已闭环   | OpenAI-compatible Provider、ToolRuntime、Web search/fetch 测试 |
-| 发送权限与出站恢复           | 已闭环   | Permission gate、`event_process_state`、重试和崩溃恢复测试     |
-| SQLite 持久化与迁移          | 已闭环   | transcript、conversation、memory 和 legacy migration 测试      |
-| 配置、资源、Locale 与管理端  | 已闭环   | config、runtime resources、Admin API、CLI 测试                 |
-| Channel Protocol v1 基础模型 | 已补齐   | 版本化消息、入站事件、出站动作、能力描述和标准结果模型         |
-| `message.send` 运行桥接      | 已补齐   | RuntimeCore 通过统一动作执行器调用现有 Adapter                 |
+| 链路                 | 实现与验证依据                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| 频道入站、触发与身份 | OneBot11、QQ Official normalizer、脱敏 Fixture，mention、reply、keyword 路由与 Session 隔离 |
+| Agent 与工具循环     | OpenAI-compatible Provider、权限过滤、ToolRuntime 持久化调用回执，脚本失败可修正            |
+| DAG 运行上下文       | 每个请求独立 Run Ref，记录输入、工具终态与结果，完成时显式合并回 Line Ref                   |
+| 并发回流与历史恢复   | 逆序完成保留各运行历史，跨群隔离，重启后后续请求能读取工件及平台回执                        |
+| 本地容器工作         | 无网络、无宿主挂载、资源限额、超时回收、声明式普通文件收集和完整性校验                      |
+| 工件交付             | 内容传输到 NapCat `upload_group_file`，目标群来自真实事件，拒绝模型伪造目标及跨会话工件     |
+| 上传恢复             | 相同工件对同一群跨调用 ID 和重启去重，超时、异步受理和崩溃未知状态不自动重放                |
+| 文本回复与持久化     | 发送权限、出站恢复、SQLite 迁移、Transcript、消息顺序和工具审计                             |
+| 部署与维护           | Node/SQLite ABI 前置检查、专用配置、工件镜像、Admin/CLI/TUI、磁盘与恢复操作说明             |
 
-## 本次对齐内容
+核心端到端测试位于 `apps/runtime/src/server/runtime-artifacts.test.ts`，走生产 Runtime、Agent、ToolRuntime 和 OneBot Adapter 装配，验证生成 → 上传 → 回复 → 重启 → 历史读取。Docker 进程边界可以切换为真实执行，模型和平台请求仍使用受控替身。
 
-- 新增根 README 和 `pnpm verify` 完整验收入口，串联格式、Lint、架构、Fixture、构建（包含文档站）、类型、最小配置、国际化与全部测试
-- CI 补充最小配置与国际化资源检查，避免本地脚本存在但持续集成未执行
-- 热重载在释放现有资源前检查宿主字段，监听地址、管理服务开关、日志等级和缓冲容量发生变化时返回 HTTP 409，保留当前服务，详见[配置重载边界](../guide/admin-cli.md#配置重载边界)
-- 路线图排除 PRD 模板，与 PRD 目录的统计口径一致
+## 验收记录
 
-## 已有协议能力
+本地环境为 Windows、Node.js 24.21.0、pnpm 9.15.0 和 Docker Desktop Linux 容器引擎。
 
-协议层现在包含以下可序列化模型：
+| 检查                                     | 结果                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------- |
+| `pnpm verify`                            | 环境、格式、Lint、架构、Fixture、构建、文档站、类型、配置、国际化及全部测试通过       |
+| 包级测试                                 | 283 项通过，其中 RuntimeCore 113 项、RuntimeServer 72 项、OneBot11 15 项、容器包 7 项 |
+| Runtime/TUI 真进程集成                   | 3 项通过                                                                              |
+| 架构与协议                               | 20 个应用和业务包无循环及跨层依赖，6 个通道 Fixture 通过                              |
+| `pnpm container:smoke`                   | 真实 Docker 完成 CSV 生成、超时终止、符号链接拒绝                                     |
+| 工件镜像构建及格式验收                   | `synapse-artifacts:0.1` 构建成功，真实生成并收集 DOCX、XLSX、PDF、PNG                 |
+| `SYNAPSE_TEST_DOCKER=1` 的群文件集成测试 | 5 项通过，实际容器产物经 Adapter 编码进入受控上传接口                                 |
+| 真实模型与 QQ 群                         | 尚未联调，需要目标部署验证文件可见、可下载及内容正确                                  |
 
-- `CHANNEL_PROTOCOL_SCHEMA_VERSION`
-- `message.created`、`message.updated`、Reaction 和 `unknown` 事件类型
-- emoji、sticker、reference、rich-content 和 unknown 消息段
-- `message.send`、编辑、删除和 Reaction 出站动作
-- `ChannelCapabilityProfile` 与 `ChannelActionResult`
+新增验证保留了既有测试要求。CI 已加入环境检查、真实容器隔离、工件镜像与 Docker 集成测试；工作流修改尚未推送执行，本地执行通过不代表远程 CI 已运行。
 
-当前 Adapter 已实际执行 `message.send`。编辑、删除和 Reaction 在能力尚未落地前会返回明确的 `unsupported`，不会静默转换成文本发送。
+复现命令和部署步骤见[群聊工件助手](../guide/group-artifacts.md)。
 
-## 尚未闭环的明确边界
+## 0.1 的明确边界
 
-这些不是本次回归失败，而是当前产品边界：
+- 工件上传面向 NapCat 群聊；QQ Official 无对应能力，私聊不开放容器工件工具
+- 容器运行 Python 生成工件，不提供代码仓库、Git/PR、IDE 或通用 code agent 工作流
+- 后续容器可读取当前会话的已登记工件，尚不支持自动下载群成员上传的任意附件
+- TaskRunner 保留底层持久任务机制，默认服务没有任意任务创建与业务 executor 入口；定时任务、Workflow、多 Agent 调度留待后续
+- 不做旧图表自动转换、跨群历史共享、自动工件清理、上传回执重置或未知副作用自动补偿
+- DAG 候选读取有字符预算，消息与记忆预算各自独立，尚无统一的最终 Prompt Token 预算与向量召回
+- Presentation 仍使用 deterministic；`confirm`、`rate_limit` 和权限 `sandbox` 策略未形成工作流，配置会拒绝这些值
+- 协议层的编辑、撤回、Reaction 和 Sticker 出站尚未接入具体平台；独立 `web.extract`、浏览器和 MCP 尚未实现
 
-- 模型 Presentation 仍只支持 deterministic，配置中的 `model` 会被拒绝
-- `confirm`、`rate_limit` 和 `sandbox` 尚无可恢复工作流，公开配置暂时拒绝这些策略
-- `web.extract` 独立工具、复杂 Citation 映射、登录态页面、浏览器和 MCP 仍未实现
-- Channel Protocol 的编辑、撤回、Reaction、Sticker 出站编码尚未接入具体平台 Adapter
-- Project Workspace、主动触发、Workflow 和向量检索属于后续阶段
-- TaskRunner 提供持久任务执行与恢复机制；默认服务端尚未注册业务 executor，不能视为可创建并执行任意任务的产品入口
+现有热重载会在释放资源前拒绝宿主监听等字段变化，但不是事务式部署。新频道连接或资源初始化失败时，不能保证恢复旧运行时，应修正配置后重载或重启。配置写入只提供同进程排队和原子替换；每个数据目录只运行一个 Runtime 进程。
 
-当前热重载不是事务式部署：通过前置检查后，如果频道连接或新资源初始化失败，不能保证自动恢复旧运行时，应修正配置后重载或重启。配置编辑只提供同进程排队与原子替换，不提供跨进程事务
-
-## 验收结果
-
-在 Node.js 24 与 pnpm 9.15.0 环境中执行：
-
-```bash
-pnpm install --frozen-lockfile
-pnpm verify
-```
-
-`verify` 遇到失败即停止，并在测试前构建最新产物。本次保留全部既有测试，新增 `apps/runtime/src/server/runtime-reload.test.ts` 验证 7 类宿主配置的拒绝边界、旧配置与监听器继续生效，以及后续频道重载成功
-
-验收覆盖：
-
-- `runtime-core`：16 个测试文件、110 个测试
-- `runtime-server`：12 个测试文件、67 个测试
-- OneBot11：8 个测试通过
-- QQ Official：9 个测试通过
-- 全部包共 261 个测试，加上 3 个真实 Runtime/TUI 进程集成测试
-- 19 个应用与业务包的架构边界、6 个通道协议 Fixture、完整构建与文档站、类型、格式、Lint、最小配置和国际化检查
-
-本次本地验证使用 Windows、Node.js 22.19.0 与 pnpm 9.15.0；CI 配置使用 Node.js 24。HTTP Webhook 到回复的测试使用外部 QQ HTTP 替身，Provider 测试也使用替身。真实 QQ 账号投递、外部模型服务与带凭据的部署仍需在目标环境联调
+版本范围以 [0.1 PRD](../prd/v0.1-dag-artifacts-prd.md) 为准，上述边界不会被标记为已经实现的能力。
