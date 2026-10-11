@@ -28,6 +28,6 @@
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-conversation": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   }
 }
