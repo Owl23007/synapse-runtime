@@ -151,11 +151,50 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     };
   }
 
+  /** 先交付真实文件再发送说明，文件上传失败时返回失败而不丢弃附件 */
   async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
+    const files = message.segments.filter((segment) => segment.type === "file");
+    if (files.length > 0 && target.type !== "private" && target.type !== "group") {
+      return { ok: false, error: "OneBot 11 file uploads require a private or group target." };
+    }
+    if (files.some((file) => file.url === undefined)) {
+      return { ok: false, error: "OneBot 11 file uploads require a file URL or base64 resource." };
+    }
+    for (const file of files) {
+      const action = target.type === "group" ? "upload_group_file" : "upload_private_file";
+      try {
+        // NapCat 在自己的文件系统解析路径，base64 资源允许部署在不同容器的 Runtime 直接交付
+        // oxlint-disable-next-line no-await-in-loop
+        const uploaded = await this.#call(action, {
+          ...(target.type === "group"
+            ? { group_id: target.groupId }
+            : target.type === "private"
+              ? { user_id: target.userId }
+              : {}),
+          file: file.url,
+          name: file.name
+        });
+        if (uploaded.status !== "ok" || (uploaded.retcode !== undefined && uploaded.retcode !== 0)) {
+          return {
+            ok: false,
+            error: `OneBot 11 ${action} failed: ${uploaded.message ?? uploaded.wording ?? "Upload rejected"}`
+          };
+        }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    const remaining = message.segments.filter((segment) => segment.type !== "file");
+    if (
+      files.length > 0 &&
+      !remaining.some((segment) => segment.type === "image" || (segment.type === "text" && segment.text.length > 0))
+    ) {
+      return { ok: true };
+    }
     let response: OneBot11ResponsePayload;
 
     try {
-      response = await this.#call("send_msg", createOneBot11SendParams(target, message));
+      response = await this.#call("send_msg", createOneBot11SendParams(target, { ...message, segments: remaining }));
     } catch (error) {
       return {
         ok: false,

@@ -110,6 +110,15 @@ maxContentChars = 24000
 maxRedirects = 5
 userAgent = "SynapseRuntime/0.1"
 
+# 先执行 docker build -t synapse-execution:local deploy/execution，再启用执行与媒体发送权限
+[tools.docker]
+enabled = false
+image = "synapse-execution:local"
+timeoutMs = 120000
+memoryMb = 512
+cpus = 1
+maxArtifactBytes = 10000000
+
 # 启用 Brave Search 时取消以下注释并配置 BRAVE_SEARCH_API_KEY
 # [tools.web.search]
 # provider = "brave"
@@ -146,3 +155,4 @@ riskLevel = "low"
 "channel.qq.send_media" = "deny"
 "network.web.search" = "allow"
 "network.web.fetch" = "allow"
+"execution.docker.run" = "deny"

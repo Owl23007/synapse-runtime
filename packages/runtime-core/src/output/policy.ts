@@ -70,7 +70,15 @@ export class ResponsePolicy {
     const profile = this.#profile?.enabled === true ? this.#profile : undefined;
     const effectivePolicy = tightenPolicy(policy, profile);
     const text = applyParagraphLimit(applyTextPolicy(canonical.safeText, effectivePolicy), profile?.maxParagraphs);
-    return { ...message, segments: [{ type: "text", text }] };
+    // 表达策略只调整文案，执行阶段确认的真实附件必须完整交付
+    const attachments = message.segments.filter((segment) => segment.type !== "text");
+    return {
+      ...message,
+      segments: [
+        ...(text.length === 0 && attachments.length > 0 ? [] : [{ type: "text" as const, text }]),
+        ...attachments
+      ]
+    };
   }
 }
 
