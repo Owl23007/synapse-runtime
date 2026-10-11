@@ -318,6 +318,15 @@ importers:
         specifier: npm:zod@^4.5.4
         version: zod@4.5.4
 
+  packages/tool-container:
+    dependencies:
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
+
   packages/tool-runtime:
     dependencies:
       '@synapse/runtime-i18n':
