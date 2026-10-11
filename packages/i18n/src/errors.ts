@@ -4,12 +4,12 @@ import { z } from "zod";
 export const ErrorDescriptorSchema = z.object({
   code: z.string().min(1),
   key: z.string().min(1),
-  params: z.record(z.string()).optional(),
+  params: z.record(z.string(), z.string()).optional(),
   cause: z.unknown().optional(),
   retryable: z.boolean().optional(),
   severity: z.enum(["info", "warning", "error", "fatal"]).optional(),
   expose: z.boolean().optional(),
-  details: z.record(z.unknown()).optional()
+  details: z.record(z.string(), z.unknown()).optional()
 });
 
 /** 与展示语言无关的结构化错误描述 */
