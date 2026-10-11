@@ -16,17 +16,22 @@
 
 ## Workspace Scripts
 
-| Command             | 说明                                              |
-| ------------------- | ------------------------------------------------- |
-| `pnpm build`        | 构建所有 workspace package                        |
-| `pnpm test`         | 运行所有 workspace 测试                           |
-| `pnpm typecheck`    | 对所有 workspace package 执行类型检查             |
-| `pnpm start`        | 使用 `runtime.config.toml` 和 `.env` 启动 Runtime |
-| `pnpm tui`          | 启动交互式控制台                                  |
-| `pnpm tui:spawn`    | 启动本地 Runtime 并打开控制台                     |
-| `pnpm docs:dev`     | 启动 VitePress dev server                         |
-| `pnpm docs:build`   | 构建 VitePress 静态站点                           |
-| `pnpm docs:preview` | 预览已构建的 VitePress 站点                       |
+| Command                                 | 说明                                                             |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| `pnpm build`                            | 构建所有 workspace package                                       |
+| `pnpm verify`                           | 环境前置检查及完整构建、质量和测试验收                           |
+| `pnpm env:check`                        | 检查 Node.js 24 与 SQLite 原生模块 ABI                           |
+| `pnpm native:rebuild`                   | 为当前 Node.js 重建 SQLite 原生依赖                              |
+| `pnpm container:smoke`                  | 真实 Docker 验证工件、超时和符号链接拒绝，需先构建并拉取默认镜像 |
+| `node tools/artifact-formats-smoke.mjs` | 验证 DOCX、XLSX、PDF、PNG，需先构建 `deploy/artifacts` 镜像      |
+| `pnpm test`                             | 运行所有 workspace 测试                                          |
+| `pnpm typecheck`                        | 对所有 workspace package 执行类型检查                            |
+| `pnpm start`                            | 使用 `runtime.config.toml` 和 `.env` 启动 Runtime                |
+| `pnpm tui`                              | 启动交互式控制台                                                 |
+| `pnpm tui:spawn`                        | 启动本地 Runtime 并打开控制台                                    |
+| `pnpm docs:dev`                         | 启动 VitePress dev server                                        |
+| `pnpm docs:build`                       | 构建 VitePress 静态站点                                          |
+| `pnpm docs:preview`                     | 预览已构建的 VitePress 站点                                      |
 
 | `pnpm architecture:check` | 检查包依赖方向、循环和导入边界 |
 | `pnpm config:check` | 检查最小配置示例 |

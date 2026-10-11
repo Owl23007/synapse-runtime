@@ -13,13 +13,14 @@
 
 ## Runtime 抽象层
 
-| Package                         | 职责                                                            |
-| ------------------------------- | --------------------------------------------------------------- |
-| `@synapse/runtime-conversation` | 触发策略、对话路由、context policy 和 agent request 构造        |
-| `@synapse/runtime-channel`      | Channel adapter 契约、target 类型、capabilities 和内存 registry |
-| `@synapse/runtime-agent-core`   | Agent 与模型调用契约、agent run 模型和 agent registry           |
-| `@synapse/runtime-tool-runtime` | Tool 注册、tool 权限检查和 tool 调用                            |
-| `@synapse/runtime-tool-web`     | 受权限和 SSRF 防护约束的 Web 搜索、抓取与文本提取               |
+| Package                           | 职责                                                            |
+| --------------------------------- | --------------------------------------------------------------- |
+| `@synapse/runtime-conversation`   | 触发策略、对话路由、context policy 和 agent request 构造        |
+| `@synapse/runtime-channel`        | Channel adapter 契约、target 类型、capabilities 和内存 registry |
+| `@synapse/runtime-agent-core`     | Agent 与模型调用契约、agent run 模型和 agent registry           |
+| `@synapse/runtime-tool-runtime`   | Tool 注册、tool 权限检查和 tool 调用                            |
+| `@synapse/runtime-tool-web`       | 受权限和 SSRF 防护约束的 Web 搜索、抓取与文本提取               |
+| `@synapse/runtime-tool-container` | 有界 Docker 执行、工件收集、会话归属与完整性校验                |
 
 ## 具体实现
 
@@ -37,7 +38,8 @@
 | Package                   | 职责                                                                                                                  |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `@synapse/runtime-core`   | Channel event 编排、identity、workspace、transcript、context composition、idempotency、response policy 和权限门控发送 |
-| `@synapse/runtime-server` | 配置驱动的可执行 server、HTTP gateway、Admin API、CLI、TUI、channel factory 和 agent factory                          |
+| `@synapse/runtime-server` | 配置驱动的 server、HTTP gateway、Admin API、CLI、频道和 Agent 装配，以及群文件工具与上传回执                          |
+| `@synapse/runtime-tui`    | 独立终端管理客户端与所属 Runtime 子进程生命周期                                                                       |
 
 ## 依赖规则
 

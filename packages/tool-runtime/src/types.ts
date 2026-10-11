@@ -6,6 +6,14 @@ export interface PermissionRequirement {
   readonly defaultPolicy?: PermissionPolicy;
 }
 
+/** 工具执行的可信来源，目标由运行时绑定而不从模型参数读取 */
+export interface ToolSource {
+  readonly channelId: string;
+  readonly conversationId: string;
+  readonly conversationKind: string;
+}
+
+/** 一次工具执行的会话、调用与来源身份 */
 export interface ToolContext {
   readonly runId: string;
   readonly attemptId?: string;
@@ -16,6 +24,7 @@ export interface ToolContext {
   readonly taskId?: string;
   readonly causationEventId?: string;
   readonly callId?: string;
+  readonly source?: ToolSource;
 }
 
 export type ToolCallContext = ToolContext & { readonly callId: string };
@@ -91,6 +100,7 @@ export interface ScopedToolRuntimeView {
   ): Promise<ToolCallResult<TOutput>>;
 }
 
+/** 固定会话身份与来源的工具视图，模型只能提供调用标识 */
 export interface ToolRuntimeScope {
   readonly sessionId: string;
   readonly userId: string;
@@ -101,6 +111,7 @@ export interface ToolRuntimeScope {
   readonly causationEventId?: string;
   readonly durableCallIdPrefix?: string;
   readonly replayCall?: ToolCallReplayResolver;
+  readonly source?: ToolSource;
 }
 
 interface ToolRuntimeEventBase {

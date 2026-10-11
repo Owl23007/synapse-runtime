@@ -9,6 +9,7 @@ import {
   promptsConfig,
   presentationConfig,
   toolsConfig,
+  containerConfig,
   RuntimeSettingsSchema,
   ServerSettingsSchema,
   AdminSettingsSchema,
@@ -75,6 +76,7 @@ export function createApplicationConfigManager(sources: readonly ConfigSource[])
   manager.register(promptsConfig);
   manager.register(presentationConfig);
   manager.register(toolsConfig);
+  manager.register(containerConfig);
   return manager;
 }
 
@@ -94,6 +96,7 @@ export function readApplicationConfig(manager: ConfigManager): RuntimeConfig {
     agentLoop: manager.get(agentLoopConfig),
     prompts: manager.get(promptsConfig),
     presentation: manager.get(presentationConfig),
-    tools: manager.get(toolsConfig)
+    tools: manager.get(toolsConfig),
+    container: manager.get(containerConfig)
   });
 }

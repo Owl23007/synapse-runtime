@@ -52,12 +52,34 @@ jobs:
       - name: Set up workspace
         uses: ./.github/actions
 
-      # Integration tests run dist entry points, so build the workspace in dependency order first
+      # 进程集成测试使用 dist 入口，必须先按依赖顺序构建
       - name: Build workspace
         run: pnpm build
 
       - name: Check types
         run: pnpm typecheck
 
+      - name: Validate minimal configuration
+        run: pnpm config:check
+
+      - name: Check translation resources
+        run: pnpm i18n:check
+
       - name: Run tests
         run: pnpm test
+
+      # 工件链路使用真实本地容器，平台和模型边界继续用受控替身
+      - name: Verify container isolation
+        run: |
+          docker pull python:3.13-slim
+          pnpm container:smoke
+
+      - name: Verify document artifact image
+        run: |
+          docker build -t synapse-artifacts:0.1 deploy/artifacts
+          node tools/artifact-formats-smoke.mjs
+
+      - name: Verify group artifact runtime with Docker
+        env:
+          SYNAPSE_TEST_DOCKER: "1"
+        run: pnpm --filter @synapse/runtime-server exec vitest run src/server/runtime-artifacts.test.ts

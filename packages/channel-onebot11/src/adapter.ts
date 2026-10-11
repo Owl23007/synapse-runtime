@@ -4,6 +4,8 @@ import type {
   ChannelEventHandler,
   ChannelStatus,
   ChannelTarget,
+  GroupFileUpload,
+  GroupFileUploadResult,
   SendResult
 } from "@synapse/runtime-channel";
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
@@ -13,6 +15,7 @@ import { normalizeOneBot11Event } from "./normalize.js";
 import type {
   OneBot11ChannelAdapterOptions,
   OneBot11Fetch,
+  OneBot11FetchInit,
   OneBot11ResponsePayload,
   OneBot11Transport,
   OneBot11WebSocket,
@@ -30,6 +33,7 @@ interface PendingRequest {
   readonly timeout: ReturnType<typeof setTimeout>;
 }
 
+/** 通过 OneBot11 收发消息，NapCat 扩展能力必须单独声明和校验 */
 export class OneBot11ChannelAdapter implements ChannelAdapter {
   readonly id: string;
   readonly type = "onebot11";
@@ -139,6 +143,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       sendPrivateMessage: true,
       sendGroupMessage: true,
       sendMedia: true,
+      uploadGroupFile: this.provider === "napcat",
       manageGroup: false,
       recallMessage: false,
       complianceLevel: "unofficial",
@@ -171,6 +176,46 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       ok: true,
       ...(messageId === undefined ? {} : { messageId })
     };
+  }
+
+  /** 使用内容传输上传群文件，避免假设远端 NapCat 可以读取本机路径 */
+  async uploadGroupFile(groupId: string, file: GroupFileUpload): Promise<GroupFileUploadResult> {
+    if (!this.getCapabilities().uploadGroupFile)
+      return { status: "unsupported", error: "当前 OneBot 提供方未声明群文件上传能力" };
+    if (
+      !/^\d+$/.test(groupId) ||
+      file.name.length === 0 ||
+      file.name.length > 120 ||
+      /[\\/:]/.test(file.name) ||
+      [...file.name].some((c) => c.charCodeAt(0) < 32)
+    ) {
+      return { status: "failed", error: "群标识或文件名无效" };
+    }
+    if (file.data.byteLength === 0 || file.data.byteLength > 10_485_760)
+      return { status: "failed", error: "群文件必须介于 1 字节和 10 MiB 之间" };
+    try {
+      const response = await this.#call("upload_group_file", {
+        group_id: groupId,
+        file: `base64://${Buffer.from(file.data).toString("base64")}`,
+        name: file.name,
+        upload_file: true
+      });
+      if (response.status === "failed") {
+        // 明确的平台拒绝与未知网络结果分开，恢复逻辑不能把超时当成可安全重试
+        return {
+          status: "failed",
+          error: `NapCat 拒绝群文件上传，错误码：${response.retcode ?? "unknown"}`
+        };
+      }
+      // 异步受理或损坏的响应都不是明确失败，不能据此安全重放上传
+      if (response.status !== "ok" || (response.retcode !== undefined && response.retcode !== 0))
+        return { status: "uncertain", error: "群文件上传未返回明确终态，请先核对群文件" };
+      const fileId = isRecord(response.data) ? stringFromUnknown(response.data.file_id) : undefined;
+      return { status: "succeeded", ...(fileId === undefined ? {} : { fileId }) };
+    } catch {
+      // 不透传可能包含文件 base64 的外部错误，回执不确定时也不伪造成功
+      return { status: "uncertain", error: "群文件上传回执未确认，请核对群文件后再决定是否重新生成并上传" };
+    }
   }
 
   onEvent(handler: ChannelEventHandler): void {
@@ -251,19 +296,38 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
 
   async #callHttp(action: string, params: Readonly<Record<string, unknown>>): Promise<OneBot11ResponsePayload> {
     const base = this.#endpoint.endsWith("/") ? this.#endpoint : `${this.#endpoint}/`;
-    const response = await this.#fetch(new URL(action, base).toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(this.#accessToken === undefined ? {} : { authorization: `Bearer ${this.#accessToken}` })
-      },
-      body: JSON.stringify({ action, params })
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // 除了中止原生 fetch，还约束不响应取消信号的宿主实现，避免上传永久占用运行
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`OneBot 11 action "${action}" timed out after ${this.#requestTimeoutMs}ms.`));
+        controller.abort();
+      }, this.#requestTimeoutMs);
     });
-    const payload = response.text === undefined ? await response.json() : parseJsonPayload(await response.text());
-    if (!isRecord(payload)) {
-      throw new Error(`OneBot 11 HTTP action "${action}" returned a non-object response.`);
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await this.#fetch(new URL(action, base).toString(), {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(this.#accessToken === undefined ? {} : { authorization: `Bearer ${this.#accessToken}` })
+            },
+            body: JSON.stringify({ action, params }),
+            signal: controller.signal
+          });
+          const payload = response.text === undefined ? await response.json() : parseJsonPayload(await response.text());
+          if (!response.ok || !isRecord(payload)) {
+            throw new Error(`OneBot 11 HTTP action "${action}" returned an invalid response.`);
+          }
+          return payload as OneBot11ResponsePayload;
+        })(),
+        timeout
+      ]);
+    } finally {
+      clearTimeout(timer);
     }
-    return payload as OneBot11ResponsePayload;
   }
 
   #rejectAllPending(error: Error): void {
@@ -275,10 +339,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
   }
 }
 
-async function defaultFetch(
-  input: string,
-  init?: { readonly method?: string; readonly headers?: Readonly<Record<string, string>>; readonly body?: string }
-): Promise<Response> {
+async function defaultFetch(input: string, init?: OneBot11FetchInit): Promise<Response> {
   if (globalThis.fetch === undefined)
     throw new Error("No fetch implementation is available for OneBot 11 HTTP transport.");
   return globalThis.fetch(input, init);

@@ -71,7 +71,13 @@ Admin API 挂载在 `/admin`。
 | POST   | `/admin/reload`                 | 从文件重新加载配置                           |
 | POST   | `/admin/shutdown`               | 停止 runtime server                          |
 
-## Admin 安全
+## 配置重载边界
+
+`/reload` 会重新组装运行时与频道，但不会重建 HTTP 监听器或日志实例。修改 `server.host`、`server.port`、`admin.enabled`、`admin.host`、`admin.port`、`admin.logBufferSize` 或 `runtime.logLevel` 后，需要重启进程。
+
+上述字段变化时，`POST /admin/reload` 返回 HTTP 409，错误码为 `reload_requires_restart`，`fields` 列出需要重启的字段。检查发生在释放现有资源之前，当前配置与服务继续工作。配置文件中的修改保留，重启后应用。普通频道配置仍可热重载。
+
+## Admin 访问控制
 
 如果 Admin API 暴露在非 loopback host 上，必须配置 `admin.token`。Server 还会检查 allowed origins 和 allowed remote addresses。
 

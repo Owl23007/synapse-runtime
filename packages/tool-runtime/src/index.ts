@@ -10,6 +10,7 @@ export type {
   ToolCallReplayResolver,
   ToolCallResult,
   ToolContext,
+  ToolSource,
   ToolHandler,
   ToolPermissionResolver,
   ToolRuntimeEvent,

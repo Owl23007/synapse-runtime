@@ -74,6 +74,9 @@ importers:
       '@synapse/runtime-resources':
         specifier: workspace:*
         version: link:../../packages/runtime-resources
+      '@synapse/runtime-tool-container':
+        specifier: workspace:*
+        version: link:../../packages/tool-container
       '@synapse/runtime-tool-runtime':
         specifier: workspace:*
         version: link:../../packages/tool-runtime
@@ -317,6 +320,15 @@ importers:
       zod-config:
         specifier: npm:zod@^4.5.4
         version: zod@4.5.4
+
+  packages/tool-container:
+    dependencies:
+      '@synapse/runtime-config':
+        specifier: workspace:*
+        version: link:../config
+      zod:
+        specifier: ^4.5.4
+        version: 4.5.4
 
   packages/tool-runtime:
     dependencies:

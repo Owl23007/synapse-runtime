@@ -2,7 +2,7 @@
 
 ## 前置要求
 
-- Node.js 20 或更高版本
+- Node.js 24（与 CI 验证环境一致）
 - pnpm 9.x
 - 一个已配置的 Agent Provider；如果不配置，Runtime 会使用内置 echo fallback
 - 至少一个启用的 channel，才能处理真实消息
@@ -16,12 +16,14 @@ pnpm install
 ## 构建与测试
 
 ```bash
-pnpm build
-pnpm test
-pnpm typecheck
+pnpm verify
 ```
 
+`verify` 按顺序执行格式、Lint、架构边界、Fixture、完整构建（包含文档站）、类型、最小配置、国际化和全部测试。进程集成测试使用构建产物，因此单独运行 `pnpm test` 前须先执行 `pnpm build`。
+
 ## 启动 Runtime
+
+需要在群聊中生成报告、表格和图片并直接上传群文件时，使用[群聊工件助手](./group-artifacts.md)的专用部署配置。以下是基础文本运行时的启动方式。
 
 先从版本化示例创建当前部署自己的配置与凭据文件：
 

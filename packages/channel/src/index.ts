@@ -6,6 +6,8 @@ export type {
   ChannelStatus,
   ChannelStatusState,
   ChannelTarget,
+  GroupFileUpload,
+  GroupFileUploadResult,
   SendResult
 } from "./types.js";
 export { executeChannelAction } from "./action-executor.js";

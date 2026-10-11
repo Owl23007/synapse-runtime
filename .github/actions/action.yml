@@ -17,3 +17,7 @@ runs:
     - name: Install workspace dependencies
       shell: bash
       run: pnpm install --frozen-lockfile
+
+    - name: Check Node and SQLite ABI
+      shell: bash
+      run: pnpm env:check
