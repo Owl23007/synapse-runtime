@@ -59,6 +59,7 @@ export class TaskRunner {
     string,
     { readonly abort: AbortController; readonly completion: Promise<BranchResult> }
   >();
+  readonly #branchLocks = new Map<string, Promise<void>>();
 
   constructor(options: TaskRunnerOptions) {
     this.#store = options.store;
@@ -190,13 +191,16 @@ export class TaskRunner {
       return this.#finish(failed, "failed", `Executor "${task.executor}" is not registered.`);
     }
 
-    let branch = await this.#requireBranch(task.branchId);
-    if (branch.status !== "active") {
-      branch = await this.#store.transitionBranch(branch.id, {
-        status: "active",
-        idempotencyKey: `task-runner:${branch.id}:activate:${task.id}`
-      });
-    }
+    const branch = await this.#withBranchLock(task.branchId, async () => {
+      let current = await this.#requireBranch(task.branchId);
+      if (current.status !== "active") {
+        current = await this.#store.transitionBranch(current.id, {
+          status: "active",
+          idempotencyKey: `task-runner:${current.id}:activate:${task.id}`
+        });
+      }
+      return current;
+    });
     try {
       const result = await executor(running.input, { task: running, branch, signal });
       const current = await this.#store.getTask(task.id);
@@ -280,15 +284,31 @@ export class TaskRunner {
   }
 
   async #settleBranchAfterTask(task: ConversationTask): Promise<void> {
-    const [branch, unfinishedTasks] = await Promise.all([
-      this.#requireBranch(task.branchId),
-      this.#store.listTasks(task.branchId, { statuses: ["pending", "running", "blocked"] })
-    ]);
-    if (unfinishedTasks.length === 0 && branch.status !== "inactive") {
-      await this.#store.transitionBranch(branch.id, {
-        status: "inactive",
-        idempotencyKey: `task-runner:${branch.id}:settle:${task.id}`
-      });
+    await this.#withBranchLock(task.branchId, async () => {
+      const [branch, unfinishedTasks] = await Promise.all([
+        this.#requireBranch(task.branchId),
+        this.#store.listTasks(task.branchId, { statuses: ["pending", "running", "blocked"] })
+      ]);
+      if (unfinishedTasks.length === 0 && branch.status !== "inactive") {
+        await this.#store.transitionBranch(branch.id, {
+          status: "inactive",
+          idempotencyKey: `task-runner:${branch.id}:settle:${task.id}`
+        });
+      }
+    });
+  }
+
+  async #withBranchLock<T>(branchId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#branchLocks.get(branchId);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.#branchLocks.set(branchId, current);
+    if (previous) await previous;
+    try {
+      return await operation();
+    } finally {
+      if (this.#branchLocks.get(branchId) === current) this.#branchLocks.delete(branchId);
+      release();
     }
   }
 
