@@ -2,6 +2,8 @@
 
 本地优先的 Agent 运行时，将通道消息、触发路由、上下文、模型与工具调用、权限检查、回复发送和 SQLite 持久化串联起来，提供独立 Runtime 服务与 TUI 管理客户端
 
+0.1 正在实现[基于 DAG 的群聊工件助手](docs/prd/v0.1-dag-artifacts-prd.md)：从群聊需求出发，在本地容器中生成工件并直接上传群文件
+
 ## 开始使用
 
 使用 Node.js 24 与 pnpm 9.15.0，在仓库根目录执行：
@@ -32,6 +34,8 @@ node apps/runtime/dist/cli.js start --config examples/minimal.config.toml
 ## 开发与验收
 
 `pnpm verify` 是完整验收入口，构建失败或任一检查失败都会停止。开发时可单独执行 `pnpm build`、`pnpm typecheck`、`pnpm test`、`pnpm lint` 和 `pnpm fmt:check`；测试中的进程集成部分依赖最新的 `dist`，应先构建
+
+切换 Node.js 版本后先执行 `pnpm env:check`。如果 SQLite 原生模块的 ABI 不匹配，执行 `pnpm native:rebuild` 后重新验收；不要沿用其他 Node.js 主版本构建的二进制
 
 ```bash
 pnpm docs:dev
