@@ -1130,6 +1130,18 @@ export class RuntimeCore {
       });
     }
 
+    if (
+      permission.decision === "allow" &&
+      target.type === "group" &&
+      output.segments.some((segment) => segment.type === "file")
+    ) {
+      permission = await this.#tools.decidePermission({
+        action: "channel.qq.upload_group_file",
+        resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
+        subject: input.request.userId
+      });
+    }
+
     if (permission.decision !== "allow") {
       const reason = permission.reason ?? `Permission decision was "${permission.decision}".`;
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_blocked", {

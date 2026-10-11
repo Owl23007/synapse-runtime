@@ -2,6 +2,8 @@
 
 Runtime 的 `docker.run` 工具按需启动 Linux 容器，实际执行模型提供的命令，提取产物并随当前回复交付。空闲时不运行执行容器；每次调用使用全新工作区。推理和工具执行先完成，后置表达策略只调整文本格式，保留真实附件。
 
+已有的 `container.run` 与 `artifact.upload` 工件存储和群文件上传链路继续保留。`tools.docker` 是独立启用的通用命令执行及最终回复附件能力；部署时按需求选择一条执行链路，避免同时生成和上传同一产物。
+
 ## 部署
 
 先确保 Docker 服务可用，并在仓库根目录构建执行镜像：
@@ -26,6 +28,7 @@ maxArtifactBytes = 10000000
 [permissions]
 "execution.docker.run" = "allow"
 "channel.qq.send_media" = "allow"
+"channel.qq.upload_group_file" = "allow"
 "channel.qq.send_group_message" = "allow"
 "channel.qq.send_private_message" = "allow"
 ```

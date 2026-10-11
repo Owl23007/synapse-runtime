@@ -172,16 +172,21 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
               ? { user_id: target.userId }
               : {}),
           file: file.url,
-          name: file.name
+          name: file.name,
+          upload_file: true
         });
-        if (uploaded.status !== "ok" || (uploaded.retcode !== undefined && uploaded.retcode !== 0)) {
+        if (uploaded.status === "failed" && file === files[0]) {
           return {
             ok: false,
             error: `OneBot 11 ${action} failed: ${uploaded.message ?? uploaded.wording ?? "Upload rejected"}`
           };
         }
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        if (uploaded.status !== "ok" || (uploaded.retcode !== undefined && uploaded.retcode !== 0)) {
+          throw new Error("文件上传未确认终态或已发生部分交付");
+        }
+      } catch {
+        // 未知回执与部分交付不能标记为可重试失败，否则恢复时会重复上传
+        throw new Error("文件上传回执未确认，请核对文件后再决定是否重新发送");
       }
     }
     const remaining = message.segments.filter((segment) => segment.type !== "file");
@@ -196,6 +201,8 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     try {
       response = await this.#call("send_msg", createOneBot11SendParams(target, { ...message, segments: remaining }));
     } catch (error) {
+      if (files.length > 0)
+        throw new Error("附件已上传，说明消息回执未确认，请核对后再决定是否重新发送", { cause: error });
       return {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
@@ -203,6 +210,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     }
 
     if (response.status !== "ok" || (response.retcode !== undefined && response.retcode !== 0)) {
+      if (files.length > 0) throw new Error("附件已上传，说明消息发送失败，请核对后再决定是否重新发送");
       return {
         ok: false,
         error: `OneBot 11 send_msg failed: ${response.message ?? response.wording ?? safeJson(response)}`

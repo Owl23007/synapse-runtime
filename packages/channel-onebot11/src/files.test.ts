@@ -2,6 +2,34 @@ import { describe, expect, it } from "vitest";
 import { OneBot11ChannelAdapter } from "./adapter.js";
 
 describe("OneBot file delivery", () => {
+  it.each(["async", "network", "partial"])("halts recovery on %s file delivery uncertainty", async (failure) => {
+    let calls = 0;
+    const adapter = new OneBot11ChannelAdapter({
+      id: "qq",
+      transport: "http",
+      endpoint: "http://localhost:5700",
+      fetch: async () => {
+        calls += 1;
+        if (failure === "network") throw new Error("transport lost");
+        if (failure === "partial" && calls === 1) return Response.json({ status: "ok", retcode: 0 });
+        return Response.json({ status: failure === "partial" ? "failed" : "async", retcode: 1 });
+      }
+    });
+    await expect(
+      adapter.sendMessage(
+        { type: "group", groupId: "42" },
+        {
+          type: "file",
+          segments: [
+            { type: "file", name: "first.txt", url: "base64://aGk=" },
+            { type: "file", name: "second.txt", url: "base64://aGk=" }
+          ]
+        }
+      )
+    ).rejects.toThrow("回执未确认");
+    expect(calls).toBe(failure === "partial" ? 2 : 1);
+  });
+
   it.each(["group", "private"] as const)("uploads %s files before sending text", async (kind) => {
     const calls: { action: string; params: unknown }[] = [];
     const adapter = new OneBot11ChannelAdapter({

@@ -19,9 +19,13 @@ vi.mock("@synapse/runtime-tool-execution", async (load) => {
 });
 
 describe("production Docker delivery loop", () => {
-  it.each(["allow", "deny"] as const)(
-    "keeps execution separate from presentation and respects %s media permission",
-    async (mediaPermission) => {
+  it.each([
+    { mediaPermission: "allow", uploadPermission: "allow" },
+    { mediaPermission: "deny", uploadPermission: "allow" },
+    { mediaPermission: "allow", uploadPermission: "deny" }
+  ] as const)(
+    "keeps execution separate from presentation with media=$mediaPermission and upload=$uploadPermission",
+    async ({ mediaPermission, uploadPermission }) => {
       const dataDir = mkdtempSync(join(tmpdir(), "synapse-docker-loop-"));
       const attachment = { type: "file", name: "demo.pptx", url: "base64://aGk=", sizeBytes: 2 };
       fixture.command
@@ -63,7 +67,8 @@ describe("production Docker delivery loop", () => {
         permissions: {
           "execution.docker.run": "allow",
           "channel.qq.send_group_message": "allow",
-          "channel.qq.send_media": mediaPermission
+          "channel.qq.send_media": mediaPermission,
+          "channel.qq.upload_group_file": uploadPermission
         }
       });
       const result = createRuntimeFromConfig({
@@ -120,9 +125,12 @@ describe("production Docker delivery loop", () => {
         expect(modelCalls).toBe(2);
         expect(fixture.command).toHaveBeenCalledTimes(2);
         const expectedUploads =
-          mediaPermission === "allow"
+          mediaPermission === "allow" && uploadPermission === "allow"
             ? [
-                { action: "upload_group_file", params: { group_id: "42", name: "demo.pptx", file: attachment.url } },
+                {
+                  action: "upload_group_file",
+                  params: { group_id: "42", name: "demo.pptx", file: attachment.url, upload_file: true }
+                },
                 {
                   action: "send_msg",
                   params: {
@@ -135,7 +143,9 @@ describe("production Docker delivery loop", () => {
               ]
             : [];
         expect(uploads).toEqual(expectedUploads);
-        expect(result.runtime.traces.at(-1)?.status).toBe(mediaPermission === "allow" ? "succeeded" : "blocked");
+        expect(result.runtime.traces.at(-1)?.status).toBe(
+          mediaPermission === "allow" && uploadPermission === "allow" ? "succeeded" : "blocked"
+        );
       } finally {
         await result.runtime.dispose();
         result.contextStore.close();
