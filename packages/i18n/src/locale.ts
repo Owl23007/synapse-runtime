@@ -5,7 +5,7 @@ import type { ErrorDescriptor, LocalizedError } from "./errors.js";
 /** Locale Catalog 的结构校验规则 */
 export const LocaleCatalogSchema = z.object({
   locale: z.string().min(1),
-  messages: z.record(z.string().min(1))
+  messages: z.record(z.string(), z.string().min(1))
 });
 
 /** 单一语言的本地化消息集合 */
