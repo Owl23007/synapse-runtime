@@ -14,6 +14,7 @@ import type {
 } from "../context.js";
 import type { PresentationProfile } from "../output/index.js";
 import type { MemoryStore } from "../memory/index.js";
+import type { ContextGraph } from "../context-graph/index.js";
 
 /**
  * RuntimeCore 日志记录接口
@@ -54,6 +55,8 @@ export interface RuntimeCoreOptions {
     readonly profile?: PresentationProfile;
   };
   readonly context?: {
+    /** 持久化运行结果图，未注入时保留嵌入式运行的原有行为 */
+    readonly graph?: ContextGraph;
     readonly enabled?: boolean;
     readonly providerByChannelId?: Readonly<Record<string, string>>;
     readonly conversationStore?: ConversationStore;

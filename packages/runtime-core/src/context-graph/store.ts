@@ -6,6 +6,8 @@ import type { ContextPath, ContextResolveOptions } from "./resolver.js";
 export interface ContextGraph {
   /** 读取指定作用域内的提交 */
   getCommit(scopeId: string, id: string): Commit | undefined;
+  /** 按幂等键读取已提交结果，恢复时避免用新的 Ref 版本重建旧请求 */
+  getCommitByKey(scopeId: string, idempotencyKey: string): Commit | undefined;
   /** 读取当前 Ref */
   getRef(scopeId: string, name: string): Ref | undefined;
   /** 原子写入提交并推进 Ref */

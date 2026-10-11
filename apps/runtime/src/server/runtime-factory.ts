@@ -60,6 +60,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
         ...(presentationProfile === undefined ? {} : { profile: presentationProfile })
       },
       context: {
+        graph: contextStore.contextGraph,
         enabled: options.config.context.enabled,
         maxHistoryChars: options.config.context.maxHistoryChars,
         timezone: options.config.context.timezone,

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { RunContextGraph } from "./run-context-graph.js";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
 import { executeChannelAction, type ChannelAdapter, type ChannelRegistry } from "@synapse/runtime-channel";
@@ -86,6 +87,7 @@ export class RuntimeCore {
   readonly #channels: ChannelRegistry;
   readonly #conversation: ConversationRouter;
   readonly #agent: Agent;
+  readonly #runGraph: RunContextGraph | undefined;
   readonly #tools: ToolRuntime;
   readonly #logger: RuntimeCoreLogger | undefined;
   readonly #localize: (key: string, params?: Readonly<Record<string, string>>) => string;
@@ -129,6 +131,10 @@ export class RuntimeCore {
     this.#channels = options.channels;
     this.#conversation = options.conversation;
     this.#agent = options.agent;
+    this.#runGraph =
+      options.context?.graph === undefined
+        ? undefined
+        : new RunContextGraph(options.context.graph, options.context.maxHistoryChars ?? 6000);
     this.#tools = options.tools;
     this.#logger = options.logger;
     this.#localize = options.localize ?? ((key) => key);
@@ -504,6 +510,15 @@ export class RuntimeCore {
         workspaceStore: this.#workspaceStore,
         sourceEventId: scope.accepted.event.id
       });
+      if (commandOutput === undefined) {
+        this.#runGraph?.begin(
+          sessionId,
+          lineId,
+          scope.accepted.lineEvent.id,
+          getText(request.input),
+          enrichedRequest.userId
+        );
+      }
       if (
         await this.#resumeRecoveredProcess({
           event,
@@ -597,6 +612,11 @@ export class RuntimeCore {
           invocation: await this.#compileInvocation(enrichedRequest)
         };
       }
+
+      const graphContext = this.#contextEnabled
+        ? this.#runGraph?.compose(sessionId, lineId, enrichedRequest.promptContext)
+        : undefined;
+      if (graphContext !== undefined) enrichedRequest = { ...enrichedRequest, promptContext: graphContext };
 
       const attemptId = `agent-attempt-${randomUUID()}`;
       const context: AgentRuntimeContext = {
@@ -990,6 +1010,34 @@ export class RuntimeCore {
     readonly processStateId: string | undefined;
     readonly conversation: AcceptedNormalizedEvent;
   }): Promise<void> {
+    // 恢复路径同样经过这里，图提交可按原事件补齐且不会触发第二次群文件上传
+    if (this.#runGraph !== undefined) {
+      const results = await this.#conversationStore.listEvents(input.conversation.lineEvent.lineId, {
+        types: ["tool_result"]
+      });
+      for (const result of results) {
+        if (result.sourceEventId !== input.conversation.lineEvent.id) continue;
+        const payload = recordPayload(result);
+        if (typeof payload?.callId !== "string") continue;
+        this.#runGraph.record(
+          input.conversation.session.id,
+          input.conversation.lineEvent.id,
+          `graph-tool:${payload.callId}`,
+          "tool_result",
+          {
+            name: payload.name,
+            callId: payload.callId,
+            ...compactGraphToolResult(payload)
+          }
+        );
+      }
+    }
+    this.#runGraph?.finish(
+      input.conversation.session.id,
+      input.conversation.lineEvent.lineId,
+      input.conversation.lineEvent.id,
+      getText(input.output)
+    );
     const output = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
     const assistantEvent = await this.#conversationStore.appendEvent(input.conversation.lineEvent.lineId, {
       type: "assistant_message",
@@ -1460,6 +1508,20 @@ export class RuntimeCore {
       },
       createdAt: event.occurredAt
     });
+    if (!isCall && event.context.causationEventId !== undefined) {
+      this.#runGraph?.record(
+        event.context.sessionId,
+        event.context.causationEventId,
+        `graph-tool:${event.context.callId}`,
+        "tool_result",
+        {
+          name: event.name,
+          callId: event.context.callId,
+          // 工具输出只保留有界结构化结果，输入中的脚本留在执行审计而不重复注入模型上下文
+          ...compactGraphToolResult(resultPayload)
+        }
+      );
+    }
   }
 
   async #resolveToolCallReplay(request: ToolCallReplayRequest): Promise<ToolCallReplayResolution> {
@@ -1569,6 +1631,18 @@ export class RuntimeCore {
       }
     };
   }
+}
+
+function compactGraphToolResult(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const raw = payload.output;
+  const output =
+    raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? Object.fromEntries(Object.entries(raw).filter(([key]) => !["stdout", "stderr", "logs", "script"].includes(key)))
+      : raw;
+  const result = { status: payload.status, reason: payload.reason, output, error: payload.error };
+  const json = JSON.stringify(result);
+  // 不截断 JSON，也不把未验证的工具全文当成新的系统指令
+  return json.length <= 4000 ? result : { status: payload.status, truncated: true };
 }
 
 function summarizeInvocation(invocation: ModelInvocationEnvelope): Readonly<Record<string, unknown>> {

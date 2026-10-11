@@ -6,7 +6,9 @@
 
 数据库表和迁移标识同样采用 Context Graph 命名，本次重命名不提供旧图表的兼容迁移。
 
-第一版提供 `Commit`、有序父提交、`Ref`、原子提交、Fork、显式 Merge 和有界上下文回溯。它通过 `SqliteRuntimeContextStore.contextGraph` 使用，与其他仓储共享连接。当前 Agent Run、Task、Session 和 ContextComposer 仍使用原有链路；本版不自动把它们转换成 Commit，也不自动归属或合并语义分支。
+第一版提供 `Commit`、有序父提交、`Ref`、原子提交、Fork、显式 Merge 和有界上下文回溯。它通过 `SqliteRuntimeContextStore.contextGraph` 使用，与其他仓储共享连接。生产 Runtime 已接入 Run：每个请求从当前 Line Ref 派生独立 Run Ref，记录输入与工具终态，最终回复生成后显式合并到 Line Ref。并发运行按完成时的当前头合并，不覆盖其他运行的结果。
+
+图作用域使用真实 Session，而不是可共享的 Workspace，因此不同群不会共享历史。后续模型调用读取当前 Line 的有界 DAG 结果；原始脚本和完整日志留在执行审计，不作为历史指令注入。工具副作用恢复仍以 Line 中的持久化回执为准，恢复回复时补齐尚未写入的图结果。命令回复不创建 Agent Run，嵌入式 Runtime 未注入图时保留原有行为。
 
 ## 写入与回流
 
@@ -61,4 +63,4 @@ Merge 的首父提交是目标 Ref 当前的 Commit，其他父提交是显式�
 
 核心表为 `context_graph_commit`、`context_graph_commit_parent`、`context_graph_ref`，`context_graph_commit_request` 保存幂等回执。父关系表仅是 `parents` 数组的关系型存储，没有独立 Edge 生命周期。外键限制 Ref 指向已有同 scope 提交，触发器阻止修改和删除提交、修改父关系以及向已提交历史追加父关系。父提交必须早于子提交，保证无环。
 
-旧 `ConversationNode` 及其表保留原有语义，尚未自动导入新图。两套数据不会双写；下一阶段接入 Run 时，需要明确历史转换和结果提交边界，避免把运行过程中的每条事件都变成 Commit。
+旧 `ConversationNode` 及其表保留原有语义，不自动导入新图。图仅记录新 Run 的输入、工具终态与结果回流；消息顺序、发送回执和工具调用开始状态继续由 Line 管理。通用 TaskRunner 尚未迁移到图执行，0.1 的任务入口是被触发的群聊请求。

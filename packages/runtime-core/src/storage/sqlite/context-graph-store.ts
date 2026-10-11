@@ -25,6 +25,14 @@ export class SqliteContextGraphRepository implements ContextGraph {
   /** 连接由聚合存储负责迁移和关闭 */
   constructor(private readonly db: Database.Database) {}
 
+  /** 通过持久化回执定位原提交，不改变当前指针 */
+  getCommitByKey(scopeId: string, idempotencyKey: string): Commit | undefined {
+    const row = this.db
+      .prepare("SELECT commit_id FROM context_graph_commit_request WHERE scope_id = ? AND idempotency_key = ?")
+      .get(scopeId, idempotencyKey) as { commit_id: string } | undefined;
+    return row === undefined ? undefined : this.getCommit(scopeId, row.commit_id);
+  }
+
   /** 读取作用域内的不可变节点 */
   getCommit(scopeId: string, id: string): Commit | undefined {
     const row = this.db.prepare("SELECT * FROM context_graph_commit WHERE scope_id = ? AND id = ?").get(scopeId, id) as
