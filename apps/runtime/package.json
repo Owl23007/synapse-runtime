@@ -43,6 +43,7 @@
     "@synapse/runtime-protocol": "workspace:*",
     "@synapse/runtime-resources": "workspace:*",
     "@synapse/runtime-tool-container": "workspace:*",
+    "@synapse/runtime-tool-execution": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",

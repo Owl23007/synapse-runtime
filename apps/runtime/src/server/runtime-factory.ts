@@ -6,6 +6,7 @@ import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } f
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools, InMemoryWebCache } from "@synapse/runtime-tool-web";
+import { createDockerTool } from "@synapse/runtime-tool-execution";
 import { describeToolSet, ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { createAgentFromConfig } from "../composition/agent-factory.js";
 import {
@@ -172,6 +173,9 @@ function normalizeConversationKind(kind: string): string {
 }
 
 function registerBuiltInTools(tools: ToolRuntime, config: RuntimeConfig): void {
+  if (config.tools.docker.enabled) {
+    tools.register(createDockerTool(config.tools.docker));
+  }
   const web = config.tools.web;
   if (!web.enabled) {
     return;

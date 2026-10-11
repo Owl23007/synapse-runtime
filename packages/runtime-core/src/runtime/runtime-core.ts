@@ -1039,7 +1039,22 @@ export class RuntimeCore {
       input.conversation.lineEvent.id,
       getText(input.output)
     );
-    const output = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
+    const channel = this.#channels.get(input.event.channelId);
+    const presented = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
+    // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
+    const output: SynapseMessage =
+      channel?.getCapabilities().sendMedia === false
+        ? { ...presented, type: "text", segments: [{ type: "text", text: getText(presented) }] }
+        : presented;
+    if (
+      output !== presented &&
+      presented.segments.some((segment) => ["image", "file", "audio", "video", "sticker"].includes(segment.type))
+    ) {
+      this.#logger?.warn("Runtime channel does not support media; delivering text fallback.", {
+        eventId: input.event.id,
+        channelId: input.event.channelId
+      });
+    }
     const assistantEvent = await this.#conversationStore.appendEvent(input.conversation.lineEvent.lineId, {
       type: "assistant_message",
       idempotencyKey: `assistant:${input.conversation.event.id}`,
@@ -1058,7 +1073,6 @@ export class RuntimeCore {
       await this.#publishBranchOutput(input.conversation, assistantEvent, output);
     }
 
-    const channel = this.#channels.get(input.event.channelId);
     const target = targetFromEvent(input.event);
 
     if (channel === undefined) {
@@ -1094,7 +1108,7 @@ export class RuntimeCore {
       });
     }
 
-    const permission = await this.#tools.decidePermission({
+    let permission = await this.#tools.decidePermission({
       action: channelSendAction(target),
       resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
       subject: input.request.userId,
@@ -1104,6 +1118,29 @@ export class RuntimeCore {
         conversationKind: input.event.conversation.kind
       }
     });
+
+    if (
+      permission.decision === "allow" &&
+      output.segments.some((segment) => ["image", "file", "audio", "video", "sticker"].includes(segment.type))
+    ) {
+      permission = await this.#tools.decidePermission({
+        action: `channel.${input.event.platform}.send_media`,
+        resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
+        subject: input.request.userId
+      });
+    }
+
+    if (
+      permission.decision === "allow" &&
+      target.type === "group" &&
+      output.segments.some((segment) => segment.type === "file")
+    ) {
+      permission = await this.#tools.decidePermission({
+        action: "channel.qq.upload_group_file",
+        resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
+        subject: input.request.userId
+      });
+    }
 
     if (permission.decision !== "allow") {
       const reason = permission.reason ?? `Permission decision was "${permission.decision}".`;

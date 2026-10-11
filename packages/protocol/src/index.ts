@@ -29,3 +29,4 @@ export type {
   UnknownMessagePart
 } from "./types.js";
 export { getTextContent, messageSendAction, textMessage } from "./message.js";
+export { readToolOutput, type ToolOutput } from "./tool-output.js";

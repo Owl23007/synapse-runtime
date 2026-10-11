@@ -10,10 +10,10 @@ import type {
   ChatToolDefinition
 } from "@synapse/runtime-agent-core";
 import type { AgentRequest, PromptContextBlock, PromptContextSection } from "@synapse/runtime-conversation";
-import { getTextContent, textMessage } from "@synapse/runtime-protocol";
+import { getTextContent, readToolOutput, textMessage, type MessageSegment } from "@synapse/runtime-protocol";
 import type { ApiChatAgentOptions } from "./types.js";
 /**
- * 在模型与工具之间循环执行直到产生最终文本的 Agent
+ * 在模型与工具之间循环执行，返回最终文本及工具确认的真实附件
  */
 export class ApiChatAgent implements Agent {
   readonly id: string;
@@ -37,6 +37,7 @@ export class ApiChatAgent implements Agent {
     const runId = `run-${request.event.id}`;
     const userText = getTextContent(request.input);
     const steps: AgentStep[] = [];
+    const attachments: MessageSegment[] = [];
     let toolCallCount = 0;
     const visibleToolIds = new Set(request.invocation.capabilities.toolIds);
     const availableTools = (context?.tools.list() ?? [])
@@ -109,7 +110,14 @@ export class ApiChatAgent implements Agent {
             status: "succeeded",
             input: request.input,
             steps,
-            output: textMessage(result.content)
+            output:
+              attachments.length === 0
+                ? textMessage(result.content)
+                : {
+                    ...textMessage(result.content),
+                    type: "mixed",
+                    segments: [{ type: "text", text: result.content }, ...attachments]
+                  }
           };
         }
 
@@ -128,6 +136,7 @@ export class ApiChatAgent implements Agent {
           // oxlint-disable-next-line no-await-in-loop
           const observation = await executeToolCall(toolCall, runId, context);
           const toolFinishedAt = new Date().toISOString();
+          attachments.push(...(observation.attachments ?? []));
           steps.push({
             id: `tool-${toolCallCount}`,
             kind: "tool",
@@ -209,6 +218,7 @@ async function executeToolCall(
 ): Promise<{
   readonly status: Extract<AgentStep["status"], "succeeded" | "failed" | "blocked">;
   readonly payload: unknown;
+  readonly attachments?: readonly MessageSegment[];
 }> {
   if (toolCall.argumentError !== undefined) {
     return {
@@ -251,11 +261,13 @@ async function executeToolCall(
         }
       };
     }
+    const delivery = readToolOutput(result.output);
     return {
       status: "succeeded",
+      ...(delivery === undefined ? {} : { attachments: delivery.attachments }),
       payload: {
         status: "succeeded",
-        output: result.output
+        output: delivery === undefined ? result.output : delivery.modelOutput
       }
     };
   } catch (error) {
