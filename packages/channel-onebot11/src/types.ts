@@ -1,10 +1,11 @@
 export type OneBot11Transport = "websocket" | "http" | "http-websocket";
 
-/** OneBot HTTP 请求初始化参数 */
+/** OneBot HTTP 请求初始化参数，取消信号覆盖请求与响应体读取 */
 export interface OneBot11FetchInit {
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
+  readonly signal?: AbortSignal;
 }
 
 /** OneBot HTTP 响应的最小兼容契约 */
