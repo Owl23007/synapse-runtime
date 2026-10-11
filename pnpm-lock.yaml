@@ -90,8 +90,8 @@ importers:
         specifier: ^0.2.1
         version: 0.2.1
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   apps/tui:
     dependencies:
@@ -142,8 +142,8 @@ importers:
         specifier: workspace:*
         version: link:../i18n
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/agent-core:
     dependencies:
@@ -172,8 +172,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/channel:
     dependencies:
@@ -196,8 +196,8 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/channel-qq-official:
     dependencies:
@@ -211,8 +211,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/config:
     dependencies:
@@ -235,8 +235,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/i18n:
     dependencies:
@@ -244,8 +244,8 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/permission:
     dependencies:
@@ -256,8 +256,8 @@ importers:
         specifier: workspace:*
         version: link:../i18n
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/protocol: {}
 
@@ -293,8 +293,8 @@ importers:
         specifier: ^12.11.1
         version: 12.11.1
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -315,8 +315,8 @@ importers:
         specifier: ^2.9.1
         version: 2.9.1
       zod:
-        specifier: ^3.23.8
-        version: 3.25.76
+        specifier: ^4.6.5
+        version: 4.6.5
       zod-config:
         specifier: npm:zod@^4.5.4
         version: zod@4.5.4
@@ -327,8 +327,8 @@ importers:
         specifier: workspace:*
         version: link:../config
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/tool-runtime:
     dependencies:
@@ -348,8 +348,8 @@ importers:
         specifier: workspace:*
         version: link:../tool-runtime
       zod:
-        specifier: ^4.5.4
-        version: 4.5.4
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/user-config: {}
 
@@ -2212,6 +2212,9 @@ packages:
   zod@4.5.4:
     resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
@@ -3908,5 +3911,7 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.5.4: {}
+
+  zod@4.6.5: {}
 
   zwitch@2.0.4: {}

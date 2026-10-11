@@ -29,6 +29,6 @@
   "dependencies": {
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-i18n": "workspace:*",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   }
 }
