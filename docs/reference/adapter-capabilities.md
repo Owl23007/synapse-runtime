@@ -14,6 +14,10 @@
 | Group management    | Not advertised until management operations exist on the adapter contract.           |
 | Message recall      | Not advertised until recall exists on the adapter contract.                         |
 
+NapCat 提供 `uploadGroupFile` 能力：通过 `upload_group_file` 上传 base64 文件内容，返回平台文件 ID（存在时）。其他 OneBot 提供方与 QQ Official 未声明此能力，不会自动回退为链接或普通文本。网络超时标记为 `uncertain`，不自动重试。
+
+协议依据：[NapCat 群文件动作](https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-onebot/action/go-cqhttp/UploadGroupFile.ts)与[文件 URI 解析](https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-common/src/file.ts)。0.1 限制单个群文件不超过 10 MiB，并拒绝空文件。
+
 ## QQ Official Group
 
 | Event                     | Runtime behavior                                                                                                                    |

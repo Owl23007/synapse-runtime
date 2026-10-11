@@ -4,6 +4,8 @@ import type {
   ChannelEventHandler,
   ChannelStatus,
   ChannelTarget,
+  GroupFileUpload,
+  GroupFileUploadResult,
   SendResult
 } from "@synapse/runtime-channel";
 import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
@@ -30,6 +32,7 @@ interface PendingRequest {
   readonly timeout: ReturnType<typeof setTimeout>;
 }
 
+/** 通过 OneBot11 收发消息，NapCat 扩展能力必须单独声明和校验 */
 export class OneBot11ChannelAdapter implements ChannelAdapter {
   readonly id: string;
   readonly type = "onebot11";
@@ -139,6 +142,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       sendPrivateMessage: true,
       sendGroupMessage: true,
       sendMedia: true,
+      uploadGroupFile: this.provider === "napcat",
       manageGroup: false,
       recallMessage: false,
       complianceLevel: "unofficial",
@@ -171,6 +175,43 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       ok: true,
       ...(messageId === undefined ? {} : { messageId })
     };
+  }
+
+  /** 使用内容传输上传群文件，避免假设远端 NapCat 可以读取本机路径 */
+  async uploadGroupFile(groupId: string, file: GroupFileUpload): Promise<GroupFileUploadResult> {
+    if (!this.getCapabilities().uploadGroupFile)
+      return { status: "unsupported", error: "当前 OneBot 提供方未声明群文件上传能力" };
+    if (
+      !/^\d+$/.test(groupId) ||
+      file.name.length === 0 ||
+      file.name.length > 120 ||
+      /[\\/:]/.test(file.name) ||
+      [...file.name].some((c) => c.charCodeAt(0) < 32)
+    ) {
+      return { status: "failed", error: "群标识或文件名无效" };
+    }
+    if (file.data.byteLength === 0 || file.data.byteLength > 10_485_760)
+      return { status: "failed", error: "群文件必须介于 1 字节和 10 MiB 之间" };
+    try {
+      const response = await this.#call("upload_group_file", {
+        group_id: groupId,
+        file: `base64://${Buffer.from(file.data).toString("base64")}`,
+        name: file.name,
+        upload_file: true
+      });
+      if (response.status !== "ok" || (response.retcode !== undefined && response.retcode !== 0)) {
+        // 明确的平台拒绝与未知网络结果分开，恢复逻辑不能把超时当成可安全重试
+        return {
+          status: "failed",
+          error: `NapCat 拒绝群文件上传：${response.message ?? response.wording ?? response.retcode ?? "invalid_response"}`
+        };
+      }
+      const fileId = isRecord(response.data) ? stringFromUnknown(response.data.file_id) : undefined;
+      return { status: "succeeded", ...(fileId === undefined ? {} : { fileId }) };
+    } catch {
+      // 不透传可能包含文件 base64 的外部错误，回执不确定时也不伪造成功
+      return { status: "uncertain", error: "群文件上传回执未确认，请核对群文件后再决定是否重新生成并上传" };
+    }
   }
 
   onEvent(handler: ChannelEventHandler): void {

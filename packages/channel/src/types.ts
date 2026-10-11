@@ -8,6 +8,7 @@ export interface ChannelStatus {
   readonly checkedAt: string;
 }
 
+/** 适配器已经实现的能力，未声明的可选能力视为不支持 */
 export interface ChannelCapabilities {
   readonly receivePrivateMessage: boolean;
   readonly receiveGroupMessage: boolean;
@@ -16,6 +17,8 @@ export interface ChannelCapabilities {
   readonly sendPrivateMessage: boolean;
   readonly sendGroupMessage: boolean;
   readonly sendMedia: boolean;
+  /** 支持把内容直接上传为群文件，不能用发送链接代替 */
+  readonly uploadGroupFile?: boolean;
   readonly manageGroup: boolean;
   readonly recallMessage: boolean;
   readonly complianceLevel: "official" | "community" | "unofficial";
@@ -35,6 +38,18 @@ export interface SendResult {
 
 export type ChannelEventHandler = (event: SynapseChannelEvent) => void | Promise<void>;
 
+/** 向群文件接口提交的已校验内容，不接受宿主路径 */
+export interface GroupFileUpload {
+  readonly name: string;
+  readonly data: Uint8Array;
+}
+
+/** 群文件上传终态，连接丢失或超时必须保留结果不确定语义 */
+export type GroupFileUploadResult =
+  | { readonly status: "succeeded"; readonly fileId?: string }
+  | { readonly status: "failed" | "unsupported" | "uncertain"; readonly error: string };
+
+/** 频道收发与生命周期契约，扩展动作通过可选能力保持兼容 */
 export interface ChannelAdapter {
   readonly id: string;
   readonly type: string;
@@ -49,6 +64,8 @@ export interface ChannelAdapter {
   getCapabilities(): ChannelCapabilities;
   /** 向频道目标发送消息 */
   sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult>;
+  /** 上传群文件并返回实际平台回执，调用方负责权限、归属和幂等控制 */
+  uploadGroupFile?(groupId: string, file: GroupFileUpload): Promise<GroupFileUploadResult>;
   /** 注册频道事件处理器 */
   onEvent(handler: ChannelEventHandler): void;
 }
