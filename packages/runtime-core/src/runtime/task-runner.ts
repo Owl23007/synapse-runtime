@@ -194,7 +194,7 @@ export class TaskRunner {
     if (branch.status !== "active") {
       branch = await this.#store.transitionBranch(branch.id, {
         status: "active",
-        idempotencyKey: `task-runner:${branch.id}:activate:${branch.updatedAt}`
+        idempotencyKey: `task-runner:${branch.id}:activate:${task.id}`
       });
     }
     try {
@@ -287,7 +287,7 @@ export class TaskRunner {
     if (unfinishedTasks.length === 0 && branch.status !== "inactive") {
       await this.#store.transitionBranch(branch.id, {
         status: "inactive",
-        idempotencyKey: `task-runner:${branch.id}:settle:${branch.updatedAt}`
+        idempotencyKey: `task-runner:${branch.id}:settle:${task.id}`
       });
     }
   }
