@@ -29,7 +29,7 @@
     "architecture:check": "node tools/check-boundaries.mjs"
   },
   "devDependencies": {
-    "@types/node": "^20.14.10",
+    "@types/node": "^26.6.4",
     "husky": "^8.0.0",
     "lint-staged": "^16.4.0",
     "oxfmt": "^0.72.0",
