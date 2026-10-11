@@ -27,7 +27,7 @@
     "@synapse/runtime-client": "workspace:*",
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
-    "ink": "^6.8.0",
+    "ink": "^8.0.0",
     "react": "^19.3.0"
   },
   "devDependencies": {
