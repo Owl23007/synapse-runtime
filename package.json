@@ -21,6 +21,7 @@
     "tui:spawn": "node apps/tui/dist/cli.js --spawn --runtime-entry apps/runtime/dist/cli.js --config runtime.config.toml --env-file .env",
     "test": "pnpm -r test && pnpm test:integration",
     "test:integration": "node --test tools/runtime-tui.test.mjs",
+    "test:docker": "node tools/docker-execution-smoke.mjs",
     "typecheck": "pnpm -r typecheck",
     "prepare": "husky install",
     "lint-staged": "lint-staged",
