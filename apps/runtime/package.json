@@ -46,7 +46,7 @@
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
-    "nova-http": "^0.2.0",
+    "nova-http": "^0.2.1",
     "zod": "^4.5.4"
   }
 }
