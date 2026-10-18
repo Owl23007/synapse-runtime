@@ -30,6 +30,6 @@
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-i18n": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   }
 }

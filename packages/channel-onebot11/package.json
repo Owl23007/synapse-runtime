@@ -28,6 +28,6 @@
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "ws": "^8.22.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   }
 }

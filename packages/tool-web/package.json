@@ -26,6 +26,6 @@
   "dependencies": {
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   }
 }
