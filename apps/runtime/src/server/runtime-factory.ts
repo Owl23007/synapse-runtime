@@ -49,10 +49,12 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   registerBuiltInTools(tools, options.config);
   const compileInvocation = createInvocationCompiler(options.config, tools, options.channels);
   const contextStore = new SqliteRuntimeContextStore({
-    databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite")
+    databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite"),
+    traceSecrets: collectTraceSecrets(options.config)
   });
 
   try {
+    contextStore.runs.recover();
     registerContainerTools({
       tools,
       settings: options.config.container,
@@ -61,6 +63,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
     });
     const runtime = new RuntimeCore({
+      runs: contextStore.runs,
       channels: options.channels,
       conversation,
       agent,
@@ -98,6 +101,21 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
     contextStore.close();
     throw error;
   }
+}
+
+function collectTraceSecrets(value: unknown): readonly string[] {
+  const secrets = new Set<string>();
+  const visit = (item: unknown, sensitive = false): void => {
+    if (typeof item === "string") {
+      if (sensitive && item.length > 0) secrets.add(item);
+      return;
+    }
+    if (item === null || typeof item !== "object") return;
+    for (const [key, entry] of Object.entries(item))
+      visit(entry, sensitive || /authorization|cookie|password|secret|credential|api[_-]?key|token|headers/i.test(key));
+  };
+  visit(value);
+  return [...secrets];
 }
 
 function createInvocationCompiler(

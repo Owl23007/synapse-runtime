@@ -203,14 +203,13 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     } catch (error) {
       if (files.length > 0)
         throw new Error("附件已上传，说明消息回执未确认，请核对后再决定是否重新发送", { cause: error });
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
+      // 请求发出后传输异常不能证明平台未执行，交给 Runtime 的未知回执恢复路径
+      throw new Error("消息发送回执未确认，请核对后再决定是否重新发送", { cause: error });
     }
 
     if (response.status !== "ok" || (response.retcode !== undefined && response.retcode !== 0)) {
       if (files.length > 0) throw new Error("附件已上传，说明消息发送失败，请核对后再决定是否重新发送");
+      if (response.status !== "failed") throw new Error("消息发送未获得明确终态，请核对后再决定是否重新发送");
       return {
         ok: false,
         error: `OneBot 11 send_msg failed: ${response.message ?? response.wording ?? safeJson(response)}`

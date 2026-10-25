@@ -102,6 +102,10 @@ export interface ScopedToolRuntimeView {
 
 /** 固定会话身份与来源的工具视图，模型只能提供调用标识 */
 export interface ToolRuntimeScope {
+  /** 宿主绑定的逻辑运行身份，优先于调用方传入的临时标识 */
+  readonly runId?: string;
+  /** 单独观察权限决策，保持既有工具事件订阅协议兼容 */
+  readonly observePermission?: (decision: PermissionDecision, context: ToolCallContext) => void | Promise<void>;
   readonly sessionId: string;
   readonly userId: string;
   readonly attemptId?: string;

@@ -34,7 +34,7 @@ export class ApiChatAgent implements Agent {
     if (request.invocation === undefined) {
       throw new Error("ApiChatAgent requires a compiled Model Invocation Envelope.");
     }
-    const runId = `run-${request.event.id}`;
+    const runId = context?.runId ?? `run-${request.event.id}`;
     const userText = getTextContent(request.input);
     const steps: AgentStep[] = [];
     const attachments: MessageSegment[] = [];
@@ -69,15 +69,32 @@ export class ApiChatAgent implements Agent {
     try {
       for (let stepIndex = 1; stepIndex <= this.#maxSteps; stepIndex += 1) {
         const modelStartedAt = new Date().toISOString();
+        const modelCallId = `model-${stepIndex}`;
+        const metadata = {
+          modelCallId,
+          providerId: this.#provider.id,
+          ...(this.#provider.model === undefined ? {} : { model: this.#provider.model })
+        };
+        const modelRequest = {
+          messages,
+          ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" as const })
+        };
+        // 持久开始记录先于实际请求，断电后仍能解释未完成的模型调用
+        // oxlint-disable-next-line no-await-in-loop
+        await context?.observeModel?.({ ...metadata, type: "model_call_started", data: modelRequest });
         let result: ChatCompletionResult;
         try {
           // 模型步骤依赖前一步观察结果必须串行执行
           // oxlint-disable-next-line no-await-in-loop
-          result = await this.#provider.complete({
-            messages,
-            ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" })
-          });
+          result = await this.#provider.complete(modelRequest);
         } catch (error) {
+          // oxlint-disable-next-line no-await-in-loop
+          await context?.observeModel?.({
+            ...metadata,
+            type: "model_call_failed",
+            durationMs: Date.now() - Date.parse(modelStartedAt),
+            data: { message: error instanceof Error ? error.message : "模型调用失败" }
+          });
           steps.push({
             id: `model-${stepIndex}`,
             kind: "model",
@@ -89,6 +106,19 @@ export class ApiChatAgent implements Agent {
           throw error;
         }
         const modelFinishedAt = new Date().toISOString();
+        // 不保存 Provider 原始响应，避免额外 Header 或调试凭据越过持久化边界
+        // oxlint-disable-next-line no-await-in-loop
+        await context?.observeModel?.({
+          ...metadata,
+          type: "model_call_succeeded",
+          durationMs: Date.parse(modelFinishedAt) - Date.parse(modelStartedAt),
+          data: {
+            content: result.content,
+            toolCalls: result.toolCalls,
+            finishReason: result.finishReason,
+            usage: result.usage ?? null
+          }
+        });
         const toolCalls = result.toolCalls ?? [];
         steps.push({
           id: `model-${stepIndex}`,

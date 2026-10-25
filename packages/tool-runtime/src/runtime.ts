@@ -61,7 +61,7 @@ export class ToolRuntime implements ToolRuntimeView {
 
   /** 创建绑定会话与恢复上下文的工具视图 */
   withContext(defaults: ToolRuntimeScope): ScopedToolRuntimeView {
-    const { durableCallIdPrefix, replayCall, ...bound } = defaults;
+    const { durableCallIdPrefix, replayCall, observePermission, ...bound } = defaults;
     let callSequence = 0;
     let haltedReason: string | undefined;
     let pendingCall: Promise<void> = Promise.resolve();
@@ -90,7 +90,8 @@ export class ToolRuntime implements ToolRuntimeView {
                 ...bound,
                 ...(callId === undefined ? {} : { callId })
               },
-              replayCall
+              replayCall,
+              observePermission
             );
           } catch (error) {
             haltedReason =
@@ -124,7 +125,8 @@ export class ToolRuntime implements ToolRuntimeView {
     name: string,
     input: unknown,
     context: ToolContext,
-    replayCall?: ToolCallReplayResolver
+    replayCall?: ToolCallReplayResolver,
+    observePermission?: ToolRuntimeScope["observePermission"]
   ): Promise<ToolCallResult<TOutput>> {
     const callContext: ToolCallContext = {
       ...context,
@@ -180,6 +182,7 @@ export class ToolRuntime implements ToolRuntimeView {
       return this.#fail(name, input, callContext, error);
     }
 
+    await observePermission?.(decision, callContext);
     if (decision.decision !== "allow") {
       const reason = decision.reason ?? `Permission decision was "${decision.decision}".`;
       await this.#notify({

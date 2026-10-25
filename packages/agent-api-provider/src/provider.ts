@@ -18,6 +18,10 @@ interface ChatCompletionResponse {
  */
 export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   readonly id: string;
+  /** 用于运行检查的模型标识，不暴露提供商凭据 */
+  get model(): string {
+    return this.#model;
+  }
   readonly #apiKey: string;
   readonly #baseUrl: string;
   readonly #model: string;

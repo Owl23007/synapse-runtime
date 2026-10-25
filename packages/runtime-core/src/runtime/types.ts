@@ -15,6 +15,7 @@ import type {
 import type { PresentationProfile } from "../output/index.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { ContextGraph } from "../context-graph/index.js";
+import type { RunTraceStore } from "../trace/types.js";
 
 /**
  * RuntimeCore 日志记录接口
@@ -40,6 +41,8 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 持久运行追踪，嵌入式宿主可选择自己的存储实现 */
+  readonly runs?: RunTraceStore;
   readonly channels: ChannelRegistry;
   readonly conversation: ConversationRouter;
   readonly agent: Agent;

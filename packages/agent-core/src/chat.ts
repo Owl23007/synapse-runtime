@@ -61,6 +61,8 @@ export interface ChatCompletionResult {
 /** 聊天完成服务提供商 */
 export interface ChatCompletionProvider {
   readonly id: string;
+  /** 已配置的模型标识，未声明时追踪显示未知 */
+  readonly model?: string;
   /** 执行聊天完成请求 */
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;
 }

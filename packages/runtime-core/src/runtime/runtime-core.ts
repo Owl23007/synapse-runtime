@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { RunContextGraph } from "./run-context-graph.js";
+import { RunRecorder } from "../trace/recorder.js";
+import type { RunTraceStore } from "../trace/types.js";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
 import { executeChannelAction, type ChannelAdapter, type ChannelRegistry } from "@synapse/runtime-channel";
@@ -76,6 +78,7 @@ import {
 type RuntimeEventScope = {
   readonly provider: string;
   readonly accepted: AcceptedNormalizedEvent;
+  readonly runId?: string;
 };
 
 type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send_uncertain";
@@ -84,6 +87,8 @@ type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send
  * 编排频道事件持久化、上下文构建、智能体执行与消息投递
  */
 export class RuntimeCore {
+  readonly #runs: RunTraceStore | undefined;
+  readonly #recorders = new Map<string, RunRecorder>();
   readonly #channels: ChannelRegistry;
   readonly #conversation: ConversationRouter;
   readonly #agent: Agent;
@@ -128,6 +133,7 @@ export class RuntimeCore {
    * 创建 RuntimeCore 并装配所需运行组件
    */
   constructor(options: RuntimeCoreOptions) {
+    this.#runs = options.runs;
     this.#channels = options.channels;
     this.#conversation = options.conversation;
     this.#agent = options.agent;
@@ -320,8 +326,17 @@ export class RuntimeCore {
     }
 
     let accepted: AcceptedNormalizedEvent;
+    let runId: string | undefined;
     try {
       accepted = await this.#acceptChannelEvent(enrichedEvent, provider, attribution?.targetLineId ?? targetLineId);
+      runId = this.#runs?.accept({
+        sourceEventId: accepted.event.id,
+        sessionId: accepted.session.id,
+        channelId: enrichedEvent.channelId,
+        lineId: accepted.lineEvent.lineId,
+        ...(accepted.lineEvent.lineId === accepted.mainline.id ? {} : { branchId: accepted.lineEvent.lineId }),
+        summary: getText(decision.request.input)
+      }).id;
       if (attribution !== undefined && accepted.created) {
         await this.#recordContextAttribution(accepted, attribution);
       }
@@ -368,7 +383,8 @@ export class RuntimeCore {
     });
     await this.#runAgent(decision.request, enrichedEvent, {
       provider,
-      accepted
+      accepted,
+      ...(runId === undefined ? {} : { runId })
     });
   }
 
@@ -388,6 +404,12 @@ export class RuntimeCore {
     let outputPolicy: OutputPolicy | undefined;
     let processStateId: string | undefined;
     let locallyClaimedProcessId: string | undefined;
+    let recorder: RunRecorder | undefined;
+    const trace = scope.runId === undefined ? undefined : this.#runs?.get(scope.runId);
+    if (trace !== undefined && !["accepted", "running", "interrupted"].includes(trace.status)) {
+      this.#traces.push({ eventId: event.id, status: "ignored", reason: `run_${trace.status}`, runId: trace.id });
+      return;
+    }
 
     try {
       let actor = anonymousActor(event, provider);
@@ -441,11 +463,23 @@ export class RuntimeCore {
       }
 
       if (processState?.status === "completed") {
+        if (trace?.status === "accepted")
+          this.#runs?.append(trace.id, {
+            key: "legacy-completed",
+            type: "run_interrupted",
+            status: "interrupted",
+            phase: "legacy",
+            data: { reason: "历史处理已完成，旧版本没有运行追踪，未重新执行" }
+          });
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "duplicate_completed" });
         return;
       }
 
-      if (processState?.status === "processing" && isFreshProcessState(processState.updatedAt)) {
+      if (
+        processState?.status === "processing" &&
+        trace?.status !== "interrupted" &&
+        isFreshProcessState(processState.updatedAt)
+      ) {
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
         return;
       }
@@ -475,6 +509,10 @@ export class RuntimeCore {
         return;
       }
       processStateId = claim.state.id;
+      if (scope.runId !== undefined && this.#runs !== undefined) {
+        recorder = new RunRecorder(scope.runId, this.#runs);
+        this.#recorders.set(scope.runId, recorder);
+      }
 
       if (branchId !== undefined) {
         let branch = await this.#conversationStore.getBranch(branchId);
@@ -596,7 +634,7 @@ export class RuntimeCore {
         await this.#sendOutput({
           event,
           request: enrichedRequest,
-          runId: `command-${event.id}`,
+          runId: scope.runId ?? `command-${event.id}`,
           output: commandOutput,
           workspace,
           outputPolicy,
@@ -617,10 +655,42 @@ export class RuntimeCore {
         ? this.#runGraph?.compose(sessionId, lineId, enrichedRequest.promptContext)
         : undefined;
       if (graphContext !== undefined) enrichedRequest = { ...enrichedRequest, promptContext: graphContext };
+      recorder?.emit("context_resolved", {
+        sessionId,
+        lineId,
+        promptContext: enrichedRequest.promptContext ?? null,
+        invocation: enrichedRequest.invocation ?? null
+      });
 
-      const attemptId = `agent-attempt-${randomUUID()}`;
+      const attemptId = recorder?.attemptId ?? `agent-attempt-${randomUUID()}`;
       const context: AgentRuntimeContext = {
+        ...(scope.runId === undefined ? {} : { runId: scope.runId }),
+        ...(recorder === undefined
+          ? {}
+          : {
+              observeModel: (event: import("@synapse/runtime-agent-core").AgentModelEvent) =>
+                recorder!.emit(
+                  event.type,
+                  {
+                    modelCallId: event.modelCallId,
+                    providerId: event.providerId,
+                    model: event.model ?? null,
+                    ...(event.data as Record<string, unknown>)
+                  },
+                  event.durationMs
+                )
+            }),
         tools: this.#tools.withContext({
+          ...(scope.runId === undefined ? {} : { runId: scope.runId }),
+          ...(recorder === undefined
+            ? {}
+            : {
+                observePermission: (decision, call) =>
+                  recorder!.emit(decision.decision === "allow" ? "permission_allowed" : "permission_blocked", {
+                    ...decision,
+                    callId: call.callId
+                  })
+              }),
           sessionId,
           source: enrichedRequest.source,
           userId: enrichedRequest.userId,
@@ -629,7 +699,18 @@ export class RuntimeCore {
           ...(branchId === undefined ? {} : { branchId }),
           causationEventId: scope.accepted.lineEvent.id,
           durableCallIdPrefix: scope.accepted.event.id,
-          replayCall: (toolCall) => this.#resolveToolCallReplay(toolCall)
+          replayCall: async (toolCall) => {
+            const replay = await this.#resolveToolCallReplay(toolCall);
+            if (replay.status !== "missing")
+              recorder?.emit("tool_call_replayed", {
+                callId: toolCall.context.callId,
+                name: toolCall.name,
+                status: replay.status
+              });
+            if (replay.status === "started")
+              recorder?.fail("uncertain", "tool_outcome_uncertain", "工具已有未决动作，未重新执行", "tool");
+            return replay;
+          }
         }),
         conversation: {
           createBranch: async (input) => {
@@ -689,6 +770,8 @@ export class RuntimeCore {
       let run: Awaited<ReturnType<Agent["run"]>>;
       try {
         run = await this.#agent.run(enrichedRequest, context);
+        if (scope.runId !== undefined) run = { ...run, id: scope.runId };
+        if (run.status === "failed") recorder?.fail("failed", "agent_failed", run.error ?? "智能体未完成请求", "model");
       } catch (error) {
         const serializedError = serializeError(error);
         await this.#conversationStore.appendEvent(lineId, {
@@ -816,6 +899,27 @@ export class RuntimeCore {
         error: run.error
       });
     } catch (error) {
+      recorder?.fail(
+        error instanceof ToolCallRecoveryError ? "uncertain" : "failed",
+        "runtime_error",
+        error instanceof Error ? error.message : "运行失败"
+      );
+      if (recorder === undefined && trace?.status === "accepted") {
+        try {
+          this.#runs?.append(trace.id, {
+            key: "acceptance-failed",
+            type: "run_failed",
+            status: "failed",
+            error: {
+              code: "runtime_error",
+              message: error instanceof Error ? error.message : "运行失败",
+              phase: "context"
+            }
+          });
+        } catch {
+          this.#logger?.error("Run acceptance failure could not be persisted.", { runId: trace.id });
+        }
+      }
       this.#traces.push({
         eventId: event.id,
         status: "failed",
@@ -826,6 +930,16 @@ export class RuntimeCore {
         error: error instanceof Error ? error.message : "Unknown runtime error."
       });
     } finally {
+      if (recorder !== undefined) {
+        try {
+          recorder.finish();
+        } catch {
+          this.#logger?.error("Run terminal state could not be persisted; recovery is required.", {
+            runId: recorder.runId
+          });
+        }
+        this.#recorders.delete(recorder.runId);
+      }
       if (locallyClaimedProcessId !== undefined) {
         this.#locallyClaimedProcesses.delete(locallyClaimedProcessId);
       }
@@ -877,7 +991,7 @@ export class RuntimeCore {
       if (assistantEvent === undefined || recoveredOutput === undefined) {
         throw new Error(`Uncertain delivery for "${scope.accepted.event.id}" is missing its persisted output.`);
       }
-      const recoveredRunId = `recovered-${event.id}`;
+      const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
       await this.#appendDeliveryEvent(
         { event, runId: recoveredRunId, conversation: scope.accepted },
         assistantEvent,
@@ -914,7 +1028,10 @@ export class RuntimeCore {
       if (assistantEvent !== undefined) {
         const delivered = await this.#findSuccessfulDelivery(scope.accepted, assistantEvent);
         if (delivered !== undefined) {
-          const recoveredRunId = `recovered-${event.id}`;
+          const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
+          this.#recorders
+            .get(recoveredRunId)
+            ?.emit("response_sent", { recovered: true, externalMessageId: externalMessageIdFromDelivery(delivered) });
           const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
           const assistant = await this.#appendAssistantTranscript(
             event,
@@ -934,7 +1051,7 @@ export class RuntimeCore {
       await this.#sendOutput({
         event,
         request,
-        runId: `recovered-${event.id}`,
+        runId: scope.runId ?? `recovered-${event.id}`,
         output: recoveredOutput,
         workspace,
         outputPolicy,
@@ -957,7 +1074,7 @@ export class RuntimeCore {
       return true;
     }
 
-    const recoveredRunId = `recovered-${event.id}`;
+    const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
     const assistantEvent = await this.#findAssistantEvent(scope.accepted);
     if (assistantEvent === undefined) {
       throw new Error(`Persisted assistant event for "${scope.accepted.event.id}" does not exist.`);
@@ -988,6 +1105,9 @@ export class RuntimeCore {
       ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
     });
     this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
+    this.#recorders
+      .get(recoveredRunId)
+      ?.emit("response_sent", { recovered: true, externalMessageId: sendResult?.messageId });
     return true;
   }
 
@@ -1039,6 +1159,11 @@ export class RuntimeCore {
       input.conversation.lineEvent.id,
       getText(input.output)
     );
+    this.#recorders.get(input.runId)?.emit("context_committed", {
+      sessionId: input.conversation.session.id,
+      refName: `run:${input.conversation.lineEvent.id}`,
+      lineRef: `line:${input.conversation.lineEvent.lineId}`
+    });
     const channel = this.#channels.get(input.event.channelId);
     const presented = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
     // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
@@ -1142,6 +1267,12 @@ export class RuntimeCore {
       });
     }
 
+    this.#recorders
+      .get(input.runId)
+      ?.emit(permission.decision === "allow" ? "permission_allowed" : "permission_blocked", {
+        ...permission,
+        purpose: "response"
+      });
     if (permission.decision !== "allow") {
       const reason = permission.reason ?? `Permission decision was "${permission.decision}".`;
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_blocked", {
@@ -1171,6 +1302,7 @@ export class RuntimeCore {
       status: "processing",
       errorJson: JSON.stringify({ phase: "send_started", runId: input.runId })
     });
+    this.#recorders.get(input.runId)?.emit("response_sending", { target, output });
     /**
      * send_started 之后的异常按投递结果不确定处理以避免自动重复发送
      */
@@ -1316,6 +1448,18 @@ export class RuntimeCore {
         ...payload
       }
     });
+    const recorder = this.#recorders.get(input.runId);
+    if (type === "delivery_blocked")
+      recorder?.fail("blocked", "response_blocked", String(payload.reason ?? "消息发送被权限阻止"), "response");
+    else
+      recorder?.emit(
+        type === "delivery_succeeded"
+          ? "response_sent"
+          : type === "delivery_uncertain" || payload.thrown === true
+            ? "response_send_uncertain"
+            : "response_send_failed",
+        payload
+      );
   }
 
   #applyResponsePolicy(
@@ -1546,6 +1690,31 @@ export class RuntimeCore {
       },
       createdAt: event.occurredAt
     });
+    const recorder = this.#recorders.get(event.context.runId);
+    recorder?.emit(event.type, {
+      name: event.name,
+      callId: event.context.callId,
+      input: event.input,
+      ...resultPayload
+    });
+    if (event.type === "tool_call_succeeded" && event.output !== null && typeof event.output === "object") {
+      const output = event.output as Record<string, unknown>;
+      if (event.name === "container.run" && Array.isArray(output.artifacts)) {
+        for (const artifact of output.artifacts)
+          recorder?.emit("artifact_created", { callId: event.context.callId, artifact });
+      }
+      if (event.name === "artifact.upload")
+        recorder?.emit(
+          output.status === "succeeded"
+            ? "artifact_upload_succeeded"
+            : output.status === "uncertain"
+              ? "artifact_upload_uncertain"
+              : "artifact_upload_failed",
+          { callId: event.context.callId, ...output }
+        );
+    }
+    if (event.name === "artifact.upload" && event.type === "tool_call_started")
+      recorder?.emit("artifact_upload_started", { callId: event.context.callId, input: event.input });
     if (!isCall && event.context.causationEventId !== undefined) {
       this.#runGraph?.record(
         event.context.sessionId,
