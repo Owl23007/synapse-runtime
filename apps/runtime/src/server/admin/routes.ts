@@ -13,10 +13,13 @@ import { authorizeAdminRequest } from "./auth.js";
 import { isChannelAdminPatch, parsePositiveInt, type ChannelAdminPatch } from "./dto.js";
 import { streamLogEvents } from "./logs-sse.js";
 import { ReloadRequiresRestartError } from "../reload-policy.js";
+import { registerRunRoutes } from "./run-routes.js";
+import type { SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly getContextStore?: () => SqliteRuntimeContextStore | undefined;
   readonly getListening?: () => RuntimeServerStartResult | undefined;
   readonly app: Nova;
   readonly getConfig: () => RuntimeConfig;
@@ -51,6 +54,12 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     }
 
     next();
+  });
+  registerRunRoutes({
+    app: deps.app,
+    getStore: deps.getContextStore ?? (() => undefined),
+    getConfig: deps.getConfig,
+    shutdownSignal: deps.shutdownSignal
   });
   deps.app.get("/admin/health", (_request: NovaRequest, response: NovaResponse) => {
     sendJson(response, 200, { ok: true });

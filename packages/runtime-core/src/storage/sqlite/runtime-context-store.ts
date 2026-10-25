@@ -76,6 +76,12 @@ import { SqliteContextGraphRepository } from "./context-graph-store.js";
 import type { ContextGraph } from "../../context-graph/index.js";
 import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
 import type { RunTraceStore } from "../../trace/types.js";
+import { redactTrace } from "../../trace/redact.js";
+
+function validateInspectionPage(limit: number, cursor: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
+    throw new Error("Invalid inspection page");
+}
 
 /**
  * SQLite 运行时上下文存储配置
@@ -170,8 +176,10 @@ export class SqliteRuntimeContextStore
   readonly contextGraph: ContextGraph;
   /** 与消息和语义图共享连接的执行追踪 */
   readonly runs: RunTraceStore;
+  readonly #traceSecrets: readonly string[];
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
+    this.#traceSecrets = options.traceSecrets ?? [];
     this.#db = openRuntimeDatabase(options.databasePath);
     try {
       this.#conversation = new SqliteConversationRepository(this.#db);
@@ -181,6 +189,53 @@ export class SqliteRuntimeContextStore
       this.#db.close();
       throw error;
     }
+  }
+
+  /** 管理查询出口统一脱敏，不暴露旧消息或图内容中的部署凭据 */
+  inspectValue(value: unknown): unknown {
+    return redactTrace(value, this.#traceSecrets);
+  }
+
+  /** 按固定创建顺序分页发现会话，返回有限的公开元数据 */
+  inspectSessions(limit = 50, before = Number.MAX_SAFE_INTEGER): readonly unknown[] {
+    validateInspectionPage(limit, before);
+    return this.#db
+      .prepare(
+        "SELECT rowid AS cursor, id, mainline_id AS mainlineId, channel_id AS channelId, conversation_type AS conversationType, status, created_at AS createdAt FROM conversation_sessions WHERE rowid < ? ORDER BY rowid DESC LIMIT ?"
+      )
+      .all(before, limit);
+  }
+
+  /** 分页检查消息文本和标准消息，不返回平台原始载荷 */
+  inspectTranscript(sessionId: string, limit = 50, before = Number.MAX_SAFE_INTEGER): readonly unknown[] {
+    validateInspectionPage(limit, before);
+    const rows = this.#db
+      .prepare(
+        "SELECT rowid AS cursor, * FROM conversation_messages WHERE session_id = ? AND deleted_at IS NULL AND rowid < ? ORDER BY rowid DESC LIMIT ?"
+      )
+      .all(sessionId, before, limit) as (ConversationMessageRow & { cursor: number })[];
+    return rows.map((row) => {
+      const message = transcriptMessageFromRow(row);
+      return this.inspectValue({
+        cursor: row.cursor,
+        id: message.id,
+        role: message.role,
+        createdAt: message.createdAt,
+        text: message.text,
+        message: message.message,
+        sourceEventId: message.sourceEventId
+      });
+    });
+  }
+
+  /** 检查会话引用，按名称分页以避免读取整张图 */
+  inspectRefs(sessionId: string, limit = 50, after = ""): readonly unknown[] {
+    validateInspectionPage(limit, 0);
+    return this.#db
+      .prepare(
+        "SELECT name, type, commit_id AS commitId, version, updated_at AS updatedAt FROM context_graph_ref WHERE scope_id = ? AND name > ? ORDER BY name LIMIT ?"
+      )
+      .all(sessionId, after, limit);
   }
 
   acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent> {

@@ -231,6 +231,16 @@ export class SqliteRunTraceStore implements RunTraceStore {
   }
 
   /** 按持久全局游标读取事件，不依赖内存订阅是否在线 */
+  latestEvent(runId: string, type: AppendRunEventInput["type"]): RunEvent | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT cursor, record FROM run_events WHERE run_id = ? AND json_extract(record, '$.type') = ? ORDER BY seq DESC LIMIT 1"
+      )
+      .get(runId, type) as EventRow | undefined;
+    return row === undefined ? undefined : eventFromRow(row);
+  }
+
+  /** 按持久全局游标读取事件，不依赖内存订阅是否在线 */
   stream(afterCursor = 0, limit = 100): readonly RunEvent[] {
     validateCursor(afterCursor);
     return (

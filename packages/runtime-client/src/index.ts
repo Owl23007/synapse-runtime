@@ -1,5 +1,17 @@
 export { RuntimeAdminClient } from "./admin-client.js";
 export type {
+  RunStatus,
+  RunTrace,
+  RunEvent,
+  RunQuery,
+  RunListResponse,
+  RunEventsResponse,
+  RunSnapshot,
+  RunStreamState,
+  RunStreamOptions,
+  InspectionPage
+} from "./run-types.js";
+export type {
   AdminFetch,
   AdminFetchInit,
   AdminFetchResponse,

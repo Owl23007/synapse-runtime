@@ -127,6 +127,8 @@ export interface RunTraceStore {
   list(input?: ListRunsInput): RunPage;
   /** 读取单次运行的有界增量 */
   events(runId: string, afterSeq?: number, limit?: number): readonly RunEvent[];
+  /** 查询最近一次指定类型的事实，避免详情接口读取全部事件 */
+  latestEvent(runId: string, type: RunEventType): RunEvent | undefined;
   /** 读取跨运行的持久事件流 */
   stream(afterCursor?: number, limit?: number): readonly RunEvent[];
   /** 获取当前持久流高水位 */

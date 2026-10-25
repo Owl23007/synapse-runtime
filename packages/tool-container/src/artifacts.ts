@@ -36,6 +36,9 @@ const manifestSchema = z.object({
   createdAt: z.string()
 });
 
+/** 包含可信来源和创建时间的工件清单 */
+export type ArtifactManifest = z.infer<typeof manifestSchema>;
+
 /** 工件持久化只接受字节内容，容器无法指定宿主路径或访问宿主目录 */
 export class ArtifactStore {
   /** 根目录由应用数据目录派生，存储配额同时统计崩溃遗留的二进制文件 */
@@ -94,12 +97,7 @@ export class ArtifactStore {
 
   /** 仅允许同会话读取工件，并校验内容摘要以拒绝损坏或被替换的文件 */
   read(sessionId: string, id: string): Artifact & { readonly data: Uint8Array } {
-    z.string().uuid().parse(id);
-    const manifestPath = join(this.directory, `${id}.json`);
-    const manifestStat = lstatSync(manifestPath);
-    if (!manifestStat.isFile() || manifestStat.size > 16_384) throw new Error("工件清单无效");
-    const manifest = manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")));
-    if (manifest.sessionId !== sessionId || manifest.id !== id) throw new Error("工件不属于当前会话");
+    const manifest = this.describe(sessionId, id);
     const binary = join(this.directory, `${id}.bin`);
     const info = lstatSync(binary);
     if (!info.isFile() || info.nlink !== 1 || info.size !== manifest.size || info.size > this.limits.maxArtifactBytes)
@@ -107,6 +105,40 @@ export class ArtifactStore {
     const data = readFileSync(binary);
     if (digest(data) !== manifest.sha256) throw new Error("工件完整性校验失败");
     return { id, name: manifest.name, size: manifest.size, sha256: manifest.sha256, data };
+  }
+
+  /** 只读取清单并校验会话归属，不为列表加载二进制内容 */
+  describe(sessionId: string, id: string): ArtifactManifest {
+    z.string().uuid().parse(id);
+    const manifestPath = join(this.directory, `${id}.json`);
+    const manifestStat = lstatSync(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.nlink !== 1 || manifestStat.size > 16_384)
+      throw new Error("工件清单无效");
+    const manifest = manifestSchema.parse(JSON.parse(readFileSync(manifestPath, "utf8")));
+    if (manifest.sessionId !== sessionId || manifest.id !== id) throw new Error("工件不属于当前会话");
+    return manifest;
+  }
+
+  /** 按工件标识分页列举当前会话清单，损坏清单不会被当成可下载工件 */
+  list(
+    sessionId: string,
+    after = "",
+    limit = 50
+  ): { readonly items: readonly ArtifactManifest[]; readonly nextCursor?: string } {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("工件分页大小无效");
+    const items: ArtifactManifest[] = [];
+    for (const name of readdirSync(this.directory).sort()) {
+      if (!name.endsWith(".json")) continue;
+      const id = name.slice(0, -5);
+      if (id <= after) continue;
+      try {
+        items.push(this.describe(sessionId, id));
+      } catch {
+        continue;
+      }
+      if (items.length > limit) break;
+    }
+    return { items: items.slice(0, limit), ...(items.length > limit ? { nextCursor: items[limit - 1]!.id } : {}) };
   }
 }
 
