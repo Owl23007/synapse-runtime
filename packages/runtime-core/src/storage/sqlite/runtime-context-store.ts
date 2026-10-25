@@ -74,12 +74,16 @@ import { SqliteConversationRepository } from "./conversation-store.js";
 import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
 import { SqliteContextGraphRepository } from "./context-graph-store.js";
 import type { ContextGraph } from "../../context-graph/index.js";
+import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
+import type { RunTraceStore } from "../../trace/types.js";
 
 /**
  * SQLite 运行时上下文存储配置
  */
 export interface SqliteRuntimeContextStoreOptions {
   readonly databasePath: string;
+  /** 从部署凭据收集的脱敏值，不写入数据库 */
+  readonly traceSecrets?: readonly string[];
 }
 
 interface ConversationMessageRow {
@@ -164,12 +168,15 @@ export class SqliteRuntimeContextStore
   readonly #conversation: SqliteConversationRepository;
   /** 与其他仓储共享连接和事务边界的上下文演化图 */
   readonly contextGraph: ContextGraph;
+  /** 与消息和语义图共享连接的执行追踪 */
+  readonly runs: RunTraceStore;
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
     this.#db = openRuntimeDatabase(options.databasePath);
     try {
       this.#conversation = new SqliteConversationRepository(this.#db);
       this.contextGraph = new SqliteContextGraphRepository(this.#db);
+      this.runs = new SqliteRunTraceStore(this.#db, options.traceSecrets);
     } catch (error) {
       this.#db.close();
       throw error;
