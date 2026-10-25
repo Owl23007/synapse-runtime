@@ -2,7 +2,9 @@
 
 本地优先的 Agent 运行时，将通道消息、触发路由、上下文、模型与工具调用、权限检查、回复发送和 SQLite 持久化串联起来，提供独立 Runtime 服务与 TUI 管理客户端
 
-0.1 定位为[基于 DAG 的群聊工件助手](docs/prd/v0.1-dag-artifacts-prd.md)：从群聊需求出发，在本地容器中生成工件并直接上传群文件，后续对话可读取历史结果。部署入口见[群聊工件指南](docs/guide/group-artifacts.md)与 `examples/group-artifacts.config.toml`
+产品以 1.0 稳定版本为目标，0.1 就确立完整的执行、观察、恢复和交付体验。[0.1 正式版计划](docs/prd/v0.1-release-prd.md)在已有 DAG 群聊工件链路上补齐持久运行追踪、WebUI 与发布运维门槛；当前已完成审计与规划，新增功能尚待开发，尚未达到正式发布条件
+
+现有[群聊工件能力](docs/prd/v0.1-dag-artifacts-prd.md)支持从群聊需求出发，在本地容器中生成工件并直接上传群文件，后续对话可读取历史结果。部署入口见[群聊工件指南](docs/guide/group-artifacts.md)与 `examples/group-artifacts.config.toml`；版本阶段见[通往 1.0 的路线图](docs/roadmap.md)
 
 ## 开始使用
 
