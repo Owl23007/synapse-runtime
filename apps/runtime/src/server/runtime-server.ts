@@ -7,6 +7,7 @@ import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } 
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
 import { validateAdminSecurity } from "./admin/auth.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { registerWebUi } from "./admin/webui.js";
 import { RuntimeChannelManager } from "./channel-manager.js";
 import { registerGatewayRoutes } from "./gateway/routes.js";
 import { serverStartResult, startAdminApp } from "./runtime-lifecycle.js";
@@ -175,6 +176,7 @@ export class RuntimeServer {
   }
 
   #configureAdmin(): void {
+    registerWebUi(this.#adminApp);
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
       getListening: () => this.#listening,

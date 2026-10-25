@@ -63,7 +63,7 @@ export interface RunSnapshot {
   readonly runs: readonly RunTrace[];
 }
 /** 持久流连接状态，认证错误不无限重试 */
-export type RunStreamState = "connecting" | "connected" | "reconnecting" | "unauthorized" | "stopped";
+export type RunStreamState = "connecting" | "connected" | "reconnecting" | "unauthorized" | "incompatible" | "stopped";
 /** 订阅观察器，回调成功后才推进本地补读游标 */
 export interface RunStreamOptions {
   readonly afterCursor?: number;

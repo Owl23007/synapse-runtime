@@ -71,7 +71,11 @@ export function subscribeRuns(
                 throw new Error("运行服务已更换，正在重新同步");
               }
               if (type !== "snapshot" && type !== "run_event") continue;
-              if (value.protocolVersion !== 1) throw new Error("不支持的运行追踪协议版本");
+              if (value.protocolVersion !== 1) {
+                options.onState?.("incompatible");
+                options.onError?.(new Error("不支持的运行追踪协议版本，请更新客户端"));
+                return;
+              }
               if (!Number.isSafeInteger(value.cursor) || Number(value.cursor) < 0) throw new Error("运行游标无效");
               if (type === "snapshot") {
                 if (!Array.isArray(value.runs)) throw new Error("运行快照无效");

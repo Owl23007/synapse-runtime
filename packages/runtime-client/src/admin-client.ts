@@ -36,7 +36,7 @@ export class RuntimeAdminClient {
     this.#fetch = options.fetch ?? defaultFetch;
   }
 
-  /** 检查 Admin 服务健康状态 */
+  /** 按状态、频道、会话及时间分页检查运行 */
   runs(query: RunQuery = {}): Promise<RunListResponse> {
     return this.#get(`/admin/runs${queryString(query)}`) as Promise<RunListResponse>;
   }

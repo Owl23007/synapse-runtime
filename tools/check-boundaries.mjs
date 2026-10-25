@@ -24,7 +24,7 @@ const graph = new Map();
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(dir, entry.name);
-    return entry.isDirectory() ? files(path) : entry.name.endsWith(".ts") ? [path] : [];
+    return entry.isDirectory() ? files(path) : /\.tsx?$/.test(entry.name) ? [path] : [];
   });
 }
 for (const pkg of packages) {
@@ -36,6 +36,8 @@ for (const pkg of packages) {
     if (pkg.group === "apps" && byName.get(name).group === "apps")
       failures.push(`${pkg.name} depends on another application ${name}`);
     if (pkg.name === "@synapse/runtime-client") failures.push(`Runtime client depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-webui" && name !== "@synapse/runtime-client")
+      failures.push(`WebUI depends on server implementation ${name}`);
     if (
       pkg.name === "@synapse/runtime-tui" &&
       ![

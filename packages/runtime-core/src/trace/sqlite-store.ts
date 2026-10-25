@@ -230,7 +230,7 @@ export class SqliteRunTraceStore implements RunTraceStore {
     ).map(eventFromRow);
   }
 
-  /** 按持久全局游标读取事件，不依赖内存订阅是否在线 */
+  /** 查询最近一次指定类型的事实，保持上下文快照与本次运行绑定 */
   latestEvent(runId: string, type: AppendRunEventInput["type"]): RunEvent | undefined {
     const row = this.db
       .prepare(

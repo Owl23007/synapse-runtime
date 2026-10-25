@@ -68,6 +68,12 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Install browser for WebUI acceptance
+        run: pnpm --filter @synapse/runtime-webui exec playwright install --with-deps chromium
+
+      - name: Verify WebUI against the real Admin server
+        run: pnpm test:webui
+
       # 工件链路使用真实本地容器，平台和模型边界继续用受控替身
       - name: Verify container isolation
         run: |
