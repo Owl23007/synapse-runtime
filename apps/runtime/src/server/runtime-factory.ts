@@ -18,8 +18,13 @@ import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse
 import { ArtifactStore, type DockerCommandRunner } from "@synapse/runtime-tool-container";
 import { registerContainerTools } from "../composition/container-tools.js";
 import { collectTraceSecrets } from "../secrets.js";
-import { inspectArtifactDelivery } from "../composition/artifact-delivery.js";
-import { persistDockerArtifacts, materializeArtifactMessage } from "../composition/docker-artifacts.js";
+import { inspectArtifactDelivery, ArtifactDeliveryStore } from "../composition/artifact-delivery.js";
+import {
+  persistDockerArtifacts,
+  materializeArtifactMessage,
+  selectArtifactMessage,
+  createArtifactDelivery
+} from "../composition/docker-artifacts.js";
 
 /** 运行时装配输入，外部执行边界可由宿主注入用于验证 */
 export interface RuntimeFactoryOptions {
@@ -82,6 +87,12 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
     });
     const runtime = new RuntimeCore({
       materializeMessage: (sessionId, message) => materializeArtifactMessage(artifacts, sessionId, message),
+      selectMessage: (sessionId, message) => selectArtifactMessage(artifacts, sessionId, message),
+      prepareDelivery: createArtifactDelivery(
+        artifacts,
+        new ArtifactDeliveryStore(join(options.config.runtime.dataDir, "artifact-deliveries")),
+        options.channels
+      ),
       ...(options.config.runtime.limits === undefined ? {} : { limits: options.config.runtime.limits }),
       runs: contextStore.runs,
       channels: options.channels,

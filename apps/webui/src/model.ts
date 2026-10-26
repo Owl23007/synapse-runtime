@@ -28,6 +28,7 @@ export function eventLabel(type: string): string {
     tool_call_completed: "工具返回",
     context_committed: "写入上下文",
     artifact_created: "生成工件",
+    artifact_selection_changed: "最终产物选择",
     artifact_upload_started: "上传工件",
     artifact_uploaded: "工件已交付",
     artifact_upload_failed: "工件上传失败",

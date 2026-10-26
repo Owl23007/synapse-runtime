@@ -136,8 +136,10 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
               >
                 <strong>{String(item.name ?? item.text ?? item.id ?? "记录")}</strong>
                 <small>
-                  {String(item.role ?? item.type ?? item.channelId ?? item.mimeType ?? "")} ·{" "}
-                  {time(item.createdAt ?? item.updatedAt)}
+                  {tab === "artifacts"
+                    ? artifactDisposition(item.disposition)
+                    : String(item.role ?? item.type ?? item.channelId ?? item.mimeType ?? "")}{" "}
+                  · {time(item.createdAt ?? item.updatedAt)}
                 </small>
               </button>
             ))}
@@ -158,6 +160,11 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
               <>
                 <span className="eyebrow">{commitId ? "IMMUTABLE COMMIT" : "RECORD DETAILS"}</span>
                 <h2>{commitId ? "提交详情" : "记录详情"}</h2>
+                {tab === "artifacts" && (
+                  <p className="hint">
+                    {artifactDisposition(selected.disposition)} · 生成和选择不代表已交付，请在运行时间线核对平台回执
+                  </p>
+                )}
                 <div className="record-actions">
                   {tab === "sessions" && (
                     <button
@@ -192,6 +199,9 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
       )}
     </>
   );
+}
+function artifactDisposition(value: unknown): string {
+  return value === "discarded" ? "已废弃" : value === "candidate" ? "候选文件 · 未选中" : "最终产物 · 已选中";
 }
 function CommitParents({ commit, open }: { commit: Record<string, unknown>; open: (id: string) => void }) {
   const parents = Array.isArray(commit.parents) ? commit.parents : [];

@@ -3,7 +3,8 @@ export {
   type Artifact,
   type ArtifactContent,
   type ArtifactScope,
-  type ArtifactManifest
+  type ArtifactManifest,
+  type ArtifactSelection
 } from "./artifacts.js";
 export {
   ContainerExecutor,

@@ -89,6 +89,8 @@ type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send
  */
 export class RuntimeCore {
   readonly #materializeMessage: RuntimeCoreOptions["materializeMessage"];
+  readonly #selectMessage: RuntimeCoreOptions["selectMessage"];
+  readonly #prepareDelivery: RuntimeCoreOptions["prepareDelivery"];
   readonly #gate: ExecutionGate;
   readonly #runTimeoutMs: number;
   readonly #toolTimeoutMs: number;
@@ -141,6 +143,8 @@ export class RuntimeCore {
    */
   constructor(options: RuntimeCoreOptions) {
     this.#materializeMessage = options.materializeMessage;
+    this.#selectMessage = options.selectMessage;
+    this.#prepareDelivery = options.prepareDelivery;
     this.#gate = new ExecutionGate(options.limits?.maxConcurrent ?? 4, options.limits?.maxQueued ?? 64);
     this.#runTimeoutMs = options.limits?.runTimeoutMs ?? 300_000;
     this.#toolTimeoutMs = options.limits?.toolTimeoutMs ?? 130_000;
@@ -1209,7 +1213,8 @@ export class RuntimeCore {
       lineRef: `line:${input.conversation.lineEvent.lineId}`
     });
     const channel = this.#channels.get(input.event.channelId);
-    const presented = this.#applyResponsePolicy(input.output, input.outputPolicy, input.event.id, input.runId);
+    const selectedOutput = this.#selectMessage?.(input.conversation.session.id, input.output) ?? input.output;
+    const presented = this.#applyResponsePolicy(selectedOutput, input.outputPolicy, input.event.id, input.runId);
     // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
     const output: SynapseMessage =
       channel?.getCapabilities().sendMedia === false
@@ -1351,7 +1356,27 @@ export class RuntimeCore {
     /**
      * send_started 之后的异常按投递结果不确定处理以避免自动重复发送
      */
+    let deliveryFailureKnown = false;
     try {
+      signal?.throwIfAborted();
+      let deliveryMessage = output;
+      if (this.#prepareDelivery) {
+        const preparation = this.#prepareDelivery({
+          sessionId: input.conversation.session.id,
+          channelId: input.event.channelId,
+          conversationId: input.event.conversation.id,
+          conversationKind: input.event.conversation.kind,
+          message: output,
+          ...(signal === undefined ? {} : { signal }),
+          observe: (type, data) => this.#recorders.get(input.runId)?.emit(type, data)
+        });
+        const prepared = await (signal ? withAbort(preparation, signal) : preparation);
+        if (prepared.status !== "ready") {
+          deliveryFailureKnown = prepared.status === "failed";
+          throw new Error(prepared.error);
+        }
+        deliveryMessage = prepared.message;
+      }
       signal?.throwIfAborted();
       const delivery = executeChannelAction(
         channel,
@@ -1360,7 +1385,7 @@ export class RuntimeCore {
           channelId: input.event.channelId,
           target,
           message: withReplyContext(
-            this.#materializeMessage?.(input.conversation.session.id, output) ?? output,
+            this.#materializeMessage?.(input.conversation.session.id, deliveryMessage) ?? deliveryMessage,
             input.event
           ),
           conversation: input.event.conversation,
@@ -1372,11 +1397,11 @@ export class RuntimeCore {
       const reason = error instanceof Error ? error.message : "Channel send threw an unknown error.";
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
         error: reason,
-        thrown: true
+        thrown: !deliveryFailureKnown
       });
       await this.#eventProcessStore.update(input.processStateId, {
-        status: "completed",
-        errorJson: JSON.stringify({ phase: "send_uncertain", error: reason })
+        status: deliveryFailureKnown ? "send_failed" : "completed",
+        errorJson: JSON.stringify({ phase: deliveryFailureKnown ? "send_failed" : "send_uncertain", error: reason })
       });
       this.#traces.push({
         eventId: input.event.id,
@@ -1416,6 +1441,11 @@ export class RuntimeCore {
       });
     }
     await this.#appendDeliveryEvent(input, assistantEvent, "delivery_succeeded", {
+      artifactIds: output.segments.flatMap((part) =>
+        (part.type === "file" || part.type === "image") && part.url?.startsWith("artifact://")
+          ? [part.url.slice(11)]
+          : []
+      ),
       ...(result.externalMessageId === undefined ? {} : { externalMessageId: result.externalMessageId })
     });
 
@@ -1754,12 +1784,20 @@ export class RuntimeCore {
       ...resultPayload
     });
     if (event.type === "tool_call_succeeded" && event.output !== null && typeof event.output === "object") {
-      const output = event.output as Record<string, unknown>;
-      if (event.name === "container.run" && Array.isArray(output.artifacts)) {
+      const raw = event.output as Record<string, unknown>;
+      const output =
+        raw.schemaVersion === "runtime-tool-output/v1" &&
+        raw.modelOutput !== null &&
+        typeof raw.modelOutput === "object"
+          ? (raw.modelOutput as Record<string, unknown>)
+          : raw;
+      if ((event.name === "container.run" || event.name === "docker.run") && Array.isArray(output.artifacts)) {
         for (const artifact of output.artifacts)
           recorder?.emit("artifact_created", { callId: event.context.callId, artifact });
       }
-      if (event.name === "artifact.upload")
+      if (output.selection !== null && typeof output.selection === "object")
+        recorder?.emit("artifact_selection_changed", { callId: event.context.callId, ...output.selection });
+      if (event.name === "artifact.upload" && output.status !== "selected" && output.status !== "discarded")
         recorder?.emit(
           output.status === "succeeded"
             ? "artifact_upload_succeeded"
@@ -1769,7 +1807,11 @@ export class RuntimeCore {
           { callId: event.context.callId, ...output }
         );
     }
-    if (event.name === "artifact.upload" && event.type === "tool_call_started")
+    if (
+      event.name === "artifact.upload" &&
+      event.type === "tool_call_started" &&
+      !["select", "discard"].includes(String((event.input as { operation?: unknown } | null)?.operation))
+    )
       recorder?.emit("artifact_upload_started", { callId: event.context.callId, input: event.input });
     if (!isCall && event.context.causationEventId !== undefined) {
       this.#runGraph?.record(

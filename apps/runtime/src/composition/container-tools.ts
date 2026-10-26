@@ -11,7 +11,10 @@ import type { ContainerSettings } from "@synapse/runtime-tool-container/config";
 import type { ToolContext, ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { ArtifactDeliveryStore } from "./artifact-delivery.js";
 
-const uploadInput = z.object({ artifactId: z.string().uuid() }).strict();
+const uploadInput = z.union([
+  z.object({ operation: z.literal("upload").default("upload"), artifactId: z.string().uuid() }).strict(),
+  z.object({ operation: z.enum(["select", "discard"]), artifactIds: z.array(z.string().uuid()).max(16) }).strict()
+]);
 
 /** 装配容器工作与群文件交付，所有文件归属和群目标均来自运行时上下文 */
 export function registerContainerTools(options: {
@@ -49,12 +52,14 @@ export function registerContainerTools(options: {
         };
       }
       context.signal?.throwIfAborted();
+      const saved = artifacts.save(
+        { sessionId: context.sessionId, runId: context.runId, callId: context.callId },
+        result.files
+      );
       return {
         status: "generated",
-        artifacts: artifacts.save(
-          { sessionId: context.sessionId, runId: context.runId, callId: context.callId },
-          result.files
-        ),
+        artifacts: saved,
+        selection: artifacts.selection(context.sessionId, context.runId),
         logs: result.logs
       };
     }
@@ -62,12 +67,23 @@ export function registerContainerTools(options: {
   options.tools.register({
     name: "artifact.upload",
     description:
-      "把当前群会话已登记的工件直接上传为本群群文件。仅接受工件 ID，不接受路径、URL 或目标群。以返回的 status 为准，succeeded 才表示平台确认成功，uncertain 必须核对群文件且不得自动再次生成或上传以规避未知结果。",
+      "默认 operation=upload，把 artifactId 对应的最终产物上传为本群群文件。operation=select 使用 artifactIds 替换本轮最终产物集合，operation=discard 废弃指定草稿；这两种管理操作不上传文件。只接受工件 ID，不接受路径、URL 或目标群。只有 succeeded 表示平台确认交付成功，selected/discarded 仅表示本地选择变更。uncertain 必须核对群文件且不得再次生成或上传以规避未知结果。",
     inputSchema: z.toJSONSchema(uploadInput),
     permission: { action: "channel.qq.upload_group_file", resource: "group-file" },
     async handle(raw, context) {
       const { adapter, groupId } = requireGroupDestination(options.channels, context);
-      const { artifactId } = uploadInput.parse(raw);
+      const input = uploadInput.parse(raw);
+      context.signal?.throwIfAborted();
+      if (input.operation !== "upload") {
+        const selection =
+          input.operation === "select"
+            ? artifacts.select(context.sessionId, context.runId, input.artifactIds)
+            : artifacts.discard(context.sessionId, context.runId, input.artifactIds);
+        return { status: input.operation === "select" ? "selected" : "discarded", selection };
+      }
+      const { artifactId } = input;
+      if (artifacts.describe(context.sessionId, artifactId).disposition !== "selected")
+        throw new Error("工件未被选为最终产物，请先明确选择后再交付");
       const artifact = artifacts.read(context.sessionId, artifactId);
       context.signal?.throwIfAborted();
       const result = await deliveries.deliver(

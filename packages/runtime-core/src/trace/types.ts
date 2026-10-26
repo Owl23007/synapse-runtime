@@ -27,6 +27,7 @@ export type RunEventType =
   | "permission_allowed"
   | "permission_blocked"
   | "artifact_created"
+  | "artifact_selection_changed"
   | "artifact_upload_started"
   | "artifact_upload_succeeded"
   | "artifact_upload_failed"
