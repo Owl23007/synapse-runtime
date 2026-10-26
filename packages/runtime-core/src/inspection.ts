@@ -1,0 +1,2 @@
+/** 共享追踪与日志的有界脱敏规则，不暴露运行时内部存储结构 */
+export { redactTrace as redactInspection } from "./trace/redact.js";

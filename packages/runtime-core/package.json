@@ -13,6 +13,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./inspection": {
+      "types": "./dist/inspection.d.ts",
+      "import": "./dist/inspection.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"

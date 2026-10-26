@@ -17,6 +17,7 @@ import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse/runtime-resources";
 import type { DockerCommandRunner } from "@synapse/runtime-tool-container";
 import { registerContainerTools } from "../composition/container-tools.js";
+import { collectTraceSecrets } from "../secrets.js";
 
 /** 运行时装配输入，外部执行边界可由宿主注入用于验证 */
 export interface RuntimeFactoryOptions {
@@ -103,21 +104,6 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
     contextStore.close();
     throw error;
   }
-}
-
-function collectTraceSecrets(value: unknown): readonly string[] {
-  const secrets = new Set<string>();
-  const visit = (item: unknown, sensitive = false): void => {
-    if (typeof item === "string") {
-      if (sensitive && item.length > 0) secrets.add(item);
-      return;
-    }
-    if (item === null || typeof item !== "object") return;
-    for (const [key, entry] of Object.entries(item))
-      visit(entry, sensitive || /authorization|cookie|password|secret|credential|api[_-]?key|token|headers/i.test(key));
-  };
-  visit(value);
-  return [...secrets];
 }
 
 function createInvocationCompiler(

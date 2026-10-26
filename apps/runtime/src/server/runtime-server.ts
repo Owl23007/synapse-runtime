@@ -14,6 +14,7 @@ import { serverStartResult, startAdminApp } from "./runtime-lifecycle.js";
 import { createRuntimeFromConfig } from "./runtime-factory.js";
 import { QqOfficialWebhookRegistry } from "./webhook-registry.js";
 import { validateReloadConfig } from "./reload-policy.js";
+import { collectTraceSecrets } from "../secrets.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
@@ -23,6 +24,7 @@ export class RuntimeServer {
   readonly #loadConfigOptions: RuntimeServerOptions["loadConfigOptions"];
   readonly #configPath: string | undefined;
   readonly #logger: RuntimeServerLogger;
+  readonly #logSecrets = new Set<string>();
   readonly #awaitDispatch: boolean;
   readonly #fetch: RuntimeFetch | undefined;
   readonly #channels = new InMemoryChannelRegistry();
@@ -50,7 +52,12 @@ export class RuntimeServer {
     this.#logBuffer = new RuntimeLogBuffer(this.#config.admin.logBufferSize);
     this.#logger = createLevelLogger(
       createTeeLogger([this.#logBuffer, options.logger ?? DEFAULT_LOGGER]),
-      this.#config.runtime.logLevel
+      this.#config.runtime.logLevel,
+      () => {
+        // 热更新后的迟到错误仍可能携带旧凭据，进程存活期间保留旧值用于脱敏
+        for (const secret of collectTraceSecrets(this.#config)) this.#logSecrets.add(secret);
+        return [...this.#logSecrets].sort((a, b) => b.length - a.length);
+      }
     );
     this.#awaitDispatch = options.awaitDispatch ?? false;
     this.#fetch = options.fetch;
