@@ -49,6 +49,45 @@ export function recoverToolOutputs(
         | { conversation_id: string; conversation_type: string }
         | undefined;
       if (origin === undefined) continue;
+      const pendingArtifacts = new Set<string>();
+      let afterSeq = 0;
+      while (true) {
+        const events = runs.events(run.id, afterSeq, 200);
+        for (const event of events) {
+          afterSeq = event.seq;
+          const data = event.data as { artifactId?: unknown; automatic?: unknown } | null;
+          if (typeof data?.artifactId !== "string") continue;
+          if (event.type === "artifact_upload_started" && data.automatic === true)
+            pendingArtifacts.add(data.artifactId);
+          else if (
+            ["artifact_upload_succeeded", "artifact_upload_failed", "artifact_upload_uncertain"].includes(event.type)
+          )
+            pendingArtifacts.delete(data.artifactId);
+        }
+        if (events.length < 200) break;
+      }
+      for (const artifactId of pendingArtifacts) {
+        const output = resolve({
+          sessionId: run.sessionId,
+          channelId: run.channelId,
+          conversationId: origin.conversation_id,
+          conversationType: origin.conversation_type,
+          name: "artifact.upload",
+          input: { artifactId }
+        });
+        if (output === undefined) continue;
+        runs.append(run.id, {
+          key: `receipt:automatic:${artifactId}`,
+          type:
+            output.status === "succeeded"
+              ? "artifact_upload_succeeded"
+              : output.status === "uncertain"
+                ? "artifact_upload_uncertain"
+                : "artifact_upload_failed",
+          attemptId,
+          data: { ...output, artifactId, automatic: true, recovered: true }
+        });
+      }
       let cursor = 0;
       while (true) {
         const rows = db

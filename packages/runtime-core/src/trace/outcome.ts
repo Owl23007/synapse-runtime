@@ -5,6 +5,8 @@ export class RunOutcome {
   readonly #pending = new Set<string>();
   readonly #generated = new Set<string>();
   readonly #uploaded = new Set<string>();
+  readonly #attemptedArtifacts = new Set<string>();
+  readonly #deliveryFailures = new Map<string, RunError>();
   #selected: Set<string> | undefined;
   #delivered = false;
   #containerFailed = false;
@@ -23,16 +25,20 @@ export class RunOutcome {
       if (Array.isArray(data.artifactIds))
         for (const id of data.artifactIds) if (typeof id === "string") this.#uploaded.add(id);
     }
-    if (type === "model_call_failed" || type === "artifact_upload_failed" || type === "response_send_failed")
+    if (type === "model_call_failed" || type === "response_send_failed")
       this.fail("failed", type, typeof data.message === "string" ? data.message : "执行失败");
+    if (type === "artifact_upload_failed") this.#uploadFailed(data);
     if (type === "artifact_upload_uncertain" || type === "response_send_uncertain")
       this.fail("uncertain", type, "外部动作结果未知，未自动重放");
     if (type === "tool_call_failed" && record(data.error).name === "ToolCallRecoveryError")
       this.fail("uncertain", "tool_outcome_uncertain", "工具执行已中止，外部结果未确认");
     if (type === "artifact_created") this.#addArtifact(data.artifact);
     if (type === "artifact_selection_changed") this.#select(data);
-    if (type === "artifact_upload_succeeded" && typeof data.artifactId === "string")
+    if (type === "artifact_upload_succeeded" && typeof data.artifactId === "string") {
       this.#uploaded.add(data.artifactId);
+      this.#attemptedArtifacts.add(data.artifactId);
+      this.#deliveryFailures.delete(data.artifactId);
+    }
     // 工具回执先于派生工件事件落盘，恢复时可直接从回执补足结果
     if (type === "tool_call_succeeded") {
       const raw = record(data.output);
@@ -46,14 +52,12 @@ export class RunOutcome {
         this.#select(record(output.selection));
       if (data.name === "artifact.upload") {
         if (output.status === "selected" || output.status === "discarded") return;
+        if (typeof output.artifactId === "string") this.#attemptedArtifacts.add(output.artifactId);
         if (output.status === "succeeded" && typeof output.artifactId === "string")
           this.#uploaded.add(output.artifactId);
-        else
-          this.fail(
-            output.status === "uncertain" ? "uncertain" : "failed",
-            "artifact_upload_failed",
-            "工件交付未确认成功"
-          );
+        else if (output.status === "uncertain")
+          this.fail("uncertain", "artifact_upload_uncertain", "工件交付未确认成功");
+        else this.#uploadFailed(output);
       }
     }
   }
@@ -82,7 +86,12 @@ export class RunOutcome {
         status: "failed",
         error: { code: "container_failed", message: "容器生成失败，尚无成功修正结果", phase: "tool" }
       };
-    if (this.#delivered && [...(this.#selected ?? this.#generated)].some((id) => !this.#uploaded.has(id)))
+    const required = this.#selected ?? new Set([...this.#generated, ...this.#attemptedArtifacts]);
+    for (const id of required) {
+      const failure = this.#deliveryFailures.get(id);
+      if (failure) return { status: "failed", error: failure };
+    }
+    if (this.#delivered && [...required].some((id) => !this.#uploaded.has(id)))
       return {
         status: "failed",
         error: { code: "artifact_not_delivered", message: "已生成工件尚无成功上传回执", phase: "artifact" }
@@ -103,6 +112,19 @@ export class RunOutcome {
   #select(data: Record<string, unknown>): void {
     if (Array.isArray(data.selectedIds) && data.selectedIds.every((id) => typeof id === "string"))
       this.#selected = new Set(data.selectedIds);
+  }
+
+  #uploadFailed(data: Record<string, unknown>): void {
+    if (typeof data.artifactId !== "string") {
+      this.fail("failed", "artifact_upload_failed", "工件上传失败");
+      return;
+    }
+    this.#attemptedArtifacts.add(data.artifactId);
+    this.#deliveryFailures.set(data.artifactId, {
+      code: "artifact_upload_failed",
+      message: "最终工件上传失败",
+      phase: "artifact"
+    });
   }
 }
 
