@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { RunContextGraph } from "./run-context-graph.js";
 import { RunRecorder } from "../trace/recorder.js";
+import { ExecutionGate, withAbort } from "./execution-budget.js";
 import type { RunTraceStore } from "../trace/types.js";
 import { isDeepStrictEqual } from "node:util";
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
@@ -87,6 +88,11 @@ type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send
  * 编排频道事件持久化、上下文构建、智能体执行与消息投递
  */
 export class RuntimeCore {
+  readonly #gate: ExecutionGate;
+  readonly #runTimeoutMs: number;
+  readonly #toolTimeoutMs: number;
+  readonly #shutdownGraceMs: number;
+  readonly #runControllers = new Map<string, AbortController>();
   readonly #runs: RunTraceStore | undefined;
   readonly #recorders = new Map<string, RunRecorder>();
   readonly #channels: ChannelRegistry;
@@ -133,6 +139,12 @@ export class RuntimeCore {
    * 创建 RuntimeCore 并装配所需运行组件
    */
   constructor(options: RuntimeCoreOptions) {
+    this.#gate = new ExecutionGate(options.limits?.maxConcurrent ?? 4, options.limits?.maxQueued ?? 64);
+    this.#runTimeoutMs = options.limits?.runTimeoutMs ?? 300_000;
+    this.#toolTimeoutMs = options.limits?.toolTimeoutMs ?? 130_000;
+    this.#shutdownGraceMs = options.limits?.shutdownGraceMs ?? 30_000;
+    for (const value of [this.#runTimeoutMs, this.#toolTimeoutMs, this.#shutdownGraceMs])
+      if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) throw new Error("运行时间预算无效");
     this.#runs = options.runs;
     this.#channels = options.channels;
     this.#conversation = options.conversation;
@@ -216,6 +228,11 @@ export class RuntimeCore {
     return this.#traces;
   }
 
+  /** 当前实例容量与拒绝数量，不将等待请求伪装为执行中 */
+  get executionStatus() {
+    return this.#gate.status;
+  }
+
   /**
    * 返回当前装配的会话存储
    */
@@ -242,16 +259,20 @@ export class RuntimeCore {
     }
 
     this.#disposed = true;
+    this.#gate.close();
     const inFlight = [...this.#inFlightOperations];
-    if (inFlight.length === 0) {
-      this.#removeToolObserverOnce();
-      this.#disposePromise = Promise.resolve();
-      return this.#disposePromise;
-    }
-
     this.#disposePromise = (async () => {
-      await Promise.allSettled(inFlight);
-      this.#removeToolObserverOnce();
+      const timer = setTimeout(() => {
+        for (const controller of this.#runControllers.values()) controller.abort(new Error("Runtime 退出收尾超时"));
+      }, this.#shutdownGraceMs);
+      try {
+        await Promise.allSettled(inFlight);
+        const pending = await this.#tools.drain();
+        if (pending > 0) this.#logger?.warn("工具处理器未在收尾预算内结束，相关运行需核对外部结果", { pending });
+      } finally {
+        clearTimeout(timer);
+        this.#removeToolObserverOnce();
+      }
     })();
     return this.#disposePromise;
   }
@@ -277,7 +298,7 @@ export class RuntimeCore {
       return Promise.resolve();
     }
 
-    return this.#trackOperation(this.#processChannelEvent(event, providerOverride, targetLineId));
+    return this.#trackOperation(this.#gate.run(() => this.#processChannelEvent(event, providerOverride, targetLineId)));
   }
 
   async #processChannelEvent(
@@ -411,6 +432,15 @@ export class RuntimeCore {
       return;
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("运行已超过截止时间")), this.#runTimeoutMs);
+    const controlId = scope.runId ?? `event:${scope.accepted.event.id}`;
+    if (this.#runControllers.has(controlId)) {
+      clearTimeout(timer);
+      this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
+      return;
+    }
+    this.#runControllers.set(controlId, controller);
     try {
       let actor = anonymousActor(event, provider);
       try {
@@ -664,6 +694,7 @@ export class RuntimeCore {
 
       const attemptId = recorder?.attemptId ?? `agent-attempt-${randomUUID()}`;
       const context: AgentRuntimeContext = {
+        signal: controller.signal,
         ...(scope.runId === undefined ? {} : { runId: scope.runId }),
         ...(recorder === undefined
           ? {}
@@ -681,6 +712,8 @@ export class RuntimeCore {
                 )
             }),
         tools: this.#tools.withContext({
+          signal: controller.signal,
+          timeoutMs: this.#toolTimeoutMs,
           ...(scope.runId === undefined ? {} : { runId: scope.runId }),
           ...(recorder === undefined
             ? {}
@@ -714,6 +747,7 @@ export class RuntimeCore {
         }),
         conversation: {
           createBranch: async (input) => {
+            controller.signal.throwIfAborted();
             if (branchId !== undefined) {
               throw new Error("Nested conversation branches are not supported.");
             }
@@ -769,7 +803,8 @@ export class RuntimeCore {
       });
       let run: Awaited<ReturnType<Agent["run"]>>;
       try {
-        run = await this.#agent.run(enrichedRequest, context);
+        controller.signal.throwIfAborted();
+        run = await withAbort(this.#agent.run(enrichedRequest, context), controller.signal);
         if (scope.runId !== undefined) run = { ...run, id: scope.runId };
         if (run.status === "failed") recorder?.fail("failed", "agent_failed", run.error ?? "智能体未完成请求", "model");
       } catch (error) {
@@ -930,6 +965,8 @@ export class RuntimeCore {
         error: error instanceof Error ? error.message : "Unknown runtime error."
       });
     } finally {
+      clearTimeout(timer);
+      this.#runControllers.delete(controlId);
       if (recorder !== undefined) {
         try {
           recorder.finish();
@@ -1132,6 +1169,10 @@ export class RuntimeCore {
     readonly conversation: AcceptedNormalizedEvent;
   }): Promise<void> {
     // 恢复路径同样经过这里，图提交可按原事件补齐且不会触发第二次群文件上传
+    const signal = (
+      this.#runControllers.get(input.runId) ?? this.#runControllers.get(`event:${input.conversation.event.id}`)
+    )?.signal;
+    signal?.throwIfAborted();
     if (this.#runGraph !== undefined) {
       const results = await this.#conversationStore.listEvents(input.conversation.lineEvent.lineId, {
         types: ["tool_result"]
@@ -1298,6 +1339,7 @@ export class RuntimeCore {
     if (input.processStateId === undefined) {
       throw new Error("Event process state is required before channel delivery.");
     }
+    signal?.throwIfAborted();
     await this.#eventProcessStore.update(input.processStateId, {
       status: "processing",
       errorJson: JSON.stringify({ phase: "send_started", runId: input.runId })
@@ -1307,7 +1349,8 @@ export class RuntimeCore {
      * send_started 之后的异常按投递结果不确定处理以避免自动重复发送
      */
     try {
-      result = await executeChannelAction(
+      signal?.throwIfAborted();
+      const delivery = executeChannelAction(
         channel,
         messageSendAction({
           actionId: `message.send:${input.event.id}`,
@@ -1318,6 +1361,7 @@ export class RuntimeCore {
           idempotencyKey: `send:${input.event.id}`
         })
       );
+      result = await (signal ? withAbort(delivery, signal) : delivery);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Channel send threw an unknown error.";
       await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
@@ -1691,6 +1735,12 @@ export class RuntimeCore {
       createdAt: event.occurredAt
     });
     const recorder = this.#recorders.get(event.context.runId);
+    if (
+      event.type === "tool_call_failed" &&
+      event.error instanceof ToolCallRecoveryError &&
+      event.error.code === "outcome_uncertain"
+    )
+      recorder?.fail("uncertain", "tool_outcome_uncertain", "工具执行已中止，外部结果未确认", "tool");
     recorder?.emit(event.type, {
       name: event.name,
       callId: event.context.callId,

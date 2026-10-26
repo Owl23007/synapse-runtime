@@ -20,6 +20,8 @@ export class ApiChatAgent implements Agent {
   readonly #provider: ChatCompletionProvider;
   readonly #maxSteps: number;
   readonly #maxToolCalls: number;
+  readonly #maxInputChars: number;
+  readonly #maxOutputTokens: number;
 
   /** 创建支持工具调用的聊天智能体 */
   constructor(options: ApiChatAgentOptions) {
@@ -27,6 +29,8 @@ export class ApiChatAgent implements Agent {
     this.#provider = options.provider;
     this.#maxSteps = positiveInteger(options.maxSteps ?? 8, "maxSteps");
     this.#maxToolCalls = positiveInteger(options.maxToolCalls ?? 16, "maxToolCalls");
+    this.#maxInputChars = positiveInteger(options.maxInputChars ?? 64_000, "maxInputChars");
+    this.#maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 4096, "maxOutputTokens");
   }
 
   /** 执行一次聊天智能体运行 */
@@ -68,6 +72,7 @@ export class ApiChatAgent implements Agent {
 
     try {
       for (let stepIndex = 1; stepIndex <= this.#maxSteps; stepIndex += 1) {
+        context?.signal?.throwIfAborted();
         const modelStartedAt = new Date().toISOString();
         const modelCallId = `model-${stepIndex}`;
         const metadata = {
@@ -77,6 +82,7 @@ export class ApiChatAgent implements Agent {
         };
         const modelRequest = {
           messages,
+          maxTokens: this.#maxOutputTokens,
           ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" as const })
         };
         // 持久开始记录先于实际请求，断电后仍能解释未完成的模型调用
@@ -84,9 +90,15 @@ export class ApiChatAgent implements Agent {
         await context?.observeModel?.({ ...metadata, type: "model_call_started", data: modelRequest });
         let result: ChatCompletionResult;
         try {
+          if (JSON.stringify(modelRequest).length > this.#maxInputChars)
+            throw new Error(`模型输入超过 ${this.#maxInputChars} 字符预算，未裁剪必要上下文，请缩小请求或调整预算`);
           // 模型步骤依赖前一步观察结果必须串行执行
           // oxlint-disable-next-line no-await-in-loop
-          result = await this.#provider.complete(modelRequest);
+          result = await this.#provider.complete({
+            ...modelRequest,
+            ...(context?.signal ? { signal: context.signal } : {})
+          });
+          context?.signal?.throwIfAborted();
         } catch (error) {
           // oxlint-disable-next-line no-await-in-loop
           await context?.observeModel?.({
@@ -157,6 +169,7 @@ export class ApiChatAgent implements Agent {
           toolCalls
         });
         for (const toolCall of toolCalls) {
+          context?.signal?.throwIfAborted();
           toolCallCount += 1;
           if (toolCallCount > this.#maxToolCalls) {
             throw new Error(`Agent loop exceeded the tool call limit of ${this.#maxToolCalls}.`);

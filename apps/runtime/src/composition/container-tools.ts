@@ -38,7 +38,7 @@ export function registerContainerTools(options: {
       const inputs = input.inputs.map((id) => artifacts.read(context.sessionId, id));
       let result;
       try {
-        result = await executor.execute({ script: input.script, outputs: input.outputs }, inputs);
+        result = await executor.execute({ script: input.script, outputs: input.outputs }, inputs, context.signal);
       } catch (error) {
         // 已清理的失败任务没有外部副作用，允许模型修正脚本；清理未确认时必须停止后续工具调用
         if (error instanceof AggregateError) throw error;
@@ -48,6 +48,7 @@ export function registerContainerTools(options: {
           error: (error instanceof Error ? error.message : "容器任务失败").slice(0, 2000)
         };
       }
+      context.signal?.throwIfAborted();
       return {
         status: "generated",
         artifacts: artifacts.save(
@@ -68,6 +69,7 @@ export function registerContainerTools(options: {
       const { adapter, groupId } = requireGroupDestination(options.channels, context);
       const { artifactId } = uploadInput.parse(raw);
       const artifact = artifacts.read(context.sessionId, artifactId);
+      context.signal?.throwIfAborted();
       const result = await deliveries.deliver(
         { sessionId: context.sessionId, channelId: adapter.id, groupId, artifactId },
         () => adapter.uploadGroupFile!(groupId, artifact)

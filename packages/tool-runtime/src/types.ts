@@ -15,6 +15,10 @@ export interface ToolSource {
 
 /** 一次工具执行的会话、调用与来源身份 */
 export interface ToolContext {
+  /** 宿主取消信号，工具应在取消时终止受控资源 */
+  readonly signal?: AbortSignal;
+  /** 单工具执行上限，由宿主绑定而非模型参数决定 */
+  readonly timeoutMs?: number;
   readonly runId: string;
   readonly attemptId?: string;
   readonly sessionId: string;
@@ -102,6 +106,9 @@ export interface ScopedToolRuntimeView {
 
 /** 固定会话身份与来源的工具视图，模型只能提供调用标识 */
 export interface ToolRuntimeScope {
+  /** 可信运行的取消信号与单工具上限 */
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
   /** 宿主绑定的逻辑运行身份，优先于调用方传入的临时标识 */
   readonly runId?: string;
   /** 单独观察权限决策，保持既有工具事件订阅协议兼容 */

@@ -19,6 +19,7 @@ import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError }
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly getExecutionStatus?: () => unknown;
   readonly getContextStore?: () => SqliteRuntimeContextStore | undefined;
   readonly getListening?: () => RuntimeServerStartResult | undefined;
   readonly app: Nova;
@@ -75,7 +76,8 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
         runtime: {
           mode: config.runtime.mode,
           logLevel: config.runtime.logLevel,
-          startedAt: deps.getStartedAt()
+          startedAt: deps.getStartedAt(),
+          execution: deps.getExecutionStatus?.()
         },
         server: {
           host: listening?.host ?? config.server.host,

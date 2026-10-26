@@ -26,6 +26,8 @@ export interface AgentRun {
 
 /** 运行时绑定的身份、工具与模型观察入口 */
 export interface AgentRuntimeContext {
+  /** 宿主运行截止或退出信号，取消后不得发起新的模型与工具动作 */
+  readonly signal?: AbortSignal;
   /** 逻辑运行标识由宿主决定，恢复时保持不变 */
   readonly runId?: string;
   /** 观察回调完成后才允许继续执行，持久化失败应停止调用链 */

@@ -157,11 +157,12 @@ export class RuntimeServer {
     this.#logger.info("Stopping Synapse Runtime server.");
     this.#webhookRegistry.pause();
     this.#shutdownController.abort();
+    const runtimeShutdown = this.#runtime.dispose();
     await this.#cleanupStep("close gateway listener", () => this.#app.close());
     await this.#cleanupStep("close admin listener", () => this.#adminApp.close());
     this.#webhookRegistry.clear();
     await this.#cleanupStep("drain webhook dispatch", () => this.#webhookRegistry.drain());
-    await this.#cleanupStep("drain runtime operations", () => this.#runtime.dispose());
+    await this.#cleanupStep("drain runtime operations", () => runtimeShutdown);
     await this.#cleanupStep("drain branch tasks", () => this.#taskRunner.dispose());
     await this.#cleanupStep("disconnect channels", () => this.#channelManager.disconnectAll());
     await this.#cleanupStep("close runtime context store", async () => {
@@ -179,6 +180,7 @@ export class RuntimeServer {
     registerWebUi(this.#adminApp);
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
+      getExecutionStatus: () => this.#runtime.executionStatus,
       getListening: () => this.#listening,
       app: this.#adminApp,
       getConfig: () => this.#config,
@@ -236,8 +238,9 @@ export class RuntimeServer {
   async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
     this.#webhookRegistry.pause();
     this.#webhookRegistry.clear();
+    const runtimeShutdown = this.#runtime.dispose();
     await this.#webhookRegistry.drain();
-    await this.#runtime.dispose();
+    await runtimeShutdown;
     await this.#taskRunner.dispose();
     await this.#channelManager.disconnectAll();
     this.#closeContextStore();

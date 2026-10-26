@@ -39,6 +39,8 @@ export interface ChatTokenUsage {
 
 /** 聊天完成请求 */
 export interface ChatCompletionRequest {
+  /** 调用方生命周期信号，不序列化到模型请求载荷 */
+  readonly signal?: AbortSignal;
   readonly messages: readonly ChatCompletionMessage[];
   readonly tools?: readonly ChatToolDefinition[];
   readonly toolChoice?: ChatToolChoice;

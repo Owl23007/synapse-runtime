@@ -41,6 +41,14 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 实例运行预算，排队请求不占用执行名额 */
+  readonly limits?: {
+    readonly maxConcurrent?: number;
+    readonly maxQueued?: number;
+    readonly runTimeoutMs?: number;
+    readonly toolTimeoutMs?: number;
+    readonly shutdownGraceMs?: number;
+  };
   /** 持久运行追踪，嵌入式宿主可选择自己的存储实现 */
   readonly runs?: RunTraceStore;
   readonly channels: ChannelRegistry;

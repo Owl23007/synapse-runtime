@@ -64,6 +64,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
     });
     const runtime = new RuntimeCore({
+      ...(options.config.runtime.limits === undefined ? {} : { limits: options.config.runtime.limits }),
       runs: contextStore.runs,
       channels: options.channels,
       conversation,

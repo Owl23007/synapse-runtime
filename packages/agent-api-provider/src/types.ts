@@ -1,5 +1,9 @@
 /** OpenAI 兼容聊天提供商配置 */
 export interface OpenAiCompatibleChatProviderOptions {
+  /** 包含响应体读取的单次模型调用超时 */
+  readonly timeoutMs?: number;
+  /** 最终序列化请求体的字符上限，包含工具与额外参数 */
+  readonly maxRequestChars?: number;
   readonly id: string;
   readonly apiKey: string;
   readonly baseUrl: string;
@@ -15,6 +19,7 @@ export interface OpenAiCompatibleChatProviderOptions {
 export type FetchLike = (url: string, init?: FetchInitLike) => Promise<FetchResponseLike>;
 
 export interface FetchInitLike {
+  readonly signal?: AbortSignal;
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;

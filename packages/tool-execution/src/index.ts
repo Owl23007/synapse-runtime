@@ -34,7 +34,8 @@ export type DockerCommand = (
   args: readonly string[],
   input: string,
   timeoutMs: number,
-  maxBytes: number
+  maxBytes: number,
+  signal?: AbortSignal
 ) => Promise<string>;
 
 /** 创建按需启动并回收的 Docker 执行工具，只向模型返回文本观察和产物元数据 */
@@ -63,7 +64,8 @@ export function createDockerTool(settings: DockerToolSettings, command: DockerCo
       required: ["command"],
       additionalProperties: false
     },
-    async handle(input) {
+    async handle(input, context) {
+      context.signal?.throwIfAborted();
       const parsed = inputSchema.parse(input);
       const name = `synapse-execution-${randomUUID()}`;
       try {
@@ -95,7 +97,8 @@ export function createDockerTool(settings: DockerToolSettings, command: DockerCo
           ],
           JSON.stringify({ ...parsed, timeoutMs: config.timeoutMs, maxArtifactBytes: config.maxArtifactBytes }),
           config.timeoutMs + 10_000,
-          Math.ceil((config.maxArtifactBytes * 4) / 3) + 200_000
+          Math.ceil((config.maxArtifactBytes * 4) / 3) + 200_000,
+          context.signal
         );
         const output: unknown = JSON.parse(stdout);
         if (readToolOutput(output) === undefined) throw new Error("Docker runner returned an invalid result");
@@ -110,8 +113,15 @@ export function createDockerTool(settings: DockerToolSettings, command: DockerCo
   };
 }
 
-function runDocker(args: readonly string[], input: string, timeoutMs: number, maxBytes: number): Promise<string> {
+function runDocker(
+  args: readonly string[],
+  input: string,
+  timeoutMs: number,
+  maxBytes: number,
+  signal?: AbortSignal
+): Promise<string> {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const child = spawn("docker", [...args], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -121,8 +131,15 @@ function runDocker(args: readonly string[], input: string, timeoutMs: number, ma
       failure = new Error("Docker execution timed out");
       child.kill();
     }, timeoutMs);
+    const abort = () => {
+      failure = new Error("Docker execution cancelled");
+      child.kill();
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     child.on("error", (error) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       reject(error);
     });
     child.stdin.on("error", (error) => {
@@ -142,6 +159,7 @@ function runDocker(args: readonly string[], input: string, timeoutMs: number, ma
     }
     child.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       if (failure !== undefined) reject(failure);
       else if (code !== 0)
         reject(new Error(`Docker failed (${code}): ${Buffer.concat(stderr).toString("utf8").slice(0, 24000)}`));
