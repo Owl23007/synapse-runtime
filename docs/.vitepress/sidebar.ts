@@ -33,6 +33,7 @@ export const developmentSidebar: DefaultTheme.SidebarItem[] = [
       { text: "闭环状态", link: "/reference/closure-status" },
       { text: "0.1 代码审计", link: "/reference/v0.1-code-audit" },
       { text: "0.1 发布验收", link: "/reference/v0.1-release-acceptance" },
+      { text: "0.1 实施进度", link: "/reference/v0.1-implementation-status" },
       { text: "配置 Schema", link: "/reference/config" },
       { text: "命令", link: "/reference/commands" },
       { text: "安全", link: "/reference/security" },
