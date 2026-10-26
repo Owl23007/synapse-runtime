@@ -88,6 +88,7 @@ type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send
  * 编排频道事件持久化、上下文构建、智能体执行与消息投递
  */
 export class RuntimeCore {
+  readonly #materializeMessage: RuntimeCoreOptions["materializeMessage"];
   readonly #gate: ExecutionGate;
   readonly #runTimeoutMs: number;
   readonly #toolTimeoutMs: number;
@@ -139,6 +140,7 @@ export class RuntimeCore {
    * 创建 RuntimeCore 并装配所需运行组件
    */
   constructor(options: RuntimeCoreOptions) {
+    this.#materializeMessage = options.materializeMessage;
     this.#gate = new ExecutionGate(options.limits?.maxConcurrent ?? 4, options.limits?.maxQueued ?? 64);
     this.#runTimeoutMs = options.limits?.runTimeoutMs ?? 300_000;
     this.#toolTimeoutMs = options.limits?.toolTimeoutMs ?? 130_000;
@@ -1194,7 +1196,7 @@ export class RuntimeCore {
         );
       }
     }
-    this.#runGraph?.finish(
+    const publishedCommit = this.#runGraph?.finish(
       input.conversation.session.id,
       input.conversation.lineEvent.lineId,
       input.conversation.lineEvent.id,
@@ -1202,6 +1204,7 @@ export class RuntimeCore {
     );
     this.#recorders.get(input.runId)?.emit("context_committed", {
       sessionId: input.conversation.session.id,
+      ...(publishedCommit === undefined ? {} : { commitId: publishedCommit.id, parents: publishedCommit.parents }),
       refName: `run:${input.conversation.lineEvent.id}`,
       lineRef: `line:${input.conversation.lineEvent.lineId}`
     });
@@ -1356,7 +1359,10 @@ export class RuntimeCore {
           actionId: `message.send:${input.event.id}`,
           channelId: input.event.channelId,
           target,
-          message: withReplyContext(output, input.event),
+          message: withReplyContext(
+            this.#materializeMessage?.(input.conversation.session.id, output) ?? output,
+            input.event
+          ),
           conversation: input.event.conversation,
           idempotencyKey: `send:${input.event.id}`
         })
@@ -2094,6 +2100,7 @@ function serializeError(error: unknown): unknown {
     return {
       name: error.name,
       message: error.message,
+      ...(error instanceof ToolCallRecoveryError ? { code: error.code } : {}),
       ...(error.stack === undefined ? {} : { stack: error.stack })
     };
   }

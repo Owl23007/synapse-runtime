@@ -15,9 +15,11 @@ import {
 } from "../composition/runtime-resources.js";
 import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse/runtime-resources";
-import type { DockerCommandRunner } from "@synapse/runtime-tool-container";
+import { ArtifactStore, type DockerCommandRunner } from "@synapse/runtime-tool-container";
 import { registerContainerTools } from "../composition/container-tools.js";
 import { collectTraceSecrets } from "../secrets.js";
+import { inspectArtifactDelivery } from "../composition/artifact-delivery.js";
+import { persistDockerArtifacts, materializeArtifactMessage } from "../composition/docker-artifacts.js";
 
 /** 运行时装配输入，外部执行边界可由宿主注入用于验证 */
 export interface RuntimeFactoryOptions {
@@ -56,7 +58,21 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   });
 
   try {
-    contextStore.runs.recover();
+    const artifacts = new ArtifactStore(join(options.config.runtime.dataDir, "artifacts"), options.config.container);
+    if (options.config.tools.docker.enabled)
+      tools.register(persistDockerArtifacts(createDockerTool(options.config.tools.docker), artifacts));
+    contextStore.recoverRuns((request) => {
+      if (request.name !== "artifact.upload" || request.conversationType !== "group") return undefined;
+      const artifactId = (request.input as { artifactId?: unknown } | null)?.artifactId;
+      if (typeof artifactId !== "string") return undefined;
+      const receipt = inspectArtifactDelivery(join(options.config.runtime.dataDir, "artifact-deliveries"), {
+        sessionId: request.sessionId,
+        channelId: request.channelId,
+        groupId: request.conversationId,
+        artifactId
+      });
+      return receipt === undefined ? undefined : { ...receipt, artifactId };
+    });
     registerContainerTools({
       tools,
       settings: options.config.container,
@@ -65,6 +81,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
       ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
     });
     const runtime = new RuntimeCore({
+      materializeMessage: (sessionId, message) => materializeArtifactMessage(artifacts, sessionId, message),
       ...(options.config.runtime.limits === undefined ? {} : { limits: options.config.runtime.limits }),
       runs: contextStore.runs,
       channels: options.channels,
@@ -179,9 +196,6 @@ function normalizeConversationKind(kind: string): string {
 }
 
 function registerBuiltInTools(tools: ToolRuntime, config: RuntimeConfig): void {
-  if (config.tools.docker.enabled) {
-    tools.register(createDockerTool(config.tools.docker));
-  }
   const web = config.tools.web;
   if (!web.enabled) {
     return;

@@ -16,6 +16,7 @@ import type { PresentationProfile } from "../output/index.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { ContextGraph } from "../context-graph/index.js";
 import type { RunTraceStore } from "../trace/types.js";
+import type { SynapseMessage } from "@synapse/runtime-protocol";
 
 /**
  * RuntimeCore 日志记录接口
@@ -41,6 +42,8 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 仅在发送边界读取工件内容，持久事件与模型输出继续使用引用 */
+  readonly materializeMessage?: (sessionId: string, message: SynapseMessage) => SynapseMessage;
   /** 实例运行预算，排队请求不占用执行名额 */
   readonly limits?: {
     readonly maxConcurrent?: number;

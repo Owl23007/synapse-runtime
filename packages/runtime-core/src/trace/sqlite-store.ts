@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { redactTrace } from "./redact.js";
+import { RunOutcome } from "./outcome.js";
+import { reconcileRunReceipts } from "./reconcile.js";
 import type {
   AcceptRunInput,
   AppendRunEventInput,
@@ -256,42 +258,44 @@ export class SqliteRunTraceStore implements RunTraceStore {
       .value;
   }
 
-  /** 未结束的外部调用保守归为未知，只有无未决动作的中断允许后续安全恢复 */
+  /** 有界扫描活动运行并核对原始回执，已确认结果补齐，未决动作禁止自动重放 */
   recover(): void {
-    const rows = this.db
-      .prepare("SELECT record FROM run_traces WHERE status IN ('accepted', 'running')")
-      .all() as RunRow[];
-    for (const row of rows) {
-      const run = JSON.parse(row.record) as RunTrace;
-      const events = (
-        this.db.prepare("SELECT cursor, record FROM run_events WHERE run_id = ? ORDER BY seq").all(run.id) as EventRow[]
-      ).map(eventFromRow);
-      const pending = new Set<string>();
-      for (const event of events) {
-        if (event.type === "response_sending") pending.add("response");
-        if (["response_sent", "response_send_failed"].includes(event.type)) pending.delete("response");
-        if (event.type.startsWith("tool_call_")) {
-          const data = event.data as { callId?: string } | null;
-          const key = `tool:${data?.callId ?? event.id}`;
-          if (event.type === "tool_call_started") pending.add(key);
-          else pending.delete(key);
+    let cursor = 0;
+    while (true) {
+      const rows = this.db
+        .prepare(
+          "SELECT ordinal, record FROM run_traces WHERE status IN ('accepted', 'running') AND ordinal > ? ORDER BY ordinal LIMIT 100"
+        )
+        .all(cursor) as RunRow[];
+      if (rows.length === 0) return;
+      for (const row of rows) {
+        cursor = row.ordinal;
+        const run = JSON.parse(row.record) as RunTrace;
+        let outcome = new RunOutcome();
+        let attemptId: string | undefined;
+        let afterSeq = 0;
+        while (true) {
+          const events = this.events(run.id, afterSeq, 200);
+          for (const event of events) {
+            afterSeq = event.seq;
+            if (event.type === "run_started" || event.type === "run_resumed") {
+              outcome = new RunOutcome();
+              attemptId = event.attemptId;
+            }
+            outcome.observe(event.type, event.data);
+          }
+          if (events.length < 200) break;
         }
-        if (event.type === "artifact_upload_uncertain" || event.type === "response_send_uncertain")
-          pending.add(event.id);
+        if (run.status === "running") reconcileRunReceipts(this.db, this, run, attemptId, outcome);
+        const { status, error } = outcome.result();
+        this.append(run.id, {
+          key: `recovery:${run.lastSeq}`,
+          type: `run_${status}`,
+          status,
+          phase: "recovery",
+          ...(error === undefined ? {} : { error })
+        });
       }
-      const status = pending.size > 0 ? "uncertain" : "interrupted";
-      this.append(run.id, {
-        key: `recovery:${run.lastSeq}`,
-        type: status === "uncertain" ? "run_uncertain" : "run_interrupted",
-        status,
-        phase: "recovery",
-        error: {
-          code: status,
-          message:
-            status === "uncertain" ? "外部动作结果未确认，请人工核对，未自动重放" : "运行进程中断，已保留历史记录",
-          phase: run.phase
-        }
-      });
     }
   }
 }

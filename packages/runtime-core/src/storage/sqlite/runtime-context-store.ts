@@ -78,6 +78,7 @@ import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
 import type { RunTraceStore } from "../../trace/types.js";
 import { redactTrace } from "../../trace/redact.js";
 import { acquireDirectoryLease } from "./directory-lease.js";
+import { recoverToolOutputs, type RecoverToolOutput } from "./recover-tools.js";
 
 function validateInspectionPage(limit: number, cursor: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
@@ -197,6 +198,12 @@ export class SqliteRuntimeContextStore
       this.#releaseLease?.();
       throw error;
     }
+  }
+
+  /** 在接收请求前核对宿主回执并收敛遗留运行，全程不会执行工具 */
+  recoverRuns(resolveToolOutput?: RecoverToolOutput): void {
+    if (resolveToolOutput !== undefined) recoverToolOutputs(this.#db, this.runs, this.#conversation, resolveToolOutput);
+    this.runs.recover();
   }
 
   /** 管理查询出口统一脱敏，不暴露旧消息或图内容中的部署凭据 */

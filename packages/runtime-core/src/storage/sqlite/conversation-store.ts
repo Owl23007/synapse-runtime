@@ -519,7 +519,13 @@ export class SqliteConversationRepository implements ConversationStore {
     });
   }
 
+  /** 按既有异步仓储契约追加会话事实 */
   async appendEvent(lineId: string, input: AppendLineEventInput): Promise<LineEvent> {
+    return this.appendEventSync(lineId, input);
+  }
+
+  /** 启动恢复在接单前同步补齐回执，复用同一校验和事务边界 */
+  appendEventSync(lineId: string, input: AppendLineEventInput): LineEvent {
     validateId(lineId, "line id");
     validateAppendLineEventInput(input);
     encodeOptionalJson(input.payload, "line event payload");
