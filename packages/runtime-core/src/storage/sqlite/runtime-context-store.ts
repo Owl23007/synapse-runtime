@@ -77,6 +77,7 @@ import type { ContextGraph } from "../../context-graph/index.js";
 import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
 import type { RunTraceStore } from "../../trace/types.js";
 import { redactTrace } from "../../trace/redact.js";
+import { acquireDirectoryLease } from "./directory-lease.js";
 
 function validateInspectionPage(limit: number, cursor: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
@@ -88,6 +89,8 @@ function validateInspectionPage(limit: number, cursor: number): void {
  */
 export interface SqliteRuntimeContextStoreOptions {
   readonly databasePath: string;
+  /** 生产实例与离线维护必须独占目录，普通检查连接不获取该锁 */
+  readonly exclusiveOwner?: boolean;
   /** 从部署凭据收集的脱敏值，不写入数据库 */
   readonly traceSecrets?: readonly string[];
 }
@@ -177,16 +180,21 @@ export class SqliteRuntimeContextStore
   /** 与消息和语义图共享连接的执行追踪 */
   readonly runs: RunTraceStore;
   readonly #traceSecrets: readonly string[];
+  readonly #releaseLease: (() => void) | undefined;
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
     this.#traceSecrets = options.traceSecrets ?? [];
-    this.#db = openRuntimeDatabase(options.databasePath);
+    this.#releaseLease = options.exclusiveOwner ? acquireDirectoryLease(options.databasePath) : undefined;
+    let database: Database.Database | undefined;
     try {
+      database = openRuntimeDatabase(options.databasePath);
+      this.#db = database;
       this.#conversation = new SqliteConversationRepository(this.#db);
       this.contextGraph = new SqliteContextGraphRepository(this.#db);
       this.runs = new SqliteRunTraceStore(this.#db, options.traceSecrets);
     } catch (error) {
-      this.#db.close();
+      database?.close();
+      this.#releaseLease?.();
       throw error;
     }
   }
@@ -1027,9 +1035,14 @@ export class SqliteRuntimeContextStore
     return transaction();
   }
 
+  /** 关闭上下文与 WAL 后释放目录独占，重复调用安全 */
   close(): void {
     // Windows 可能仍持有 WAL 辅助文件，关闭前主动 checkpoint 以保证数据目录可安全迁移或清理
-    closeRuntimeDatabase(this.#db);
+    try {
+      closeRuntimeDatabase(this.#db);
+    } finally {
+      this.#releaseLease?.();
+    }
   }
 
   #findBoundWorkspace(input: WorkspaceResolveInput): WorkspaceRef | undefined {

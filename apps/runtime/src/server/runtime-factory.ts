@@ -50,6 +50,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
   const compileInvocation = createInvocationCompiler(options.config, tools, options.channels);
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite"),
+    exclusiveOwner: true,
     traceSecrets: collectTraceSecrets(options.config)
   });
 
