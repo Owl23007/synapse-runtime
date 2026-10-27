@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 
@@ -7,6 +7,10 @@ export function acquireDirectoryLease(databasePath: string): () => void {
   if (databasePath === ":memory:") throw new Error("独占运行实例需要持久数据目录");
   mkdirSync(dirname(databasePath), { recursive: true });
   const directory = realpathSync(dirname(databasePath));
+  if (existsSync(join(directory, "backup-manifest.json")))
+    throw new Error("该目录是数据备份，请先恢复到新目录再启动运行时");
+  if (existsSync(join(directory, ".maintenance-incomplete")))
+    throw new Error("数据目录的维护未完成，不能启动运行时，请使用完整备份恢复到新目录");
   const lock = new Database(join(directory, ".runtime-lease.sqlite"), { timeout: 0 });
   try {
     lock.exec("CREATE TABLE IF NOT EXISTS lease_marker (id INTEGER PRIMARY KEY)");

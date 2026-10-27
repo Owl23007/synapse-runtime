@@ -8,6 +8,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
       { text: "WebUI 控制台", link: "/guide/webui" },
       { text: "运行链路", link: "/guide/runtime-flow" },
       { text: "群聊工件助手", link: "/guide/group-artifacts" },
+      { text: "数据备份与恢复", link: "/guide/data-maintenance" },
       { text: "配置", link: "/guide/configuration" },
       { text: "联网工具", link: "/guide/web-tools" },
       { text: "通道", link: "/guide/channels" },

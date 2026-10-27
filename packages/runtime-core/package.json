@@ -17,6 +17,10 @@
       "types": "./dist/inspection.d.ts",
       "import": "./dist/inspection.js"
     },
+    "./maintenance": {
+      "types": "./dist/maintenance.d.ts",
+      "import": "./dist/maintenance.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"

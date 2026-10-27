@@ -18,6 +18,7 @@
     "lint:fix": "oxlint . --fix",
     "fixtures:validate": "node tools/channel-fixtures/validate-fixtures.mjs",
     "start": "node apps/runtime/dist/cli.js --config runtime.config.toml --env-file .env",
+    "maintenance": "node apps/runtime/dist/maintenance.js",
     "tui": "node apps/tui/dist/cli.js",
     "tui:spawn": "node apps/tui/dist/cli.js --spawn --runtime-entry apps/runtime/dist/cli.js --config runtime.config.toml --env-file .env",
     "test": "pnpm -r test && pnpm test:integration",

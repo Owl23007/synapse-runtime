@@ -87,7 +87,7 @@ node apps/runtime/dist/cli.js start --config examples/group-artifacts.config.tom
 
 `dataDir/artifacts` 保存 UUID 命名的二进制和归属清单，`dataDir/artifact-deliveries` 保存上传占位和终态回执，`runtime-context.sqlite` 保存 DAG、消息与工具事件。工件按 Session 隔离，即使两个群共享 Workspace 也不能互相读取。
 
-当前实现尚无自动过期清理。备份或维护前先停止 Runtime，同时备份数据库、整个工件目录（含 `selection-*.json`）和回执目录。不要手工删除仍被最终选择、历史运行或未决动作引用的清单；清理与墓碑维护工具仍属 0.1 待完成项。保留上传回执以维持去重语义。存储限额统计二进制，数据库、清单和回执仍需由部署者监控磁盘占用。每个数据目录只运行一个 Runtime 进程，重复实例会被目录锁拒绝。
+备份或维护前先停止 Runtime，使用[数据备份与恢复](./data-maintenance.md)中的离线命令保存数据库一致性快照、整个工件目录（含 `selection-*.json`）和回执目录，并校验后恢复到新目录。当前尚无自动过期清理，不要手工删除仍被最终选择、历史运行或未决动作引用的清单；清理与墓碑维护工具仍属 0.1 待完成项。保留上传回执以维持去重语义。存储限额统计二进制，数据库、清单和回执仍需由部署者监控磁盘占用。每个数据目录只运行一个 Runtime 进程，重复实例和并行维护会被目录锁拒绝。
 
 ## 验收
 

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "bin": {
+    "synapse-maintenance": "./dist/maintenance.js",
     "synapse-runtime": "./dist/cli.js"
   },
   "files": [
