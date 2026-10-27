@@ -14,11 +14,21 @@ interface ChannelAdapter {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   getStatus(): Promise<ChannelStatus>;
-  getCapabilities(): ChannelCapabilities;
-  sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult>;
+  getCapabilities(): ChannelCapabilityProfile;
+  sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult>;
+  uploadGroupFile?(groupId: string, file: GroupFileUpload): Promise<ChannelOperationResult>;
+  executePlatformAction?(action: PlatformAction): Promise<ChannelOperationResult>;
   onEvent(handler: ChannelEventHandler): void;
 }
 ```
+
+目标、动作、能力档案及回执均由 `@synapse/runtime-protocol` 定义。`@synapse/runtime-channel` 只定义 Adapter 生命周期、注册表和 `executeChannelAction()` 执行入口，不重复导出协议类型。
+
+`getCapabilities()` 按动作标识声明 `supported`、`partially-supported`、`unsupported` 或 `unknown`，并可附带目标类型和文件大小约束。未声明、未知或未实现的能力返回 `unsupported`；平台扩展使用 `namespace:operation` 标识，不能借用标准能力授权。
+
+操作回执使用 `succeeded`、`failed`、`unsupported`、`uncertain`。`uncertain` 表示平台可能已执行，必须先核对结果，不能自动重试。统一执行器不负责权限、幂等、持久化或恢复。详细边界与分阶段范围见 [Channel 重构](../reference/channel-refactor.md)。
+
+Runtime 的消息发送、工件工具上传与自动群文件交付均经统一动作入口。工具上传和自动交付共享 Runtime 的持久回执仓储；重复调用或重启不会重复上传同一会话、频道、群中的同一工件。能力约束拒绝或实现缺失会明确失败，不会绕过执行器改用普通消息交付附件。
 
 ## OneBot11 / NapCat
 

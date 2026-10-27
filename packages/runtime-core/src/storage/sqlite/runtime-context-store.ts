@@ -74,12 +74,26 @@ import { SqliteConversationRepository } from "./conversation-store.js";
 import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
 import { SqliteContextGraphRepository } from "./context-graph-store.js";
 import type { ContextGraph } from "../../context-graph/index.js";
+import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
+import type { RunTraceStore } from "../../trace/types.js";
+import { redactTrace } from "../../trace/redact.js";
+import { acquireDirectoryLease } from "./directory-lease.js";
+import { recoverToolOutputs, type RecoverToolOutput } from "./recover-tools.js";
+
+function validateInspectionPage(limit: number, cursor: number): void {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
+    throw new Error("Invalid inspection page");
+}
 
 /**
  * SQLite 运行时上下文存储配置
  */
 export interface SqliteRuntimeContextStoreOptions {
   readonly databasePath: string;
+  /** 生产实例与离线维护必须独占目录，普通检查连接不获取该锁 */
+  readonly exclusiveOwner?: boolean;
+  /** 从部署凭据收集的脱敏值，不写入数据库 */
+  readonly traceSecrets?: readonly string[];
 }
 
 interface ConversationMessageRow {
@@ -164,16 +178,79 @@ export class SqliteRuntimeContextStore
   readonly #conversation: SqliteConversationRepository;
   /** 与其他仓储共享连接和事务边界的上下文演化图 */
   readonly contextGraph: ContextGraph;
+  /** 与消息和语义图共享连接的执行追踪 */
+  readonly runs: RunTraceStore;
+  readonly #traceSecrets: readonly string[];
+  readonly #releaseLease: (() => void) | undefined;
 
   constructor(options: SqliteRuntimeContextStoreOptions) {
-    this.#db = openRuntimeDatabase(options.databasePath);
+    this.#traceSecrets = options.traceSecrets ?? [];
+    this.#releaseLease = options.exclusiveOwner ? acquireDirectoryLease(options.databasePath) : undefined;
+    let database: Database.Database | undefined;
     try {
+      database = openRuntimeDatabase(options.databasePath);
+      this.#db = database;
       this.#conversation = new SqliteConversationRepository(this.#db);
       this.contextGraph = new SqliteContextGraphRepository(this.#db);
+      this.runs = new SqliteRunTraceStore(this.#db, options.traceSecrets);
     } catch (error) {
-      this.#db.close();
+      database?.close();
+      this.#releaseLease?.();
       throw error;
     }
+  }
+
+  /** 在接收请求前核对宿主回执并收敛遗留运行，全程不会执行工具 */
+  recoverRuns(resolveToolOutput?: RecoverToolOutput): void {
+    if (resolveToolOutput !== undefined) recoverToolOutputs(this.#db, this.runs, this.#conversation, resolveToolOutput);
+    this.runs.recover();
+  }
+
+  /** 管理查询出口统一脱敏，不暴露旧消息或图内容中的部署凭据 */
+  inspectValue(value: unknown): unknown {
+    return redactTrace(value, this.#traceSecrets);
+  }
+
+  /** 按固定创建顺序分页发现会话，返回有限的公开元数据 */
+  inspectSessions(limit = 50, before = Number.MAX_SAFE_INTEGER): readonly unknown[] {
+    validateInspectionPage(limit, before);
+    return this.#db
+      .prepare(
+        "SELECT rowid AS cursor, id, mainline_id AS mainlineId, channel_id AS channelId, conversation_type AS conversationType, status, created_at AS createdAt FROM conversation_sessions WHERE rowid < ? ORDER BY rowid DESC LIMIT ?"
+      )
+      .all(before, limit);
+  }
+
+  /** 分页检查消息文本和标准消息，不返回平台原始载荷 */
+  inspectTranscript(sessionId: string, limit = 50, before = Number.MAX_SAFE_INTEGER): readonly unknown[] {
+    validateInspectionPage(limit, before);
+    const rows = this.#db
+      .prepare(
+        "SELECT rowid AS cursor, * FROM conversation_messages WHERE session_id = ? AND deleted_at IS NULL AND rowid < ? ORDER BY rowid DESC LIMIT ?"
+      )
+      .all(sessionId, before, limit) as (ConversationMessageRow & { cursor: number })[];
+    return rows.map((row) => {
+      const message = transcriptMessageFromRow(row);
+      return this.inspectValue({
+        cursor: row.cursor,
+        id: message.id,
+        role: message.role,
+        createdAt: message.createdAt,
+        text: message.text,
+        message: message.message,
+        sourceEventId: message.sourceEventId
+      });
+    });
+  }
+
+  /** 检查会话引用，按名称分页以避免读取整张图 */
+  inspectRefs(sessionId: string, limit = 50, after = ""): readonly unknown[] {
+    validateInspectionPage(limit, 0);
+    return this.#db
+      .prepare(
+        "SELECT name, type, commit_id AS commitId, version, updated_at AS updatedAt FROM context_graph_ref WHERE scope_id = ? AND name > ? ORDER BY name LIMIT ?"
+      )
+      .all(sessionId, after, limit);
   }
 
   acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent> {
@@ -965,9 +1042,14 @@ export class SqliteRuntimeContextStore
     return transaction();
   }
 
+  /** 关闭上下文与 WAL 后释放目录独占，重复调用安全 */
   close(): void {
     // Windows 可能仍持有 WAL 辅助文件，关闭前主动 checkpoint 以保证数据目录可安全迁移或清理
-    closeRuntimeDatabase(this.#db);
+    try {
+      closeRuntimeDatabase(this.#db);
+    } finally {
+      this.#releaseLease?.();
+    }
   }
 
   #findBoundWorkspace(input: WorkspaceResolveInput): WorkspaceRef | undefined {

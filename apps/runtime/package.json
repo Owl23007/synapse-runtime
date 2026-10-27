@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "bin": {
+    "synapse-maintenance": "./dist/maintenance.js",
     "synapse-runtime": "./dist/cli.js"
   },
   "files": [
@@ -43,10 +44,11 @@
     "@synapse/runtime-protocol": "workspace:*",
     "@synapse/runtime-resources": "workspace:*",
     "@synapse/runtime-tool-container": "workspace:*",
+    "@synapse/runtime-tool-execution": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
-    "nova-http": "^0.2.0",
-    "zod": "^4.5.4"
+    "nova-http": "^0.2.1",
+    "zod": "^4.6.7"
   }
 }

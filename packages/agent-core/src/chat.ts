@@ -39,6 +39,8 @@ export interface ChatTokenUsage {
 
 /** 聊天完成请求 */
 export interface ChatCompletionRequest {
+  /** 调用方生命周期信号，不序列化到模型请求载荷 */
+  readonly signal?: AbortSignal;
   readonly messages: readonly ChatCompletionMessage[];
   readonly tools?: readonly ChatToolDefinition[];
   readonly toolChoice?: ChatToolChoice;
@@ -61,6 +63,8 @@ export interface ChatCompletionResult {
 /** 聊天完成服务提供商 */
 export interface ChatCompletionProvider {
   readonly id: string;
+  /** 已配置的模型标识，未声明时追踪显示未知 */
+  readonly model?: string;
   /** 执行聊天完成请求 */
   complete(request: ChatCompletionRequest): Promise<ChatCompletionResult>;
 }

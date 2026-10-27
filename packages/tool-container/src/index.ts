@@ -1,4 +1,11 @@
-export { ArtifactStore, type Artifact, type ArtifactContent, type ArtifactScope } from "./artifacts.js";
+export {
+  ArtifactStore,
+  type Artifact,
+  type ArtifactContent,
+  type ArtifactScope,
+  type ArtifactManifest,
+  type ArtifactSelection
+} from "./artifacts.js";
 export {
   ContainerExecutor,
   runDockerCommand,

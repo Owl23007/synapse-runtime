@@ -1,5 +1,30 @@
 # 配置
 
+## 执行预算
+
+每个数据目录仅允许一个生产 Runtime。重复启动会明确拒绝；正常退出或进程崩溃后，目录锁由操作系统释放，不需要手工删除锁文件。
+
+可选的执行预算配置如下，未填写时使用相同默认值：
+
+```toml
+[runtime.limits]
+maxConcurrent = 4
+maxQueued = 64
+runTimeoutMs = 300000
+toolTimeoutMs = 130000
+shutdownGraceMs = 30000
+
+[agentLoop]
+maxInputChars = 64000
+maxOutputTokens = 4096
+```
+
+队列满时拒绝新请求，不创建已接受的 Run；Admin 状态中 `runtime.execution` 提供活动、排队和拒绝计数。关闭服务时停止接单并取消尚未开始的排队请求，活动运行在宽限到期后取消，再为受控工具保留最多 15 秒清理时间。
+
+模型提供商可单独配置 `timeoutMs`（默认 60000）和 `maxRequestChars`（默认 128000）。模型超时包含响应体读取。循环的输入预算包含系统提示、历史、DAG、工具定义及工具观察；超限明确失败，不静默删改必要上下文。最终 HTTP 请求也有独立上限，包含提供商额外参数。字符预算不是精确 token 计数，模型窗口仍需部署者按模型规格设置；`maxOutputTokens` 控制每轮输出上限，未设置时优先沿用提供商 `maxTokens`。
+
+工具超时不能证明外部操作没有发生，因此记录为结果待确认并停止该运行继续调用工具。受控 Docker 客户端接收取消信号，并独立清理具名容器。请先核实平台回执，避免通过重复请求绕过未知状态。
+
 Runtime 配置由 `apps/runtime/src/config` 组合加载，文件解析、dotenv 与来源合并统一由 `@synapse/runtime-config` 提供。Loader 支持 TOML、YAML 和 JSON；仓库内的部署示例是 `examples/runtime.config.toml`。
 
 显式配置文件是 Runtime 配置的主载体：模块结构、功能开关、资源路径和非敏感参数应写入配置文件并接受版本管理。env 不承载另一套完整配置，只用于给 `${VAR}` 占位符注入凭据、定位额外配置文件，以及通过 `SYNAPSE__<module>__<field>` 做进程级临时覆盖

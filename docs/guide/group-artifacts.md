@@ -52,6 +52,18 @@ node apps/runtime/dist/cli.js start --config examples/group-artifacts.config.tom
 
 只有 `artifact.upload.status = succeeded` 表示平台已确认上传。单纯生成文件或模型说“已完成”不构成交付凭据。NapCat 可能不返回 `file_id`，此时仍以其明确成功回执为准。
 
+`container.run` 与 `docker.run` 使用同一工件库。同一 Run 内同名同内容复用 ID，同名修订版替换旧版最终选择。`artifact.upload` 默认 `operation=upload`，也接受以下管理操作，管理时不会上传文件：
+
+```json
+{ "operation": "select", "artifactIds": ["本轮最终工件 UUID"] }
+```
+
+```json
+{ "operation": "discard", "artifactIds": ["本轮草稿 UUID"] }
+```
+
+`select` 替换整个最终集合，`discard` 废弃指定候选；两个操作只接受当前运行、当前会话的工件。选择记录持久化且原子替换；旧候选和已废弃文件仍可检查与下载，但上传前必须重新明确选择。生成、选择与平台交付分别记录：最终文件缺少成功回执时，即使文本声称完成，Run 也不会标为成功；未选中的草稿不影响完整交付判断。
+
 ## 隔离和限额
 
 容器无网络、无宿主目录挂载、无 Docker socket，使用非 root 用户、只读根文件系统和临时工作盘。模型不能选择容器镜像、宿主命令、挂载路径或目标群。宿主只接受声明的单层普通文件，拒绝路径穿越、隐藏文件、符号链接、硬链接和超限内容。
@@ -75,7 +87,7 @@ node apps/runtime/dist/cli.js start --config examples/group-artifacts.config.tom
 
 `dataDir/artifacts` 保存 UUID 命名的二进制和归属清单，`dataDir/artifact-deliveries` 保存上传占位和终态回执，`runtime-context.sqlite` 保存 DAG、消息与工具事件。工件按 Session 隔离，即使两个群共享 Workspace 也不能互相读取。
 
-0.1 不做自动过期清理。备份或维护前先停止 Runtime，同时备份数据库、工件和回执目录；只移除已确认不再需要的工件 `.bin` 与同名 `.json`。删除会使旧 ID 无法继续加工，但不会撤回群文件。保留上传回执以维持去重语义。存储限额统计二进制，数据库、清单和回执仍需由部署者监控磁盘占用。每个数据目录只运行一个 Runtime 进程。
+备份或维护前先停止 Runtime，使用[数据备份与恢复](./data-maintenance.md)中的离线命令保存数据库一致性快照、整个工件目录（含 `selection-*.json`）和回执目录，并校验后恢复到新目录。当前尚无自动过期清理，不要手工删除仍被最终选择、历史运行或未决动作引用的清单；清理与墓碑维护工具仍属 0.1 待完成项。保留上传回执以维持去重语义。存储限额统计二进制，数据库、清单和回执仍需由部署者监控磁盘占用。每个数据目录只运行一个 Runtime 进程，重复实例和并行维护会被目录锁拒绝。
 
 ## 验收
 

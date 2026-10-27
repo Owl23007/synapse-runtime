@@ -13,6 +13,8 @@ export interface RuntimeServerOptions {
 export type RuntimeFetch = (url: string, init?: RuntimeFetchInit) => Promise<RuntimeFetchResponse>;
 
 export interface RuntimeFetchInit {
+  /** 宿主取消信号，注入的网络实现应及时停止请求 */
+  readonly signal?: AbortSignal;
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;

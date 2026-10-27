@@ -1,6 +1,8 @@
-import { redactConfig, type LogLevel } from "./config/index.js";
+import type { LogLevel } from "./config/index.js";
+import { redactInspection } from "@synapse/runtime-core/inspection";
 import type { RuntimeLogEntry, RuntimeLogLevel, RuntimeServerLogger } from "./types.js";
 
+/** 将已脱敏的结构化日志写入进程输出 */
 export const DEFAULT_LOGGER: RuntimeServerLogger = {
   debug(message, metadata) {
     log("debug", message, metadata);
@@ -16,33 +18,51 @@ export const DEFAULT_LOGGER: RuntimeServerLogger = {
   }
 };
 
-export function createLevelLogger(logger: RuntimeServerLogger, logLevel: LogLevel): RuntimeServerLogger {
+/** 在日志进入输出和订阅缓冲区前统一限流级别、脱敏并限制体积 */
+export function createLevelLogger(
+  logger: RuntimeServerLogger,
+  logLevel: LogLevel,
+  getSecrets: () => readonly string[] = () => []
+): RuntimeServerLogger {
   const threshold = LOG_LEVEL_ORDER[logLevel];
+  const sanitize = (message: string, metadata?: Readonly<Record<string, unknown>>) => {
+    const secrets = getSecrets();
+    const safe = metadata === undefined ? undefined : redactInspection(metadata, secrets);
+    return [
+      String(redactInspection(message, secrets)),
+      safe === undefined
+        ? undefined
+        : safe !== null && typeof safe === "object" && !Array.isArray(safe)
+          ? (safe as Readonly<Record<string, unknown>>)
+          : { snapshot: safe }
+    ] as const;
+  };
 
   return {
     debug(message, metadata) {
       if (LOG_LEVEL_ORDER.debug >= threshold) {
-        logger.debug?.(message, redactConfig(metadata));
+        logger.debug?.(...sanitize(message, metadata));
       }
     },
     info(message, metadata) {
       if (LOG_LEVEL_ORDER.info >= threshold) {
-        logger.info(message, redactConfig(metadata));
+        logger.info(...sanitize(message, metadata));
       }
     },
     warn(message, metadata) {
       if (LOG_LEVEL_ORDER.warn >= threshold) {
-        logger.warn(message, redactConfig(metadata));
+        logger.warn(...sanitize(message, metadata));
       }
     },
     error(message, metadata) {
       if (LOG_LEVEL_ORDER.error >= threshold) {
-        logger.error(message, redactConfig(metadata));
+        logger.error(...sanitize(message, metadata));
       }
     }
   };
 }
 
+/** 保存有界日志并向在线管理客户端推送 */
 export class RuntimeLogBuffer implements RuntimeServerLogger {
   readonly #entries: RuntimeLogEntry[] = [];
   readonly #listeners = new Set<(entry: RuntimeLogEntry) => void>();
@@ -98,6 +118,7 @@ export class RuntimeLogBuffer implements RuntimeServerLogger {
   }
 }
 
+/** 将已处理的日志分发给多个输出端 */
 export function createTeeLogger(loggers: readonly RuntimeServerLogger[]): RuntimeServerLogger {
   return {
     debug(message, metadata) {

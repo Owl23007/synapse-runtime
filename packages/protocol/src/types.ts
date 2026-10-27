@@ -158,6 +158,7 @@ export interface ChannelTriggerHint {
   readonly replyTargetMessageId?: string;
 }
 
+/** 当前入站事件的路由与回复上下文，不作为平台动作的能力授权 */
 export interface AdapterCapabilities {
   readonly mentionUser?: boolean;
   readonly mentionAll?: boolean;
@@ -170,7 +171,14 @@ export interface AdapterCapabilities {
 }
 
 /** 出站动作支持的协议类型 */
-export type ChannelActionType = "message.send" | "message.edit" | "message.delete" | "reaction.add" | "reaction.remove";
+export type ChannelActionType =
+  | "message.send"
+  | "message.edit"
+  | "message.delete"
+  | "reaction.add"
+  | "reaction.remove"
+  | "file.upload"
+  | "platform.execute";
 
 /** 出站动作所使用的平台目标 */
 export type ChannelActionTarget =
@@ -227,7 +235,39 @@ export interface ReactionAction extends ChannelOutputActionBase {
 }
 
 /** Runtime 产生的统一出站动作模型 */
-export type ChannelOutputAction = MessageSendAction | MessageEditAction | MessageDeleteAction | ReactionAction;
+export type ChannelOutputAction =
+  | MessageSendAction
+  | MessageEditAction
+  | MessageDeleteAction
+  | ReactionAction
+  | GroupFileUploadAction
+  | PlatformAction;
+
+/** 显式命名的平台扩展动作，不能隐式授权或替代标准动作 */
+export interface PlatformAction extends ChannelOutputActionBase {
+  readonly actionType: "platform.execute";
+  readonly capability: `${string}:${string}`;
+  readonly target: ChannelActionTarget;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
+/** 上传群文件的内存动作，持久化与恢复由 Runtime 管理，不能直接序列化字节 */
+export interface GroupFileUploadAction extends ChannelOutputActionBase {
+  readonly actionType: "file.upload";
+  readonly target: Extract<ChannelActionTarget, { readonly type: "group" }>;
+  readonly file: GroupFileUpload;
+}
+
+/** 可执行能力的约束，额外平台约束仍由 Adapter 校验 */
+export interface ChannelCapabilityConstraints {
+  readonly targetTypes?: readonly ChannelActionTarget["type"][];
+  readonly messageSegmentTypes?: readonly MessageSegment["type"][];
+  readonly maxFileSizeBytes?: number;
+  readonly [key: string]: unknown;
+}
+
+/** 标准动作能力或带命名空间的平台扩展，例如 napcat:upload_group_file */
+export type ChannelCapabilityKey = ChannelActionType | "message.receive" | "message.media" | `${string}:${string}`;
 
 /** Channel 能力的验证状态 */
 export type CapabilityStatus = "supported" | "partially-supported" | "unsupported" | "unknown";
@@ -236,8 +276,10 @@ export type CapabilityStatus = "supported" | "partially-supported" | "unsupporte
 export interface ChannelCapability {
   readonly status: CapabilityStatus;
   readonly reason?: string;
-  readonly constraints?: Readonly<Record<string, unknown>>;
+  readonly constraints?: ChannelCapabilityConstraints;
   readonly source?: "tested" | "documented" | "blocked" | "unknown";
+  /** 标准动作在具体平台的实现来源，扩展实现不等于标准协议原生支持 */
+  readonly implementation?: `${string}:${string}`;
 }
 
 /** 可落库、可观测的 Channel 能力描述 */
@@ -246,21 +288,32 @@ export interface ChannelCapabilityProfile {
   readonly channelId: string;
   readonly adapterType: string;
   readonly observedAt: string;
-  readonly capabilities: Readonly<Record<string, ChannelCapability>>;
+  readonly capabilities: Readonly<Partial<Record<ChannelCapabilityKey, ChannelCapability>>>;
   readonly extensions?: Readonly<Record<string, unknown>>;
 }
 
-/** 出站动作的统一执行结果 */
-export interface ChannelActionResult {
+/** 出站动作终态，uncertain 表示可能已产生平台副作用，不能自动重试 */
+export type ChannelActionStatus = "succeeded" | "failed" | "unsupported" | "uncertain";
+
+/** 平台操作的统一回执，未知结果与明确拒绝必须区分，避免恢复时重复交付 */
+export type ChannelOperationResult =
+  | { readonly status: "succeeded"; readonly messageId?: string; readonly fileId?: string }
+  | { readonly status: Exclude<ChannelActionStatus, "succeeded">; readonly error: string };
+
+/** 出站动作结果关联请求标识，不引入第二套平台回执语义 */
+export type ChannelActionResult = ChannelOperationResult & {
   readonly schemaVersion: ChannelProtocolSchemaVersion;
   readonly actionId: string;
   readonly actionType: ChannelActionType;
-  readonly status: "succeeded" | "failed" | "unsupported";
-  readonly externalMessageId?: string;
   readonly executedAt: string;
   readonly errorCode?: string;
-  readonly errorMessage?: string;
   readonly retryable?: boolean;
   readonly raw?: unknown;
   readonly extensions?: Readonly<Record<string, unknown>>;
+};
+
+/** 向群文件接口提交的已校验内容，不接受宿主路径 */
+export interface GroupFileUpload {
+  readonly name: string;
+  readonly data: Uint8Array;
 }

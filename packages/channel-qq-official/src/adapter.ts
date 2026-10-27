@@ -1,12 +1,11 @@
+import type { ChannelAdapter, ChannelEventHandler, ChannelStatus } from "@synapse/runtime-channel";
 import type {
-  ChannelAdapter,
-  ChannelCapabilities,
-  ChannelEventHandler,
-  ChannelStatus,
-  ChannelTarget,
-  SendResult
-} from "@synapse/runtime-channel";
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+  ChannelCapabilityProfile,
+  ChannelActionTarget,
+  ChannelOperationResult,
+  SynapseChannelEvent,
+  SynapseMessage
+} from "@synapse/runtime-protocol";
 import { QQ_OFFICIAL_API_BASE_URL } from "./constants.js";
 import { normalizeQqOfficialDispatch } from "./normalize.js";
 import { createQqOfficialSendBody, extractMessageId, renderTextMessage } from "./send-message.js";
@@ -59,28 +58,42 @@ export class QqOfficialChannelAdapter implements ChannelAdapter {
     return this.#status;
   }
 
-  getCapabilities(): ChannelCapabilities {
+  /** 声明官方接口可执行的动作与目标范围，文件上传不属于当前实现 */
+  getCapabilities(): ChannelCapabilityProfile {
     return {
-      receivePrivateMessage: true,
-      receiveGroupMessage: true,
-      receiveAllGroupMessages: false,
-      requiresMention: true,
-      sendPrivateMessage: true,
-      sendGroupMessage: true,
-      sendMedia: false,
-      manageGroup: false,
-      recallMessage: false,
-      complianceLevel: "official",
-      riskLevel: "low"
+      schemaVersion: "channel-protocol/v1",
+      channelId: this.id,
+      adapterType: this.type,
+      observedAt: new Date().toISOString(),
+      capabilities: {
+        "message.receive": {
+          status: "partially-supported",
+          constraints: { targetTypes: ["private", "group", "channel"] },
+          reason: "群消息接收依赖平台提及机器人事件"
+        },
+        "message.send": {
+          status: "partially-supported",
+          constraints: {
+            targetTypes: ["private", "group", "channel"],
+            messageSegmentTypes: ["text", "mention", "reply"]
+          }
+        },
+        "message.media": { status: "unsupported" },
+        "message.delete": { status: "unsupported" },
+        "file.upload": { status: "unsupported" }
+      }
     };
   }
 
-  async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
+  /** 请求发出后的传输异常保留未知回执，发送前校验和令牌失败属于明确失败 */
+  async sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult> {
+    let submitted = false;
     try {
       const content = renderTextMessage(message);
       const accessToken = await this.#tokenClient.getAccessToken();
       const url = this.#sendMessageUrl(target);
       const body = createQqOfficialSendBody(target, message, content);
+      submitted = true;
       const response = await this.#fetch(url, {
         method: "POST",
         headers: {
@@ -93,20 +106,24 @@ export class QqOfficialChannelAdapter implements ChannelAdapter {
 
       if (!response.ok) {
         return {
-          ok: false,
+          status: "failed",
           error: `QQ official send failed with HTTP ${response.status}: ${safeJson(responseBody)}`
         };
       }
 
       const messageId = extractMessageId(responseBody);
       return {
-        ok: true,
+        status: "succeeded",
         ...(messageId === undefined ? {} : { messageId })
       };
     } catch (error) {
       return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
+        status: submitted ? "uncertain" : "failed",
+        error: submitted
+          ? "QQ official message receipt was not confirmed; verify delivery before retrying."
+          : error instanceof Error
+            ? error.message
+            : String(error)
       };
     }
   }
@@ -126,7 +143,7 @@ export class QqOfficialChannelAdapter implements ChannelAdapter {
     return [event];
   }
 
-  #sendMessageUrl(target: ChannelTarget): string {
+  #sendMessageUrl(target: ChannelActionTarget): string {
     const baseUrl = this.#apiBaseUrl.replace(/\/$/, "");
 
     if (target.type === "private") {

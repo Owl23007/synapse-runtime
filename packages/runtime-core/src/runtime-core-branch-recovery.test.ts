@@ -7,12 +7,10 @@ import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
 import {
   InMemoryChannelRegistry,
   type ChannelAdapter,
-  type ChannelCapabilities,
   type ChannelEventHandler,
-  type ChannelStatus,
-  type ChannelTarget,
-  type SendResult
+  type ChannelStatus
 } from "@synapse/runtime-channel";
+import type { ChannelCapabilityProfile, ChannelActionTarget, ChannelOperationResult } from "@synapse/runtime-protocol";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { textMessage, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
@@ -33,7 +31,7 @@ class RecordingChannel implements ChannelAdapter {
   readonly id = "qq-local";
   readonly type = "onebot11";
   readonly provider = "napcat";
-  readonly sent: Array<{ readonly target: ChannelTarget; readonly message: SynapseMessage }> = [];
+  readonly sent: Array<{ readonly target: ChannelActionTarget; readonly message: SynapseMessage }> = [];
   readonly #handlers = new Set<ChannelEventHandler>();
 
   async connect(): Promise<void> {}
@@ -44,25 +42,24 @@ class RecordingChannel implements ChannelAdapter {
     return { state: "online", checkedAt: new Date(0).toISOString() };
   }
 
-  getCapabilities(): ChannelCapabilities {
+  getCapabilities(): ChannelCapabilityProfile {
     return {
-      receivePrivateMessage: true,
-      receiveGroupMessage: true,
-      receiveAllGroupMessages: true,
-      requiresMention: false,
-      sendPrivateMessage: true,
-      sendGroupMessage: true,
-      sendMedia: false,
-      manageGroup: false,
-      recallMessage: false,
-      complianceLevel: "community",
-      riskLevel: "high"
+      schemaVersion: "channel-protocol/v1",
+      channelId: this.id,
+      adapterType: this.type,
+      observedAt: new Date().toISOString(),
+      capabilities: {
+        "message.send": { status: "supported", constraints: { targetTypes: ["private", "group"] } },
+        "message.media": { status: "unsupported" },
+        "message.delete": { status: "unsupported" },
+        "file.upload": { status: "unsupported", constraints: { targetTypes: ["group"], maxFileSizeBytes: 10_485_760 } }
+      }
     };
   }
 
-  async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
+  async sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult> {
     this.sent.push({ target, message });
-    return { ok: true, messageId: `sent-${this.sent.length}` };
+    return { status: "succeeded", messageId: `sent-${this.sent.length}` };
   }
 
   onEvent(handler: ChannelEventHandler): void {

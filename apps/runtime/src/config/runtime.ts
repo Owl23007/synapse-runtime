@@ -17,7 +17,17 @@ export const RuntimeSettingsSchema = z
   .object({
     mode: RuntimeModeSchema.default("local"),
     dataDir: z.string().min(1).default(DEFAULT_RUNTIME_DATA_DIR),
-    logLevel: LogLevelSchema.default("info")
+    logLevel: LogLevelSchema.default("info"),
+    limits: z
+      .object({
+        maxConcurrent: z.number().int().min(1).max(32).default(4),
+        maxQueued: z.number().int().min(0).max(1000).default(64),
+        runTimeoutMs: z.number().int().min(100).max(1_800_000).default(300_000),
+        toolTimeoutMs: z.number().int().min(100).max(600_000).default(130_000),
+        shutdownGraceMs: z.number().int().min(100).max(300_000).default(30_000)
+      })
+      .strict()
+      .optional()
   })
   .passthrough();
 

@@ -22,7 +22,7 @@ export const SkillManifestSchema = z.object({
   version: z.string().min(1).default("1"),
   description: z.string().min(1),
   purposes: z.array(z.string().min(1)).min(1),
-  activation: SkillActivationSchema.default({}),
+  activation: SkillActivationSchema.prefault({}),
   promptIds: z.array(z.string().min(1)).default([]),
   requiredTools: z.array(z.string().min(1)).default([]),
   optionalTools: z.array(z.string().min(1)).default([]),

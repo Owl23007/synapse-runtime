@@ -3,6 +3,8 @@ import { z } from "zod";
 
 /** 默认循环的资源预算，由循环实现独立维护 */
 export const AgentLoopSettingsSchema = z.object({
+  maxInputChars: z.number().int().min(1024).max(1_000_000).optional(),
+  maxOutputTokens: z.number().int().min(1).max(100_000).optional(),
   maxSteps: z.number().int().positive().default(8),
   maxToolCalls: z.number().int().positive().default(16)
 });

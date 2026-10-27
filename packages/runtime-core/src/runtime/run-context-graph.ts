@@ -58,11 +58,13 @@ export class RunContextGraph {
   }
 
   /** 基于完成时的当前头回流，延迟完成的运行保留并发历史而不覆盖它 */
-  finish(sessionId: string, lineId: string, eventId: string, output: string): void {
+  finish(sessionId: string, lineId: string, eventId: string, output: string): Commit | undefined {
     const result = this.record(sessionId, eventId, `run:${eventId}:result`, "result", { output });
-    if (!result || this.graph.getCommitByKey(sessionId, `run:${eventId}:publish`)) return;
+    if (!result) return undefined;
+    const published = this.graph.getCommitByKey(sessionId, `run:${eventId}:publish`);
+    if (published) return published;
     const current = this.graph.getRef(sessionId, `line:${lineId}`)!;
-    this.graph.merge({
+    return this.graph.merge({
       scopeId: sessionId,
       refName: current.name,
       expectedVersion: current.version,

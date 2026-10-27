@@ -31,8 +31,8 @@
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-conversation": "workspace:*",
     "@synapse/runtime-i18n": "workspace:*",
-    "yaml": "^2.5.0",
-    "zod": "^3.23.8",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7",
     "zod-config": "npm:zod@^4.5.4"
   }
 }
