@@ -1,3 +1,4 @@
+import { recoverArtifactToolOutput } from "@synapse/runtime-core/artifacts";
 import { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { type LocaleResolver } from "@synapse/runtime-i18n";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ import { ArtifactStore, type DockerCommandRunner } from "@synapse/runtime-tool-c
 import { registerContainerTools } from "./container-tools.js";
 import { canUploadGroupFile } from "./channel-delivery.js";
 import { collectTraceSecrets } from "../secrets.js";
-import { inspectArtifactDelivery, ArtifactDeliveryStore } from "./artifact-delivery.js";
+import { ArtifactDeliveryStore } from "../infrastructure/artifact-delivery.js";
 import {
   persistDockerArtifacts,
   materializeArtifactMessage,
@@ -99,22 +100,14 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
 
   try {
     const artifacts = new ArtifactStore(join(options.config.runtime.dataDir, "artifacts"), options.config.container);
+    const deliveries = new ArtifactDeliveryStore(join(options.config.runtime.dataDir, "artifact-deliveries"));
     if (options.config.tools.docker.enabled)
       tools.register(persistDockerArtifacts(createDockerTool(options.config.tools.docker), artifacts));
-    contextStore.recoverRuns((request) => {
-      if (request.name !== "artifact.upload" || request.conversationType !== "group") return undefined;
-      const artifactId = (request.input as { artifactId?: unknown } | null)?.artifactId;
-      if (typeof artifactId !== "string") return undefined;
-      const receipt = inspectArtifactDelivery(join(options.config.runtime.dataDir, "artifact-deliveries"), {
-        sessionId: request.sessionId,
-        channelId: request.channelId,
-        groupId: request.conversationId,
-        artifactId
-      });
-      return receipt === undefined ? undefined : { ...receipt, artifactId };
-    });
+    contextStore.recoverRuns((request) => recoverArtifactToolOutput(deliveries, request));
     registerContainerTools({
       tools,
+      artifacts,
+      deliveries,
       settings: options.config.container,
       dataDir: options.config.runtime.dataDir,
       channels: options.channels,
@@ -124,11 +117,7 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
     const runtime = new RuntimeCore({
       materializeMessage: (sessionId, message) => materializeArtifactMessage(artifacts, sessionId, message),
       selectMessage: (sessionId, message) => selectArtifactMessage(artifacts, sessionId, message),
-      prepareDelivery: createArtifactDelivery(
-        artifacts,
-        new ArtifactDeliveryStore(join(options.config.runtime.dataDir, "artifact-deliveries")),
-        options.channels
-      ),
+      prepareDelivery: createArtifactDelivery(artifacts, deliveries, options.channels),
       ...(options.config.runtime.limits === undefined ? {} : { limits: options.config.runtime.limits }),
       runs: contextStore.runs,
       channels: options.channels,

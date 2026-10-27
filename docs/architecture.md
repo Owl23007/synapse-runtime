@@ -60,6 +60,32 @@ TUI 默认连接已有服务，退出只断开连接。`--spawn --runtime-entry 
 
 通用 `config`、`i18n` 入口不导入 Node 文件模块，文件适配通过 `/node` 子入口使用
 
+## App 与 Core 的职责
+
+`apps/runtime` 是 Composition Root 与 Host，`packages/runtime-core` 承担运行用例，各能力包继续拥有自己的领域实现。具体 SQLite、Docker、HTTP 和 NapCat 实现不进入 Core 的业务编排。
+
+| 位置                                         | 负责内容                                                                                      |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `composition/runtime-assembly.ts`            | 创建 Agent、会话路由、工具、工件库、SQLite、RuntimeCore 与 TaskRunner，拥有组合的资源生命周期 |
+| `server/runtime-server.ts`                   | HTTP 监听、频道连接、热重载和进程启停                                                         |
+| `runtime/runtime-core.ts`                    | 保留频道接收、分支创建等公开门面，协调上下文与执行用例                                        |
+| `runtime/run-coordinator.ts`                 | 实例容量、运行与工具预算、Agent 调度、运行记录和关闭排空                                      |
+| `runtime/delivery.ts`                        | 最终输出、权限门控、持久发送意图、交付事实和不确定结果                                        |
+| `runtime/recovery.ts`                        | 持久输出修复、已成功交付核对、工具重放或阻断                                                  |
+| `inspection/runtime-inspection.ts`           | Run、Session、Transcript、Ref、Commit 查询与稳定分页，工件通过独立 ArtifactReader 读取        |
+| `runtime/artifact-delivery.ts`               | 工件交付身份、终态复用、未决占位解释、最终选择检查及逐项上传                                  |
+| App 的 `infrastructure/artifact-delivery.ts` | 回执文件读取、独占占位及原子写入，实现 Core 定义的持久端口                                    |
+
+Assembly 先排空 Runtime 与 TaskRunner，再关闭 Store。宿主在排空期间暂停入口并关闭监听，频道断开仍由宿主管理。构造期的 HTTP 配置在获取持久资源之前完成；工件或 Runtime 装配失败会释放已打开的数据库和目录锁。热重载先完成旧组合的收尾，再用新配置创建并恢复下一组合。
+
+Admin Route 只依赖查询门面，保留认证、参数解析、状态码、DTO、SSE 背压与心跳。SSE 的快照与持久游标由查询用例同步读取，热重载更换查询实例后发送 reset。工件下载仍由 ArtifactStore 校验会话归属、大小和内容摘要，二进制内容不进入查询脱敏或事件流。
+
+两个 Docker 工具注入同一个 ArtifactStore 与回执端口。工件内容、选择和归属仍由 ArtifactStore 负责，App 保留工具注册、输入格式和传输编码转换。Runtime 用例统一维护交付身份：按固定顺序编码 `sessionId/channelId/groupId/artifactId` 后计算 SHA-256，兼容原回执文件名和动作幂等键。已有成功、失败、不支持或未知回执都复用原结果；只有占位但没有终态时返回 uncertain，禁止自动上传。文件格式、DAG Schema、RunTrace、EventProcess 与平台回执之间的写入顺序保持不变。
+
+`server/runtime-factory.ts` 及原工件装配模块保留兼容导入入口。查询与工件用例分别通过 `@synapse/runtime-core/inspection` 和 `@synapse/runtime-core/artifacts` 子入口公开，不新增聚合包。
+
+平台无关 RunRequest、submit/cancel 和新的 HTTP 执行 API 留待后续设计；当前仍使用既有 Channel Ingress，不通过伪造平台事件开放 WebUI 对话。
+
 ## 用户数据
 
 `~/.synapse/config.toml` 保存用户级模块覆盖，`~/.synapse/cli.json` 保存 CLI 连接选择，部署配置保存实例选择，`runtime.dataDir` 保存会话等运行数据，四者不是同一套存储
@@ -77,7 +103,7 @@ pnpm config:check
 pnpm i18n:check
 ```
 
-`architecture:check` 使用 TypeScript AST 和工作区清单检查未声明依赖、跨包相对导入、未导出子路径、运行时依赖循环及基础设施反向依赖，也禁止应用互相依赖和 TUI 导入服务端实现。`pnpm test` 包含真实 Runtime/TUI 进程的连接、认证、配置落盘与退出回收测试，须先构建。`config:check` 默认验证不需要密钥的最小配置；检查具体部署文件时执行：
+`architecture:check` 使用 TypeScript AST 和工作区清单检查未声明依赖、跨包相对导入、未导出子路径、运行时依赖循环及基础设施反向依赖，也禁止应用互相依赖和 TUI 导入服务端实现。HTTP Route 不得导入具体业务存储，Core 的运行与查询用例不得导入具体 HTTP、SQLite、文件或进程实现及 Docker、频道 Adapter 包；存储实现仍可留在 Core 的 storage 目录。`pnpm test` 包含真实 Runtime/TUI 进程的连接、认证、配置落盘与退出回收测试，须先构建。`config:check` 默认验证不需要密钥的最小配置；检查具体部署文件时执行：
 
 ```bash
 node apps/runtime/dist/check.js config examples/runtime.config.toml --env-file .env

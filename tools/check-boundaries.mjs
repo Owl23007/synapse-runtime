@@ -131,7 +131,7 @@ for (const pkg of packages) {
         !path.endsWith(".test.ts") &&
         /src\/(?:runtime|inspection)\//.test(sourcePath) &&
         (specifier === "better-sqlite3" ||
-          /^(?:node:)?(?:http|https|sqlite)$/.test(specifier) ||
+          /^(?:node:)?(?:http|https|sqlite|fs(?:\/promises)?|child_process)$/.test(specifier) ||
           /^@synapse\/runtime-(?:tool-container|tool-execution|channel-)/.test(specifier) ||
           specifier.includes("/storage/sqlite"))
       )

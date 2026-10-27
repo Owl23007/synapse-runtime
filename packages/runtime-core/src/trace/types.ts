@@ -137,3 +137,16 @@ export interface RunTraceStore {
   /** 启动时关闭遗留活动记录，禁止盲目重放未决副作用 */
   recover(): void;
 }
+
+/** 只读外部持久回执核对输入，目标来源于已接受的规范化事件 */
+export interface RecoverToolOutputInput {
+  readonly sessionId: string;
+  readonly channelId: string;
+  readonly conversationId: string;
+  readonly conversationType: string;
+  readonly name: string;
+  readonly input: unknown;
+}
+
+/** 仅返回已存在的工具输出，找不到可靠回执时不得推测成功 */
+export type RecoverToolOutput = (input: RecoverToolOutputInput) => Readonly<Record<string, unknown>> | undefined;
