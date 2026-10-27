@@ -18,6 +18,28 @@ node apps/runtime/dist/cli.js start --config examples/minimal.config.toml
 
 最小配置使用 echo Agent，无需模型密钥，也不连接真实频道。启动后可在另一个终端执行 `pnpm tui` 连接默认本地 Admin API；按 Ctrl+C 停止服务。真实消息接入请按[快速开始](docs/guide/getting-started.md)创建部署配置，并参考[频道指南](docs/guide/channels.md)填写相应凭据
 
+### 创建部署配置
+
+在仓库根目录复制配置、资源和环境变量模板，资源目录须与复制后的配置文件保持同级：
+
+```bash
+cp examples/runtime.config.toml runtime.config.toml
+mkdir -p resources
+cp -R examples/resources/. resources/
+cp .env.example .env
+```
+
+编辑 `.env`，填写所选示例引用的必填变量。完整示例引用 `QWEN_API_KEY`、`QQ_BOT_APP_ID` 与 `QQ_BOT_APP_SECRET`；频道禁用时仍会校验其配置。首次启动默认仅监听本机且不启用频道，填写凭据、端点和触发条件后再将需要的频道设为 `enabled = true`。接收远程 Webhook 时须显式调整 Gateway 监听地址与访问控制。
+
+群聊工件部署可将第一条复制命令的源文件改为 `examples/group-artifacts.config.toml`，其余资源复制步骤相同；填写 `MODEL_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`、`NAPCAT_WS_URL`、`NAPCAT_TOKEN` 和 `QQ_BOT_ID`，并预先构建示例指定的容器镜像。
+
+```bash
+node apps/runtime/dist/check.js config runtime.config.toml --env-file .env
+pnpm start
+```
+
+配置中的资源路径相对于配置文件所在目录解析，与启动进程的工作目录无关。Prompt 的工具参数与执行步骤由实际注册的工具说明提供。
+
 ## 项目结构
 
 | 目录           | 职责                                                      |
