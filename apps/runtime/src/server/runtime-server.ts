@@ -1,7 +1,5 @@
 import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
 import { loadConfigFile, type RuntimeConfig } from "../config/index.js";
-import { RuntimeCore, SqliteRuntimeContextStore, TaskRunner } from "@synapse/runtime-core";
-import type { LocaleResolver } from "@synapse/runtime-i18n";
 import { bodyParser, createApp, type Nova } from "nova-http";
 import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } from "../logging.js";
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
@@ -11,7 +9,7 @@ import { registerWebUi } from "./admin/webui.js";
 import { RuntimeChannelManager } from "./channel-manager.js";
 import { registerGatewayRoutes } from "./gateway/routes.js";
 import { serverStartResult, startAdminApp } from "./runtime-lifecycle.js";
-import { createRuntimeFromConfig } from "./runtime-factory.js";
+import { createRuntimeAssembly, type RuntimeAssembly } from "../composition/runtime-assembly.js";
 import { QqOfficialWebhookRegistry } from "./webhook-registry.js";
 import { validateReloadConfig } from "./reload-policy.js";
 import { collectTraceSecrets } from "../secrets.js";
@@ -34,10 +32,7 @@ export class RuntimeServer {
   readonly #webhookRegistry: QqOfficialWebhookRegistry;
   readonly #channelManager: RuntimeChannelManager;
   readonly #shutdownController = new AbortController();
-  #runtime: RuntimeCore;
-  #taskRunner: TaskRunner;
-  #contextStore: SqliteRuntimeContextStore | undefined;
-  #localeResolver: LocaleResolver;
+  #assembly: RuntimeAssembly;
   #lifecycleTail: Promise<void> = Promise.resolve();
   #startPromise: Promise<RuntimeServerStartResult> | undefined;
   #stopPromise: Promise<void> | undefined;
@@ -69,22 +64,12 @@ export class RuntimeServer {
       logger: this.#logger
     });
 
-    const runtimeResult = createRuntimeFromConfig({
-      config: this.#config,
-      channels: this.#channels,
-      logger: this.#logger,
-      ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
-    });
-    this.#runtime = runtimeResult.runtime;
-    this.#contextStore = runtimeResult.contextStore;
-    this.#localeResolver = runtimeResult.localeResolver;
-    this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
     this.#channelManager = new RuntimeChannelManager({
       channels: this.#channels,
       webhookRegistry: this.#webhookRegistry,
       logger: this.#logger,
       ...(this.#fetch === undefined ? {} : { fetch: this.#fetch }),
-      getRuntime: () => this.#runtime,
+      getRuntime: () => this.#assembly.runtime,
       getConfig: () => this.#config,
       setConfig: (config) => {
         this.#config = config;
@@ -93,6 +78,12 @@ export class RuntimeServer {
 
     this.#configureGateway();
     this.#configureAdmin();
+    this.#assembly = createRuntimeAssembly({
+      config: this.#config,
+      channels: this.#channels,
+      logger: this.#logger,
+      ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
+    });
   }
 
   start(): Promise<RuntimeServerStartResult> {
@@ -130,7 +121,7 @@ export class RuntimeServer {
       });
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#channelManager.connectAll();
-      const recovery = await this.#taskRunner.recover();
+      const recovery = await this.#assembly.taskRunner.recover();
       if (recovery.resumedTaskIds.length > 0 || recovery.failedTaskIds.length > 0) {
         this.#logger.warn("Recovered persisted branch tasks.", { ...recovery });
       }
@@ -164,17 +155,14 @@ export class RuntimeServer {
     this.#logger.info("Stopping Synapse Runtime server.");
     this.#webhookRegistry.pause();
     this.#shutdownController.abort();
-    const runtimeShutdown = this.#runtime.dispose();
+    const runtimeShutdown = this.#assembly.quiesce();
     await this.#cleanupStep("close gateway listener", () => this.#app.close());
     await this.#cleanupStep("close admin listener", () => this.#adminApp.close());
     this.#webhookRegistry.clear();
     await this.#cleanupStep("drain webhook dispatch", () => this.#webhookRegistry.drain());
     await this.#cleanupStep("drain runtime operations", () => runtimeShutdown);
-    await this.#cleanupStep("drain branch tasks", () => this.#taskRunner.dispose());
     await this.#cleanupStep("disconnect channels", () => this.#channelManager.disconnectAll());
-    await this.#cleanupStep("close runtime context store", async () => {
-      this.#closeContextStore();
-    });
+    await this.#cleanupStep("dispose runtime assembly", () => this.#assembly.dispose());
     this.#logger.info("Synapse Runtime server stopped.");
   }
 
@@ -187,7 +175,7 @@ export class RuntimeServer {
     registerWebUi(this.#adminApp);
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
-      getExecutionStatus: () => this.#runtime.executionStatus,
+      getExecutionStatus: () => this.#assembly.runtime.executionStatus,
       getListening: () => this.#listening,
       app: this.#adminApp,
       getConfig: () => this.#config,
@@ -205,18 +193,18 @@ export class RuntimeServer {
       shutdownSignal: this.#shutdownController.signal,
       listBranches: async (sessionId) =>
         sessionId === undefined
-          ? (await this.#runtime.conversationStore.getRecoveryState()).activeBranches
-          : this.#runtime.conversationStore.listBranches(sessionId),
-      getBranch: (branchId) => this.#runtime.conversationStore.getBranch(branchId),
+          ? (await this.#assembly.runtime.conversationStore.getRecoveryState()).activeBranches
+          : this.#assembly.runtime.conversationStore.listBranches(sessionId),
+      getBranch: (branchId) => this.#assembly.runtime.conversationStore.getBranch(branchId),
       listTasks: async (branchId) =>
         branchId === undefined
-          ? (await this.#runtime.conversationStore.getRecoveryState()).unfinishedTasks
-          : this.#runtime.conversationStore.listTasks(branchId),
-      getTask: (taskId) => this.#runtime.conversationStore.getTask(taskId),
-      cancelTask: (taskId) => this.#taskRunner.cancel(taskId),
-      getMemoryStore: () => this.#contextStore,
-      getContextStore: () => this.#contextStore,
-      localize: (key, params) => this.#localeResolver.resolve(key, params, this.#config.locale.default)
+          ? (await this.#assembly.runtime.conversationStore.getRecoveryState()).unfinishedTasks
+          : this.#assembly.runtime.conversationStore.listTasks(branchId),
+      getTask: (taskId) => this.#assembly.runtime.conversationStore.getTask(taskId),
+      cancelTask: (taskId) => this.#assembly.taskRunner.cancel(taskId),
+      getMemoryStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore),
+      getContextStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore),
+      localize: (key, params) => this.#assembly.localeResolver.resolve(key, params, this.#config.locale.default)
     });
   }
 
@@ -245,40 +233,29 @@ export class RuntimeServer {
   async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
     this.#webhookRegistry.pause();
     this.#webhookRegistry.clear();
-    const runtimeShutdown = this.#runtime.dispose();
+    const runtimeShutdown = this.#assembly.quiesce();
     await this.#webhookRegistry.drain();
     await runtimeShutdown;
-    await this.#taskRunner.dispose();
     await this.#channelManager.disconnectAll();
-    this.#closeContextStore();
+    await this.#assembly.dispose();
     this.#config = nextConfig;
     try {
-      const runtimeResult = createRuntimeFromConfig({
+      this.#assembly = createRuntimeAssembly({
         config: nextConfig,
         channels: this.#channels,
         logger: this.#logger,
         ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
       });
-      this.#runtime = runtimeResult.runtime;
-      this.#contextStore = runtimeResult.contextStore;
-      this.#localeResolver = runtimeResult.localeResolver;
-      this.#taskRunner = new TaskRunner({ store: this.#runtime.conversationStore, executors: {} });
-      await this.#taskRunner.recover();
+      await this.#assembly.taskRunner.recover();
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#channelManager.connectAll();
       this.#webhookRegistry.resume();
     } catch (error) {
-      await this.#cleanupStep("dispose failed replacement runtime", () => this.#runtime.dispose());
+      await this.#cleanupStep("drain failed replacement runtime", () => this.#assembly.quiesce());
       await this.#cleanupStep("disconnect failed replacement channels", () => this.#channelManager.disconnectAll());
-      this.#closeContextStore();
+      await this.#cleanupStep("dispose failed replacement assembly", () => this.#assembly.dispose());
       throw error;
     }
-  }
-
-  #closeContextStore(): void {
-    const contextStore = this.#contextStore;
-    this.#contextStore = undefined;
-    contextStore?.close();
   }
 
   async #cleanupStep(label: string, operation: () => void | Promise<void>): Promise<void> {
