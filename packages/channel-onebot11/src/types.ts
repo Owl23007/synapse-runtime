@@ -1,4 +1,5 @@
-export type OneBot11Transport = "websocket" | "http" | "http-websocket";
+/** 已实现的请求传输方式，HTTP 入站由宿主显式交付 */
+export type OneBot11Transport = "websocket" | "http";
 
 /** OneBot HTTP 请求初始化参数，取消信号覆盖请求与响应体读取 */
 export interface OneBot11FetchInit {
@@ -19,6 +20,7 @@ export interface OneBot11FetchResponse {
 /** OneBot HTTP 请求函数 */
 export type OneBot11Fetch = (url: string, init?: OneBot11FetchInit) => Promise<OneBot11FetchResponse>;
 
+/** Adapter 的连接配置与可注入传输依赖 */
 export interface OneBot11ChannelAdapterOptions {
   readonly id: string;
   readonly provider?: string;
@@ -30,6 +32,7 @@ export interface OneBot11ChannelAdapterOptions {
   readonly WebSocketCtor?: OneBot11WebSocketConstructor;
 }
 
+/** WebSocket 宿主依赖的最小接口，用于独立验证连接生命周期 */
 export interface OneBot11WebSocket {
   readonly readyState: number;
   on(event: "open", listener: () => void): this;
@@ -41,11 +44,13 @@ export interface OneBot11WebSocket {
   terminate(): void;
 }
 
+/** 创建可注入 WebSocket 连接的构造器 */
 export type OneBot11WebSocketConstructor = new (
   address: string,
   options?: { readonly headers?: Readonly<Record<string, string>> }
 ) => OneBot11WebSocket;
 
+/** OneBot11 消息事件的协议字段，归一化前保留原始平台值 */
 export interface OneBot11MessageEventPayload {
   readonly time?: number;
   readonly self_id?: number | string;
@@ -65,6 +70,7 @@ export interface OneBot11MessageEventPayload {
   };
 }
 
+/** OneBot11 API 回执，缺少终态字段时不得推测成功 */
 export interface OneBot11ResponsePayload {
   readonly status?: string;
   readonly retcode?: number;

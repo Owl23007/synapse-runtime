@@ -83,6 +83,34 @@ for (const pkg of packages) {
     visit(source);
     for (const specifier of imports) {
       const label = relative(root, path).split(sep).join("/");
+      if (pkg.name === "@synapse/runtime-channel-onebot11" && !path.endsWith(".test.ts")) {
+        const sourcePath = relative(pkg.dir, path).split(sep).join("/");
+        const lowerLayers = new Set([
+          "src/codec.ts",
+          "src/message.ts",
+          "src/normalize.ts",
+          "src/utils.ts",
+          "src/types.ts"
+        ]);
+        const transports = new Set(["src/transport.ts", "src/http-transport.ts", "src/websocket-transport.ts"]);
+        const target = specifier.startsWith(".")
+          ? relative(pkg.dir, resolve(dirname(path), specifier))
+              .split(sep)
+              .join("/")
+              .replace(/\.js$/, ".ts")
+          : specifier;
+        if (specifier === "ws" && sourcePath !== "src/websocket-transport.ts")
+          failures.push(`${label}: WebSocket dependency outside transport`);
+        if (
+          (lowerLayers.has(sourcePath) &&
+            (transports.has(target) || ["src/api.ts", "src/napcat.ts", "src/adapter.ts"].includes(target))) ||
+          (transports.has(sourcePath) &&
+            ["src/api.ts", "src/napcat.ts", "src/adapter.ts", "src/message.ts", "src/normalize.ts"].includes(target)) ||
+          (sourcePath === "src/api.ts" &&
+            ["src/napcat.ts", "src/adapter.ts", "src/http-transport.ts", "src/websocket-transport.ts"].includes(target))
+        )
+          failures.push(`${label}: OneBot11 layer depends on higher implementation ${specifier}`);
+      }
       if (specifier.startsWith(".")) {
         const target = resolve(dirname(path), specifier);
         if (!target.startsWith(pkg.dir + sep)) failures.push(`${label}: cross-package relative import ${specifier}`);

@@ -1,12 +1,12 @@
 # Channel 架构整理
 
-本轮完成 PR1：协议契约与统一动作模型。采用单一契约，不保留旧类型别名、布尔能力回退或双轨结果模型。公共 API 调用方随契约同步修改；群聊工件交付、DAG、权限、幂等和恢复的业务要求继续保留。
+已完成 PR1（协议契约与统一动作模型）和 PR2（OneBot11 职责拆分）。采用单一契约，不保留旧类型别名、布尔能力回退或双轨结果模型。公共 API 调用方随契约同步修改；群聊工件交付、DAG、权限、幂等和恢复的业务要求继续保留。
 
 ## 实际职责与依赖
 
 - `protocol/src/types.ts` 原先已有动作、能力档案和动作结果，`channel/src/types.ts` 又定义了布尔能力、重复目标和消息/上传回执
 - Runtime 消息发送已经调用 `executeChannelAction()`；应用的工件交付组合层直接调用 `uploadGroupFile()`，并在 `ArtifactDeliveryStore` 管理归属、幂等与未决占位
-- OneBot11 的 `adapter.ts` 同时处理 HTTP、WebSocket、请求关联/超时、消息编码、文件上传和生命周期；`message.ts` 与 `normalize.ts` 已提供部分编解码边界
+- OneBot11 的 `adapter.ts` 组合传输、标准 API 与可选 NapCat API；协议编解码与消息/事件归一化独立于传输
 - Runtime 的 `send_failed` 可以恢复重试；发送结果不确定必须留在 `send_uncertain` 路径，不能触发自动重发
 
 ## 目标结构
@@ -48,9 +48,22 @@ API 边界描述的是职责，不代表 PR1 已新增 Runtime HTTP 路由。当
 | `apps/runtime/src/composition/artifact-delivery.ts`、`container-tools.ts`、`server/runtime-factory.ts` | 消费统一回执和能力，保留原有工件交付仓储及授权流程                         |
 | `tools/check-boundaries.mjs`                                                                           | 禁止 protocol 依赖实现、channel 依赖具体模块、RuntimeCore 依赖具体 Adapter |
 
-## 后续 PR
+## PR2 文件与职责
 
-PR2 在现有 OneBot11 包内分离传输、编解码、标准 API、NapCat 扩展与生命周期，不新增无必要的包。HTTP/WebSocket 拥有请求发送与超时/断线；协议层拥有请求/响应/事件编解码；标准 API 只包含标准操作；NapCat 文件 API 独立声明支持与约束；Adapter 只组合这些对象并管理连接/事件订阅。保留注入传输的测试方式，重点验证 echo 关联、断线与部分上传的不确定性。
+| 文件                                                          | 职责                                                                       |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `channel-onebot11/src/adapter.ts`                             | 选择传输、组合标准与扩展 API、管理规范事件处理器                           |
+| `transport.ts`、`http-transport.ts`、`websocket-transport.ts` | 请求传输契约、HTTP 取消/超时、WebSocket 建连与 echo 关联                   |
+| `codec.ts`、既有 `message.ts` 和 `normalize.ts`               | 请求/回执编解码、消息片段编码和事件归一化，不依赖具体传输或 API            |
+| `api.ts`                                                      | 标准消息 API，只执行标准动作，拒绝文件扩展和不支持的消息片段               |
+| `napcat.ts`                                                   | NapCat 文件上传及附件交付编排，群文件约束与实现来源统一声明                |
+| `types.ts`                                                    | 保留已实现的 HTTP/WebSocket 模式及可注入宿主依赖，移除未实现的混合传输模式 |
+| `api.test.ts`、`transport.test.ts`                            | 标准/扩展隔离、部分交付、乱序回执、取消、断线、重连及定时器清理            |
+| `tools/check-boundaries.mjs`                                  | 限制 OneBot11 内部反向依赖，`ws` 只由 WebSocket 传输导入                   |
+
+没有新增包。公开配置仍只启用已部署实现的 WebSocket；HTTP 可通过 Adapter 注入测试或宿主显式使用，入站事件由宿主交付。关闭前未完成的建连会被拒绝，HTTP 断开会取消请求与响应体等待；任何传输中断都不能被解释为平台没有执行。旧 socket 的回调不能改变新连接状态，全部请求都有独立 echo，且在终态释放定时器。
+
+## 后续 PR
 
 PR3 将应用组合层的群文件调用迁移至统一动作入口，保留权限检查、工件归属、交付去重、持久化与恢复所在层。运行目标由真实事件和会话决定，不开放给模型任意指定。随后再以 Runtime 的对话/任务用例定义 WebUI/CLI 可直接消费的 Runtime API。
 
