@@ -3,6 +3,7 @@ import type {
   ChannelActionTarget,
   GroupFileUpload,
   ChannelOperationResult,
+  ChannelOutputAction,
   PlatformAction,
   SynapseChannelEvent,
   SynapseMessage
@@ -36,6 +37,8 @@ export interface ChannelAdapter {
   getCapabilities(): ChannelCapabilityProfile;
   /** 向频道目标发送消息 */
   sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult>;
+  /** 执行已声明的原生动作，未来原生或 WebUI 接入可实现完整集合；平台扩展仍走独立入口 */
+  executeAction?(action: Exclude<ChannelOutputAction, PlatformAction>): Promise<ChannelOperationResult>;
   /** 上传群文件并返回实际平台回执，调用方负责权限、归属和幂等控制 */
   uploadGroupFile?(groupId: string, file: GroupFileUpload): Promise<ChannelOperationResult>;
   /** 执行已声明的平台扩展，标准动作不能通过扩展绕过能力约束 */

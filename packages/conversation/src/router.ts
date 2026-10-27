@@ -32,6 +32,9 @@ export class ConversationRouter {
    * 判断事件是否应触发智能体并构造请求
    */
   route(event: SynapseChannelEvent): ConversationDecision {
+    // 自发消息和历史补录仍可进入记录，但不能重新触发智能体形成回复循环
+    if (event.origin === "outgoing" || event.origin === "history")
+      return { shouldRespond: false, reason: "not_message" };
     if (event.eventType !== "message.created") {
       return { shouldRespond: false, reason: "not_message" };
     }

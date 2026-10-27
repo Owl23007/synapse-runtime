@@ -1,5 +1,20 @@
 import { CHANNEL_PROTOCOL_SCHEMA_VERSION, type SynapseMessage, type GroupFileUploadAction } from "./types.js";
 
+/** 原生动作构造参数保持判别联合，新增能力不需要逐个平台增加构造器 */
+export type ChannelActionInput<T = import("./types.js").ChannelOutputAction> =
+  T extends import("./types.js").ChannelOutputAction
+    ? Omit<T, "schemaVersion" | "createdAt"> & { readonly createdAt?: string }
+    : never;
+
+/** 为任意原生或显式扩展动作补齐协议字段，执行仍需能力与权限校验 */
+export function channelAction(input: ChannelActionInput): import("./types.js").ChannelOutputAction {
+  return {
+    ...input,
+    schemaVersion: CHANNEL_PROTOCOL_SCHEMA_VERSION,
+    createdAt: input.createdAt ?? new Date().toISOString()
+  };
+}
+
 /** 创建版本化的消息发送动作 */
 export function messageSendAction(input: {
   readonly actionId: string;

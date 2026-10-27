@@ -5,6 +5,7 @@ export type {
   ChannelCapabilityKey,
   ChannelActionStatus,
   GroupFileUpload,
+  ChannelFileUpload,
   GroupFileUploadAction,
   PlatformAction,
   ChannelOperationResult,
@@ -27,6 +28,10 @@ export type {
   MessageReplyRef,
   MessageSegment,
   MessageType,
+  MessageComponent,
+  ChannelEventResource,
+  ReactionRef,
+  FileUploadAction,
   Platform,
   ProtocolPartMetadata,
   ReactionAction,
@@ -35,6 +40,24 @@ export type {
   SynapseMessage,
   UnknownMessagePart
 } from "./types.js";
+export { CHANNEL_NATIVE_ACTIONS, CHANNEL_NATIVE_MESSAGE_SEGMENTS } from "./channel-capabilities.js";
+export type {
+  ChannelResourceActionType,
+  ChannelPageRequest,
+  ChannelPage,
+  ChannelMessageRecord,
+  ChannelFileRef,
+  ChannelMember,
+  ChannelResourceActionBase,
+  ChannelMessageResourceAction,
+  ChannelFileResourceAction,
+  ChannelConversationAction,
+  ChannelMemberAction,
+  ChannelInteractionAction,
+  ChannelTypingAction,
+  ChannelResourceAction,
+  ChannelResourceResult
+} from "./channel-resources.js";
 export { getTextContent, textMessage } from "./message.js";
 export { readToolOutput, type ToolOutput } from "./tool-output.js";
-export { messageSendAction, groupFileUploadAction } from "./actions.js";
+export { channelAction, messageSendAction, groupFileUploadAction, type ChannelActionInput } from "./actions.js";

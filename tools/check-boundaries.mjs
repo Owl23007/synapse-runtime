@@ -20,7 +20,13 @@ const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
 const failures = [];
 const mechanisms = new Set(["@synapse/runtime-config", "@synapse/runtime-i18n", "@synapse/runtime-user-config"]);
 const graph = new Map();
-const channelOperations = new Set(["sendMessage", "uploadGroupFile", "executePlatformAction"]);
+const channelOperations = new Set([
+  "sendMessage",
+  "uploadGroupFile",
+  "executeAction",
+  "executePlatformAction",
+  "deleteMessage"
+]);
 
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
