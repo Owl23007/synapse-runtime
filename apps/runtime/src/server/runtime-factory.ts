@@ -1,6 +1,6 @@
 import { type LocaleResolver } from "@synapse/runtime-i18n";
 import { join } from "node:path";
-import { InMemoryChannelRegistry } from "@synapse/runtime-channel";
+import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { ChannelConfig, RuntimeConfig } from "../config/index.js";
 import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
@@ -17,6 +17,7 @@ import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse/runtime-resources";
 import { ArtifactStore, type DockerCommandRunner } from "@synapse/runtime-tool-container";
 import { registerContainerTools } from "../composition/container-tools.js";
+import { canUploadGroupFile } from "../composition/channel-delivery.js";
 import { collectTraceSecrets } from "../secrets.js";
 import { inspectArtifactDelivery, ArtifactDeliveryStore } from "../composition/artifact-delivery.js";
 import {
@@ -29,7 +30,7 @@ import {
 /** 运行时装配输入，外部执行边界可由宿主注入用于验证 */
 export interface RuntimeFactoryOptions {
   readonly config: RuntimeConfig;
-  readonly channels: InMemoryChannelRegistry;
+  readonly channels: ChannelRegistry;
   readonly logger: RuntimeServerLogger;
   readonly fetch?: RuntimeFetch;
   /** 默认使用真实 Docker CLI，测试可注入受控进程边界 */
@@ -137,7 +138,7 @@ export function createRuntimeFromConfig(options: RuntimeFactoryOptions): Runtime
 function createInvocationCompiler(
   config: RuntimeConfig,
   tools: ToolRuntime,
-  channels: InMemoryChannelRegistry
+  channels: ChannelRegistry
 ): ((request: AgentRequest) => Promise<ModelInvocationEnvelope>) | undefined {
   if (
     !config.prompts.enabled ||
@@ -161,9 +162,7 @@ function createInvocationCompiler(
           // 群文件工具只向具备实际交付能力的当前群开放，避免模型先生成无法交付的文件
           if (
             (tool.name === "container.run" || tool.name === "artifact.upload") &&
-            (request.source.conversationKind !== "group" ||
-              channels.get(request.source.channelId)?.getCapabilities().capabilities["file.upload"]?.status !==
-                "supported")
+            (request.source.conversationKind !== "group" || !canUploadGroupFile(channels.get(request.source.channelId)))
           )
             return undefined;
           // 动态权限依赖模型生成的参数，只能在实际调用时最终判断

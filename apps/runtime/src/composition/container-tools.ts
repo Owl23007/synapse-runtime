@@ -10,6 +10,7 @@ import {
 import type { ContainerSettings } from "@synapse/runtime-tool-container/config";
 import type { ToolContext, ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { ArtifactDeliveryStore } from "./artifact-delivery.js";
+import { canUploadGroupFile, deliverGroupArtifact } from "./channel-delivery.js";
 
 const uploadInput = z.union([
   z.object({ operation: z.literal("upload").default("upload"), artifactId: z.string().uuid() }).strict(),
@@ -71,7 +72,7 @@ export function registerContainerTools(options: {
     inputSchema: z.toJSONSchema(uploadInput),
     permission: { action: "channel.qq.upload_group_file", resource: "group-file" },
     async handle(raw, context) {
-      const { adapter, groupId } = requireGroupDestination(options.channels, context);
+      const { adapter, channelId, groupId } = requireGroupDestination(options.channels, context);
       const input = uploadInput.parse(raw);
       context.signal?.throwIfAborted();
       if (input.operation !== "upload") {
@@ -86,9 +87,11 @@ export function registerContainerTools(options: {
         throw new Error("工件未被选为最终产物，请先明确选择后再交付");
       const artifact = artifacts.read(context.sessionId, artifactId);
       context.signal?.throwIfAborted();
-      const result = await deliveries.deliver(
-        { sessionId: context.sessionId, channelId: adapter.id, groupId, artifactId },
-        () => adapter.uploadGroupFile!(groupId, artifact)
+      const result = await deliverGroupArtifact(
+        deliveries,
+        adapter,
+        { sessionId: context.sessionId, channelId, groupId, artifactId },
+        artifact
       );
       return { ...result, artifactId, name: artifact.name, size: artifact.size, sha256: artifact.sha256 };
     }
@@ -98,13 +101,9 @@ export function registerContainerTools(options: {
 function requireGroupDestination(
   channels: ChannelRegistry,
   context: ToolContext
-): { adapter: ChannelAdapter; groupId: string } {
+): { adapter: ChannelAdapter; channelId: string; groupId: string } {
   if (context.source?.conversationKind !== "group") throw new Error("0.1 的容器工件能力仅向群聊开放");
   const adapter = channels.get(context.source.channelId);
-  if (
-    adapter?.getCapabilities().capabilities["file.upload"]?.status !== "supported" ||
-    adapter.uploadGroupFile === undefined
-  )
-    throw new Error("当前频道不支持群文件上传");
-  return { adapter, groupId: context.source.conversationId };
+  if (adapter === undefined || !canUploadGroupFile(adapter)) throw new Error("当前频道不支持群文件上传");
+  return { adapter, channelId: context.source.channelId, groupId: context.source.conversationId };
 }

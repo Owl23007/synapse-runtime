@@ -148,6 +148,36 @@ const failingIdentityResolver: IdentityResolver = {
 };
 
 describe("RuntimeCore", () => {
+  it.each(["qq", "discord", "cli"] as const)("根据规范事件平台 %s 检查权限并执行统一发送动作", async (platform) => {
+    const channel = new MockChannelAdapter();
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({ privateTrigger: { mode: "always" }, groupTrigger: { mode: "always" } }),
+      agent: {
+        id: "platform-agent",
+        async run(request): Promise<AgentRun> {
+          return {
+            id: "platform-run",
+            agentId: "platform-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("delivered")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ [`channel.${platform}.send_private_message`]: "allow" }))
+    });
+    try {
+      runtime.attachChannel(channel);
+      await channel.emit({ ...privateMessage("platform-event", "hello"), platform });
+      expect(channel.sent).toHaveLength(1);
+      expect(runtime.traces.at(-1)?.status).toBe("succeeded");
+    } finally {
+      await runtime.dispose();
+    }
+  });
   it("persists transcript and event process state in SQLite", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-core-sqlite-"));
     const databasePath = join(dir, "runtime-context.sqlite");

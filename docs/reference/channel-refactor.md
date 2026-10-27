@@ -1,11 +1,11 @@
 # Channel 架构整理
 
-已完成 PR1（协议契约与统一动作模型）和 PR2（OneBot11 职责拆分）。采用单一契约，不保留旧类型别名、布尔能力回退或双轨结果模型。公共 API 调用方随契约同步修改；群聊工件交付、DAG、权限、幂等和恢复的业务要求继续保留。
+PR1（协议契约与统一动作模型）、PR2（OneBot11 职责拆分）和 PR3（Runtime 调用入口收敛）均已完成。采用单一契约，不保留旧类型别名、布尔能力回退或双轨结果模型。公共 API 调用方随契约同步修改；群聊工件交付、DAG、权限、幂等和恢复的业务要求继续保留。
 
 ## 实际职责与依赖
 
 - `protocol/src/types.ts` 原先已有动作、能力档案和动作结果，`channel/src/types.ts` 又定义了布尔能力、重复目标和消息/上传回执
-- Runtime 消息发送已经调用 `executeChannelAction()`；应用的工件交付组合层直接调用 `uploadGroupFile()`，并在 `ArtifactDeliveryStore` 管理归属、幂等与未决占位
+- Runtime 的消息和群文件上传都调用 `executeChannelAction()`；应用的 `ArtifactDeliveryStore` 继续管理工件回执、幂等与未决占位，Channel 不持久化恢复策略
 - OneBot11 的 `adapter.ts` 组合传输、标准 API 与可选 NapCat API；协议编解码与消息/事件归一化独立于传输
 - Runtime 的 `send_failed` 可以恢复重试；发送结果不确定必须留在 `send_uncertain` 路径，不能触发自动重发
 
@@ -24,7 +24,7 @@ channel（统一动作执行、Adapter 生命周期、注册表）
 protocol ← 上述模块共同使用的目标、动作、能力和回执契约
 ```
 
-API 边界描述的是职责，不代表 PR1 已新增 Runtime HTTP 路由。当前 `runtime-client` 仍主要提供 Admin API，后续应单独设计对话与任务执行入口，不能让 WebUI/CLI 直接操作平台 Adapter。
+API 边界描述的是职责，本轮没有新增 Runtime HTTP 路由。当前 `runtime-client` 仍主要提供 Admin API，包括只读运行检查与 SSE；后续应单独设计对话与任务执行入口，不能让 WebUI/CLI 直接操作平台 Adapter。
 
 能力档案只描述平台实现的支持程度和约束，不代表用户被授权执行。入站事件上的 `AdapterCapabilities` 描述本次事件的路由/回复上下文，与动作授权分开。
 
@@ -63,9 +63,24 @@ API 边界描述的是职责，不代表 PR1 已新增 Runtime HTTP 路由。当
 
 没有新增包。公开配置仍只启用已部署实现的 WebSocket；HTTP 可通过 Adapter 注入测试或宿主显式使用，入站事件由宿主交付。关闭前未完成的建连会被拒绝，HTTP 断开会取消请求与响应体等待；任何传输中断都不能被解释为平台没有执行。旧 socket 的回调不能改变新连接状态，全部请求都有独立 echo，且在终态释放定时器。
 
-## 后续 PR
+## PR3 文件与职责
 
-PR3 将应用组合层的群文件调用迁移至统一动作入口，保留权限检查、工件归属、交付去重、持久化与恢复所在层。运行目标由真实事件和会话决定，不开放给模型任意指定。随后再以 Runtime 的对话/任务用例定义 WebUI/CLI 可直接消费的 Runtime API。
+| 文件                                                           | 修改                                                                                      |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `apps/runtime/src/composition/channel-delivery.ts`             | 工具上传与自动交付共用的 Runtime 用例；构造 `file.upload` 动作，再经统一执行器执行        |
+| `container-tools.ts`、`docker-artifacts.ts`                    | 移除直接上传调用；目标继续取自真实工具/会话上下文，上传前仍校验工件归属与最终选择         |
+| `server/runtime-factory.ts`                                    | 依赖 `ChannelRegistry` 抽象；工具可见性按群文件能力及目标约束判断                         |
+| `runtime-core/src/runtime/message-utils.ts`、`runtime-core.ts` | 权限键取自规范事件平台，区分 Runtime 权限键与 Channel 动作标识，QQ 现有策略键保持一致     |
+| `channel-delivery.test.ts`、`runtime-core.test.ts`             | 并发与重启去重、跨群/频道隔离、失败和未知回执保留、缺失实现与大小约束拒绝、多平台权限消费 |
+| `tools/check-boundaries.mjs`                                   | 禁止 RuntimeCore 与 Runtime 宿主直接调用平台发送、上传和扩展方法，强制走统一动作入口      |
+
+工具与自动交付使用相同的会话、频道、群、工件身份构造动作 ID 和幂等键；`ArtifactDeliveryStore` 在动作执行前占位，在获得结果后落盘回执。Channel 只执行能力检查与平台分派，不替 Runtime 去重、重试或恢复。持久工件回执只保存平台状态与文件 ID，不保存动作元数据或文件字节。结果未知时保留人工核对边界，重启与新工具调用都不会重复上传。
+
+不支持、能力声明与实现不一致或目标/大小约束不满足时，自动交付返回明确失败，不能将同一附件绕过执行器转入普通消息发送。
+
+## 后续范围
+
+本轮三个 PR 完成后，可独立设计 WebUI/CLI 的对话与任务执行 Runtime API：在既有 Runtime 用例上提供请求与事件接口，并单独定义客户端会话身份、任务权限与取消语义。Admin 继续承担配置、状态和运维管理，Channel API 继续只面向外部平台。
 
 ## 风险与验证
 

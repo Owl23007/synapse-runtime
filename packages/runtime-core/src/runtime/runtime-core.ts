@@ -66,7 +66,7 @@ import {
   identityStoreFromUnknown
 } from "./store-resolution.js";
 import {
-  channelSendAction,
+  channelSendPermission,
   conservativeResponse,
   getText,
   summarizeEvent,
@@ -1283,7 +1283,7 @@ export class RuntimeCore {
     }
 
     let permission = await this.#tools.decidePermission({
-      action: channelSendAction(target),
+      action: channelSendPermission(input.event.platform, target),
       resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
       subject: input.request.userId,
       metadata: {
@@ -1310,7 +1310,7 @@ export class RuntimeCore {
       output.segments.some((segment) => segment.type === "file")
     ) {
       permission = await this.#tools.decidePermission({
-        action: "channel.qq.upload_group_file",
+        action: `channel.${input.event.platform}.upload_group_file`,
         resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
         subject: input.request.userId
       });

@@ -1,4 +1,4 @@
-import type { ChannelActionTarget, SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+import type { ChannelActionTarget, Platform, SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { OutputPolicy } from "../output/policy.js";
 
 /** 将频道事件转换为发送目标 */
@@ -12,15 +12,15 @@ export function targetFromEvent(event: SynapseChannelEvent): ChannelActionTarget
   return { type: "channel", channelId: event.conversation.id };
 }
 
-/** 根据发送目标生成权限动作 */
-export function channelSendAction(target: ChannelActionTarget): string {
+/** 根据可信事件平台与规范目标生成 Runtime 权限键，不与 Channel 动作标识混用 */
+export function channelSendPermission(platform: Platform, target: ChannelActionTarget): string {
   if (target.type === "private") {
-    return "channel.qq.send_private_message";
+    return `channel.${platform}.send_private_message`;
   }
   if (target.type === "group") {
-    return "channel.qq.send_group_message";
+    return `channel.${platform}.send_group_message`;
   }
-  return "channel.qq.send_channel_message";
+  return `channel.${platform}.send_channel_message`;
 }
 
 /** 为输出消息补充回复上下文 */

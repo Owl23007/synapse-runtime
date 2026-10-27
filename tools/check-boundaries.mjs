@@ -20,6 +20,7 @@ const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
 const failures = [];
 const mechanisms = new Set(["@synapse/runtime-config", "@synapse/runtime-i18n", "@synapse/runtime-user-config"]);
 const graph = new Map();
+const channelOperations = new Set(["sendMessage", "uploadGroupFile", "executePlatformAction"]);
 
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -63,6 +64,22 @@ for (const pkg of packages) {
     const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
     const imports = [];
     function visit(node) {
+      if (
+        ts.isCallExpression(node) &&
+        !path.endsWith(".test.ts") &&
+        ["@synapse/runtime-core", "@synapse/runtime-server"].includes(pkg.name)
+      ) {
+        const expression = ts.isNonNullExpression(node.expression) ? node.expression.expression : node.expression;
+        const member = ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : ts.isElementAccessExpression(expression) && ts.isStringLiteral(expression.argumentExpression)
+            ? expression.argumentExpression.text
+            : undefined;
+        if (channelOperations.has(member))
+          failures.push(
+            `${relative(root, path).split(sep).join("/")}: Runtime platform operation must use executeChannelAction, found ${member}`
+          );
+      }
       if (
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
         node.moduleSpecifier &&

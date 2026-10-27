@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { RuntimeCoreOptions } from "@synapse/runtime-core";
 import type { ArtifactDeliveryStore } from "./artifact-delivery.js";
+import { deliverGroupArtifact } from "./channel-delivery.js";
 
 const selectionInput = z.object({
   selectArtifactIds: z.array(z.string().uuid()).max(16).optional(),
@@ -136,7 +137,7 @@ export function materializeArtifactMessage(
   return { ...message, segments };
 }
 
-/** 群文件复用统一上传回执仓储，文本失败后仍保留每个已交付工件的事实 */
+/** 群文件在持久交付边界内走统一动作入口，文本失败后仍保留每个已交付工件的事实 */
 export function createArtifactDelivery(
   artifacts: ArtifactStore,
   deliveries: ArtifactDeliveryStore,
@@ -145,22 +146,24 @@ export function createArtifactDelivery(
   return async (input) => {
     if (input.conversationKind !== "group") return { status: "ready", message: input.message };
     const adapter = channels.get(input.channelId);
-    if (!adapter?.uploadGroupFile) return { status: "ready", message: input.message };
     const segments: MessageSegment[] = [];
     for (const part of input.message.segments) {
       if (part.type !== "file" || !part.url?.startsWith("artifact://")) {
         segments.push(part);
         continue;
       }
+      if (adapter === undefined) return { status: "failed", error: "群文件目标频道不可用" };
       input.signal?.throwIfAborted();
       const artifactId = part.url.slice(11);
       const artifact = artifacts.read(input.sessionId, artifactId);
       input.observe("artifact_upload_started", { artifactId, automatic: true });
       // 保持原有附件顺序，逐个等待平台回执后再继续，禁止并行重复交付
       // eslint-disable-next-line no-await-in-loop
-      const result = await deliveries.deliver(
+      const result = await deliverGroupArtifact(
+        deliveries,
+        adapter,
         { sessionId: input.sessionId, channelId: input.channelId, groupId: input.conversationId, artifactId },
-        () => adapter.uploadGroupFile!(input.conversationId, artifact)
+        artifact
       );
       input.signal?.throwIfAborted();
       input.observe(

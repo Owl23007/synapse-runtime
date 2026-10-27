@@ -28,6 +28,8 @@ interface ChannelAdapter {
 
 操作回执使用 `succeeded`、`failed`、`unsupported`、`uncertain`。`uncertain` 表示平台可能已执行，必须先核对结果，不能自动重试。统一执行器不负责权限、幂等、持久化或恢复。详细边界与分阶段范围见 [Channel 重构](../reference/channel-refactor.md)。
 
+Runtime 的消息发送、工件工具上传与自动群文件交付均经统一动作入口。工具上传和自动交付共享 Runtime 的持久回执仓储；重复调用或重启不会重复上传同一会话、频道、群中的同一工件。能力约束拒绝或实现缺失会明确失败，不会绕过执行器改用普通消息交付附件。
+
 ## OneBot11 / NapCat
 
 Package：`@synapse/runtime-channel-onebot11`
