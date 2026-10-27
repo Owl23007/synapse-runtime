@@ -1,6 +1,13 @@
 export { CHANNEL_PROTOCOL_SCHEMA_VERSION } from "./types.js";
 export type {
   AdapterCapabilities,
+  ChannelCapabilityConstraints,
+  ChannelCapabilityKey,
+  ChannelActionStatus,
+  GroupFileUpload,
+  GroupFileUploadAction,
+  PlatformAction,
+  ChannelOperationResult,
   CapabilityStatus,
   ChannelActionResult,
   ChannelActionTarget,
@@ -28,5 +35,6 @@ export type {
   SynapseMessage,
   UnknownMessagePart
 } from "./types.js";
-export { getTextContent, messageSendAction, textMessage } from "./message.js";
+export { getTextContent, textMessage } from "./message.js";
 export { readToolOutput, type ToolOutput } from "./tool-output.js";
+export { messageSendAction, groupFileUploadAction } from "./actions.js";

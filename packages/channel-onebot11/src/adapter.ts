@@ -1,14 +1,12 @@
+import type { ChannelAdapter, ChannelEventHandler, ChannelStatus } from "@synapse/runtime-channel";
 import type {
-  ChannelAdapter,
-  ChannelCapabilities,
-  ChannelEventHandler,
-  ChannelStatus,
-  ChannelTarget,
+  ChannelCapabilityProfile,
+  ChannelActionTarget,
   GroupFileUpload,
-  GroupFileUploadResult,
-  SendResult
-} from "@synapse/runtime-channel";
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+  ChannelOperationResult,
+  SynapseChannelEvent,
+  SynapseMessage
+} from "@synapse/runtime-protocol";
 import WebSocket from "ws";
 import { createOneBot11SendParams } from "./message.js";
 import { normalizeOneBot11Event } from "./normalize.js";
@@ -134,31 +132,47 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     return this.#status;
   }
 
-  getCapabilities(): ChannelCapabilities {
+  /** 声明标准消息能力与 NapCat 文件扩展，其他提供方不继承扩展支持 */
+  getCapabilities(): ChannelCapabilityProfile {
     return {
-      receivePrivateMessage: true,
-      receiveGroupMessage: true,
-      receiveAllGroupMessages: true,
-      requiresMention: false,
-      sendPrivateMessage: true,
-      sendGroupMessage: true,
-      sendMedia: true,
-      uploadGroupFile: this.provider === "napcat",
-      manageGroup: false,
-      recallMessage: false,
-      complianceLevel: "unofficial",
-      riskLevel: "high"
+      schemaVersion: "channel-protocol/v1",
+      channelId: this.id,
+      adapterType: this.type,
+      observedAt: new Date().toISOString(),
+      capabilities: {
+        "message.receive": { status: "supported", constraints: { targetTypes: ["private", "group"] } },
+        "message.send": {
+          status: "partially-supported",
+          constraints: {
+            targetTypes: ["private", "group"],
+            messageSegmentTypes:
+              this.provider === "napcat"
+                ? ["text", "mention", "reply", "image", "file"]
+                : ["text", "mention", "reply", "image"]
+          }
+        },
+        "message.media": { status: "supported" },
+        "message.delete": { status: "unsupported" },
+        "file.upload": {
+          status: this.provider === "napcat" ? "supported" : "unsupported",
+          implementation: "napcat:upload_group_file",
+          constraints: { targetTypes: ["group"], maxFileSizeBytes: 10_485_760 }
+        }
+      }
     };
   }
 
   /** 先交付真实文件再发送说明，文件上传失败时返回失败而不丢弃附件 */
-  async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
+  async sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult> {
     const files = message.segments.filter((segment) => segment.type === "file");
+    if (files.length > 0 && this.provider !== "napcat") {
+      return { status: "unsupported", error: "当前 OneBot 提供方未声明 NapCat 文件上传扩展" };
+    }
     if (files.length > 0 && target.type !== "private" && target.type !== "group") {
-      return { ok: false, error: "OneBot 11 file uploads require a private or group target." };
+      return { status: "failed", error: "OneBot 11 file uploads require a private or group target." };
     }
     if (files.some((file) => file.url === undefined)) {
-      return { ok: false, error: "OneBot 11 file uploads require a file URL or base64 resource." };
+      return { status: "failed", error: "OneBot 11 file uploads require a file URL or base64 resource." };
     }
     for (const file of files) {
       const action = target.type === "group" ? "upload_group_file" : "upload_private_file";
@@ -177,7 +191,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
         });
         if (uploaded.status === "failed" && file === files[0]) {
           return {
-            ok: false,
+            status: "failed",
             error: `OneBot 11 ${action} failed: ${uploaded.message ?? uploaded.wording ?? "Upload rejected"}`
           };
         }
@@ -186,7 +200,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
         }
       } catch {
         // 未知回执与部分交付不能标记为可重试失败，否则恢复时会重复上传
-        throw new Error("文件上传回执未确认，请核对文件后再决定是否重新发送");
+        return { status: "uncertain", error: "文件上传回执未确认，请核对文件后再决定是否重新发送" };
       }
     }
     const remaining = message.segments.filter((segment) => segment.type !== "file");
@@ -194,24 +208,26 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
       files.length > 0 &&
       !remaining.some((segment) => segment.type === "image" || (segment.type === "text" && segment.text.length > 0))
     ) {
-      return { ok: true };
+      return { status: "succeeded" };
     }
     let response: OneBot11ResponsePayload;
 
     try {
       response = await this.#call("send_msg", createOneBot11SendParams(target, { ...message, segments: remaining }));
-    } catch (error) {
+    } catch {
       if (files.length > 0)
-        throw new Error("附件已上传，说明消息回执未确认，请核对后再决定是否重新发送", { cause: error });
+        return { status: "uncertain", error: "附件已上传，说明消息回执未确认，请核对后再决定是否重新发送" };
       // 请求发出后传输异常不能证明平台未执行，交给 Runtime 的未知回执恢复路径
-      throw new Error("消息发送回执未确认，请核对后再决定是否重新发送", { cause: error });
+      return { status: "uncertain", error: "消息发送回执未确认，请核对后再决定是否重新发送" };
     }
 
     if (response.status !== "ok" || (response.retcode !== undefined && response.retcode !== 0)) {
-      if (files.length > 0) throw new Error("附件已上传，说明消息发送失败，请核对后再决定是否重新发送");
-      if (response.status !== "failed") throw new Error("消息发送未获得明确终态，请核对后再决定是否重新发送");
+      if (files.length > 0)
+        return { status: "uncertain", error: "附件已上传，说明消息发送失败，请核对后再决定是否重新发送" };
+      if (response.status !== "failed")
+        return { status: "uncertain", error: "消息发送未获得明确终态，请核对后再决定是否重新发送" };
       return {
-        ok: false,
+        status: "failed",
         error: `OneBot 11 send_msg failed: ${response.message ?? response.wording ?? safeJson(response)}`
       };
     }
@@ -219,14 +235,14 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
     const messageId = extractMessageId(response.data);
 
     return {
-      ok: true,
+      status: "succeeded",
       ...(messageId === undefined ? {} : { messageId })
     };
   }
 
   /** 使用内容传输上传群文件，避免假设远端 NapCat 可以读取本机路径 */
-  async uploadGroupFile(groupId: string, file: GroupFileUpload): Promise<GroupFileUploadResult> {
-    if (!this.getCapabilities().uploadGroupFile)
+  async uploadGroupFile(groupId: string, file: GroupFileUpload): Promise<ChannelOperationResult> {
+    if (this.getCapabilities().capabilities["file.upload"]?.status !== "supported")
       return { status: "unsupported", error: "当前 OneBot 提供方未声明群文件上传能力" };
     if (
       !/^\d+$/.test(groupId) ||

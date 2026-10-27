@@ -1,9 +1,9 @@
-import type { ChannelTarget } from "@synapse/runtime-channel";
-import type { SynapseMessage } from "@synapse/runtime-protocol";
+import type { ChannelActionTarget, SynapseMessage } from "@synapse/runtime-protocol";
 import { stringFromUnknown } from "./utils.js";
 
+/** 按官方平台目标编码消息正文与被动回复上下文 */
 export function createQqOfficialSendBody(
-  target: ChannelTarget,
+  target: ChannelActionTarget,
   message: SynapseMessage,
   content: string
 ): Readonly<Record<string, unknown>> {

@@ -1,5 +1,4 @@
-import type { ChannelTarget } from "@synapse/runtime-channel";
-import type { MessageSegment, SynapseMessage } from "@synapse/runtime-protocol";
+import type { ChannelActionTarget, MessageSegment, SynapseMessage } from "@synapse/runtime-protocol";
 import { isRecord, safeJson, stringFromUnknown } from "./utils.js";
 
 export function renderOneBot11Message(message: SynapseMessage): string {
@@ -12,8 +11,9 @@ export function renderOneBot11Message(message: SynapseMessage): string {
   return rendered;
 }
 
+/** 将规范发送目标与消息编码为 OneBot11 标准消息 API 参数 */
 export function createOneBot11SendParams(
-  target: ChannelTarget,
+  target: ChannelActionTarget,
   message: SynapseMessage
 ): Readonly<Record<string, unknown>> {
   const rendered = renderOneBot11Message(message);

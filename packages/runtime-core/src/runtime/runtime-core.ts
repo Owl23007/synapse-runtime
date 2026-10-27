@@ -1217,7 +1217,7 @@ export class RuntimeCore {
     const presented = this.#applyResponsePolicy(selectedOutput, input.outputPolicy, input.event.id, input.runId);
     // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
     const output: SynapseMessage =
-      channel?.getCapabilities().sendMedia === false
+      channel?.getCapabilities().capabilities["message.media"]?.status === "unsupported"
         ? { ...presented, type: "text", segments: [{ type: "text", text: getText(presented) }] }
         : presented;
     if (
@@ -1413,16 +1413,25 @@ export class RuntimeCore {
     }
 
     if (result.status !== "succeeded") {
-      const reason = result.errorMessage ?? `Channel action ${result.status}.`;
-      await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
-        error: reason,
-        errorCode: result.errorCode,
-        retryable: result.retryable
-      });
+      const reason = result.error;
+      await this.#appendDeliveryEvent(
+        input,
+        assistantEvent,
+        result.status === "uncertain" ? "delivery_uncertain" : "delivery_failed",
+        {
+          error: reason,
+          errorCode: result.errorCode,
+          retryable: result.retryable
+        }
+      );
       if (input.processStateId !== undefined) {
         await this.#eventProcessStore.update(input.processStateId, {
-          status: "send_failed",
-          errorJson: JSON.stringify({ error: reason, errorCode: result.errorCode })
+          status: result.status === "uncertain" ? "completed" : "send_failed",
+          errorJson: JSON.stringify({
+            phase: result.status === "uncertain" ? "send_uncertain" : "send_failed",
+            error: reason,
+            errorCode: result.errorCode
+          })
         });
       }
       this.#traces.push({
@@ -1446,7 +1455,7 @@ export class RuntimeCore {
           ? [part.url.slice(11)]
           : []
       ),
-      ...(result.externalMessageId === undefined ? {} : { externalMessageId: result.externalMessageId })
+      ...(result.messageId === undefined ? {} : { externalMessageId: result.messageId })
     });
 
     try {
@@ -1454,7 +1463,7 @@ export class RuntimeCore {
         input.event,
         output,
         input.conversation,
-        result.externalMessageId,
+        result.messageId,
         assistantEvent.id
       );
 

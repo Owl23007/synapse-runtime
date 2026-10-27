@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync, lstatSync } from "node:fs";
 import { join } from "node:path";
-import type { GroupFileUploadResult } from "@synapse/runtime-channel";
+import type { ChannelOperationResult } from "@synapse/runtime-protocol";
 import { z } from "zod";
 
 /** 上传归属由真实请求与工件登记共同决定，不接受模型指定目标 */
@@ -21,7 +21,7 @@ const receiptSchema = z.discriminatedUnion("status", [
 export function inspectArtifactDelivery(
   directory: string,
   key: ArtifactDeliveryKey
-): GroupFileUploadResult | undefined {
+): ChannelOperationResult | undefined {
   const id = createHash("sha256").update(JSON.stringify(key)).digest("hex");
   const receipt = join(directory, `${id}.json`);
   if (existsSync(receipt)) {
@@ -47,8 +47,8 @@ export class ArtifactDeliveryStore {
   /** 返回已有平台回执，结果未知时保留人工核对边界 */
   async deliver(
     key: ArtifactDeliveryKey,
-    upload: () => Promise<GroupFileUploadResult>
-  ): Promise<GroupFileUploadResult> {
+    upload: () => Promise<ChannelOperationResult>
+  ): Promise<ChannelOperationResult> {
     const id = createHash("sha256").update(JSON.stringify(key)).digest("hex");
     const receipt = join(this.directory, `${id}.json`);
     const pending = join(this.directory, `${id}.pending`);
@@ -61,7 +61,7 @@ export class ArtifactDeliveryStore {
       // 上传可能仍在进行，也可能进程在获得平台回执前退出，均不能自动重试
       return { status: "uncertain", error: "该工件已有未确认上传，请先核对群文件，当前未重复上传" };
     }
-    let result: GroupFileUploadResult;
+    let result: ChannelOperationResult;
     try {
       result = await upload();
     } catch {

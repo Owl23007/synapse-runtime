@@ -31,6 +31,11 @@ for (const pkg of packages) {
   const dependencies = Object.keys(pkg.dependencies ?? {}).filter((name) => byName.has(name));
   graph.set(pkg.name, dependencies);
   for (const name of dependencies) {
+    if (pkg.name === "@synapse/runtime-protocol") failures.push(`Channel protocol depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-channel" && name !== "@synapse/runtime-protocol")
+      failures.push(`Channel abstraction depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-core" && name.startsWith("@synapse/runtime-channel-"))
+      failures.push(`Runtime core depends on concrete adapter ${name}`);
     if (pkg.group === "packages" && byName.get(name).group === "apps")
       failures.push(`${pkg.name} depends on application ${name}`);
     if (pkg.group === "apps" && byName.get(name).group === "apps")

@@ -162,7 +162,8 @@ function createInvocationCompiler(
           if (
             (tool.name === "container.run" || tool.name === "artifact.upload") &&
             (request.source.conversationKind !== "group" ||
-              !channels.get(request.source.channelId)?.getCapabilities().uploadGroupFile)
+              channels.get(request.source.channelId)?.getCapabilities().capabilities["file.upload"]?.status !==
+                "supported")
           )
             return undefined;
           // 动态权限依赖模型生成的参数，只能在实际调用时最终判断

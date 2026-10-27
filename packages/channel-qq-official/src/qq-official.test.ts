@@ -225,7 +225,7 @@ describe("QqOfficialChannelAdapter", () => {
       }
     );
 
-    expect(result).toEqual({ ok: true, messageId: "sent-1" });
+    expect(result).toEqual({ status: "succeeded", messageId: "sent-1" });
     expect(requests.at(-1)).toEqual({
       url: "https://api.example.test/v2/groups/group-openid/messages",
       headers: {
@@ -241,7 +241,37 @@ describe("QqOfficialChannelAdapter", () => {
     });
   });
 
-  it("returns transport and unsupported-media failures through SendResult", async () => {
+  it.each(["headers", "body"])(
+    "preserves uncertainty when message %s transport fails after submission",
+    async (phase) => {
+      let messages = 0;
+      const adapter = new QqOfficialChannelAdapter({
+        id: "qq-official",
+        appId: "app-id",
+        appSecret: "app-secret",
+        tokenEndpoint: "https://token.example.test",
+        fetch: async (url) => {
+          if (String(url) === "https://token.example.test")
+            return jsonResponse({ access_token: "token-1", expires_in: 7200 });
+          messages += 1;
+          if (phase === "headers") throw new Error("private payload");
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              throw new Error("private payload");
+            }
+          };
+        }
+      });
+      const receipt = await adapter.sendMessage({ type: "private", userId: "user-openid" }, textMessage("hello"));
+      expect(receipt).toMatchObject({ status: "uncertain" });
+      expect(JSON.stringify(receipt)).not.toContain("private payload");
+      expect(messages).toBe(1);
+    }
+  );
+
+  it("returns preflight and unsupported-media failures through ChannelOperationResult", async () => {
     const adapter = new QqOfficialChannelAdapter({
       id: "qq-official",
       appId: "app-id",
@@ -254,14 +284,14 @@ describe("QqOfficialChannelAdapter", () => {
 
     await expect(
       adapter.sendMessage({ type: "private", userId: "user-openid" }, textMessage("hello"))
-    ).resolves.toEqual({ ok: false, error: "network unavailable" });
+    ).resolves.toEqual({ status: "failed", error: "network unavailable" });
     await expect(
       adapter.sendMessage(
         { type: "private", userId: "user-openid" },
         { type: "image", segments: [{ type: "image", url: "https://example.test/image.png" }] }
       )
     ).resolves.toEqual({
-      ok: false,
+      status: "failed",
       error: "QQ official adapter can only send messages with text content in this MVP."
     });
   });

@@ -101,7 +101,10 @@ function requireGroupDestination(
 ): { adapter: ChannelAdapter; groupId: string } {
   if (context.source?.conversationKind !== "group") throw new Error("0.1 的容器工件能力仅向群聊开放");
   const adapter = channels.get(context.source.channelId);
-  if (!adapter?.getCapabilities().uploadGroupFile || adapter.uploadGroupFile === undefined)
+  if (
+    adapter?.getCapabilities().capabilities["file.upload"]?.status !== "supported" ||
+    adapter.uploadGroupFile === undefined
+  )
     throw new Error("当前频道不支持群文件上传");
   return { adapter, groupId: context.source.conversationId };
 }

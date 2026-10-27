@@ -1,9 +1,8 @@
-import type { ChannelTarget } from "@synapse/runtime-channel";
-import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
+import type { ChannelActionTarget, SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { OutputPolicy } from "../output/policy.js";
 
 /** 将频道事件转换为发送目标 */
-export function targetFromEvent(event: SynapseChannelEvent): ChannelTarget {
+export function targetFromEvent(event: SynapseChannelEvent): ChannelActionTarget {
   if (event.conversation.kind === "private") {
     return { type: "private", userId: event.conversation.id };
   }
@@ -14,7 +13,7 @@ export function targetFromEvent(event: SynapseChannelEvent): ChannelTarget {
 }
 
 /** 根据发送目标生成权限动作 */
-export function channelSendAction(target: ChannelTarget): string {
+export function channelSendAction(target: ChannelActionTarget): string {
   if (target.type === "private") {
     return "channel.qq.send_private_message";
   }
