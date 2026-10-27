@@ -17,7 +17,9 @@ describe("isolated container artifacts", () => {
         ? ""
         : JSON.stringify({ files: [{ name: "large.bin", base64: data.toString("base64") }], logs: "" })
     );
-    expect((await executor.execute({ script: "pass", outputs: ["large.bin"] })).files[0]!.data).toEqual(data);
+    const actual = (await executor.execute({ script: "pass", outputs: ["large.bin"] })).files[0]!.data;
+    expect(actual.byteLength).toBe(data.byteLength);
+    expect(Buffer.from(actual).equals(data)).toBe(true);
   });
   it("拒绝模型提供宿主参数、路径穿越和重复输出", () => {
     expect(() => ContainerWorkInputSchema.parse({ script: "pass", outputs: ["../secret"] })).toThrow();
