@@ -1,8 +1,10 @@
 # 当前闭环状态
 
-更新时间：2026-10-11
+更新时间：2026-10-27；下文保留历史验收，最新开发与证据见[0.1 实施记录](./v0.1-implementation-status.md)
 
 0.1 定位为基于 DAG 的群聊 Agent Runtime，产品入口是群成员提出需求，交付形式是本地容器生成工件并直接上传群文件。代码闭环及本地容器验收已完成；真实 QQ 账号与外部模型服务尚未联调，不能据此宣称目标部署已经上线。
+
+新的[0.1 正式版计划](../prd/v0.1-release-prd.md)以 1.0 稳定产品为目标。统一 Run Trace、查询与持久 SSE、WebUI 主流程、运行预算和目录锁已实现；Docker 与 Python 工件已统一存储，支持最终选择、废弃、去重及独立交付回执。离线一致性备份、校验和新目录恢复已实现；数据保留、目标部署恢复演练和发布候选证据仍待补齐，正式版未达发布条件。详细进度见[实施记录](./v0.1-implementation-status.md)，发布门禁见[验收记录](./v0.1-release-acceptance.md)。
 
 ## 已实现的闭环
 
@@ -20,7 +22,7 @@
 
 核心端到端测试位于 `apps/runtime/src/server/runtime-artifacts.test.ts`，走生产 Runtime、Agent、ToolRuntime 和 OneBot Adapter 装配，验证生成 → 上传 → 回复 → 重启 → 历史读取。Docker 进程边界可以切换为真实执行，模型和平台请求仍使用受控替身。
 
-## 验收记录
+## 历史验收记录（2026-10-11）
 
 本地环境为 Windows、Node.js 24.21.0、pnpm 9.15.0 和 Docker Desktop Linux 容器引擎。
 
@@ -39,17 +41,17 @@
 
 复现命令和部署步骤见[群聊工件助手](../guide/group-artifacts.md)。
 
-## 0.1 的明确边界
+## 当前实现的明确边界
 
 - 工件上传面向 NapCat 群聊；QQ Official 无对应能力，私聊不开放容器工件工具
 - 容器运行 Python 生成工件，不提供代码仓库、Git/PR、IDE 或通用 code agent 工作流
 - 后续容器可读取当前会话的已登记工件，尚不支持自动下载群成员上传的任意附件
 - TaskRunner 保留底层持久任务机制，默认服务没有任意任务创建与业务 executor 入口；定时任务、Workflow、多 Agent 调度留待后续
 - 不做旧图表自动转换、跨群历史共享、自动工件清理、上传回执重置或未知副作用自动补偿
-- DAG 候选读取有字符预算，消息与记忆预算各自独立，尚无统一的最终 Prompt Token 预算与向量召回
+- 模型最终输入已有字符与 HTTP 请求体预算、输出 token 预留；未将字符估算伪装为精确 token 计数，向量召回尚未实现
 - Presentation 仍使用 deterministic；`confirm`、`rate_limit` 和权限 `sandbox` 策略未形成工作流，配置会拒绝这些值
 - 协议层的编辑、撤回、Reaction 和 Sticker 出站尚未接入具体平台；独立 `web.extract`、浏览器和 MCP 尚未实现
 
 现有热重载会在释放资源前拒绝宿主监听等字段变化，但不是事务式部署。新频道连接或资源初始化失败时，不能保证恢复旧运行时，应修正配置后重载或重启。配置写入只提供同进程排队和原子替换；每个数据目录只运行一个 Runtime 进程。
 
-版本范围以 [0.1 PRD](../prd/v0.1-dag-artifacts-prd.md) 为准，上述边界不会被标记为已经实现的能力。
+既有实现范围见[工件 PRD](../prd/v0.1-dag-artifacts-prd.md)，后续开发与正式发布范围以[正式版 PRD](../prd/v0.1-release-prd.md)为准。上述尚缺能力即使已列入计划，也不会被标记为已经实现。

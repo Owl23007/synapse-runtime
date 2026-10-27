@@ -31,6 +31,8 @@ export function createAgentFromConfig(config: RuntimeConfig, options: { readonly
     id: providerId,
     maxSteps: config.agentLoop.maxSteps,
     maxToolCalls: config.agentLoop.maxToolCalls,
+    ...(config.agentLoop.maxInputChars === undefined ? {} : { maxInputChars: config.agentLoop.maxInputChars }),
+    maxOutputTokens: config.agentLoop.maxOutputTokens ?? providerConfig.maxTokens ?? 4096,
     provider: createChatProvider(providerId, providerConfig, options)
   });
 }
@@ -46,6 +48,8 @@ export function createChatProvider(
       apiKey: providerConfig.apiKey,
       baseUrl: providerConfig.baseUrl,
       model: providerConfig.model,
+      ...(providerConfig.timeoutMs === undefined ? {} : { timeoutMs: providerConfig.timeoutMs }),
+      ...(providerConfig.maxRequestChars === undefined ? {} : { maxRequestChars: providerConfig.maxRequestChars }),
       ...(providerConfig.temperature === undefined ? {} : { temperature: providerConfig.temperature }),
       ...(providerConfig.maxTokens === undefined ? {} : { maxTokens: providerConfig.maxTokens }),
       ...(providerConfig.topP === undefined ? {} : { topP: providerConfig.topP }),

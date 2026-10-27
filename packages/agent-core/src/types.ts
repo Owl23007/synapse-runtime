@@ -24,9 +24,26 @@ export interface AgentRun {
   readonly error?: string;
 }
 
+/** 运行时绑定的身份、工具与模型观察入口 */
 export interface AgentRuntimeContext {
+  /** 宿主运行截止或退出信号，取消后不得发起新的模型与工具动作 */
+  readonly signal?: AbortSignal;
+  /** 逻辑运行标识由宿主决定，恢复时保持不变 */
+  readonly runId?: string;
+  /** 观察回调完成后才允许继续执行，持久化失败应停止调用链 */
+  readonly observeModel?: (event: AgentModelEvent) => void | Promise<void>;
   readonly tools: ScopedToolRuntimeView;
   readonly conversation: AgentConversationRuntime;
+}
+
+/** 单轮模型请求与结果事件，不包含 Provider 凭据或 HTTP Header */
+export interface AgentModelEvent {
+  readonly type: "model_call_started" | "model_call_succeeded" | "model_call_failed";
+  readonly modelCallId: string;
+  readonly providerId: string;
+  readonly model?: string;
+  readonly durationMs?: number;
+  readonly data: unknown;
 }
 
 export interface AgentBranchCreateInput {

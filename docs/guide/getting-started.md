@@ -49,6 +49,8 @@ node apps/runtime/dist/cli.js start \
 
 ## 启动控制台
 
+浏览器控制台随 `pnpm build` 打包到 Runtime。启动后打开 `http://127.0.0.1:3766`，检查运行时间线、上下文和工件。连接与开发说明见 [WebUI 运行控制台](./webui.md)。
+
 TUI 位于独立的 `apps/tui` 应用。连接已有 Admin API：
 
 ```bash

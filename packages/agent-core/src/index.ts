@@ -1,5 +1,6 @@
 export type {
   Agent,
+  AgentModelEvent,
   AgentBranchCreateInput,
   AgentBranchRef,
   AgentConversationRuntime,

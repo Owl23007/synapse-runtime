@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { OneBot11ChannelAdapter } from "./adapter.js";
 
 describe("OneBot file delivery", () => {
+  it("非 NapCat 提供方不能调用文件上传扩展", async () => {
+    let calls = 0;
+    const adapter = new OneBot11ChannelAdapter({
+      id: "qq",
+      provider: "other",
+      transport: "http",
+      endpoint: "http://localhost:5700",
+      fetch: async () => {
+        calls += 1;
+        return Response.json({ status: "ok", retcode: 0 });
+      }
+    });
+    expect(adapter.getCapabilities().capabilities["file.upload"]?.status).toBe("unsupported");
+    expect(
+      await adapter.sendMessage(
+        { type: "group", groupId: "42" },
+        { type: "file", segments: [{ type: "file", name: "a.txt", url: "base64://aGk=" }] }
+      )
+    ).toMatchObject({ status: "unsupported" });
+    expect(calls).toBe(0);
+  });
   it.each(["async", "network", "partial"])("halts recovery on %s file delivery uncertainty", async (failure) => {
     let calls = 0;
     const adapter = new OneBot11ChannelAdapter({
@@ -26,7 +47,7 @@ describe("OneBot file delivery", () => {
           ]
         }
       )
-    ).rejects.toThrow("回执未确认");
+    ).resolves.toMatchObject({ status: "uncertain", error: expect.stringContaining("回执未确认") });
     expect(calls).toBe(failure === "partial" ? 2 : 1);
   });
 
@@ -49,7 +70,7 @@ describe("OneBot file delivery", () => {
           { type: "file", name: "demo.txt", url: "base64://aGk=" }
         ]
       })
-    ).resolves.toMatchObject({ ok: true });
+    ).resolves.toMatchObject({ status: "succeeded" });
     expect(calls.map((call) => call.action)).toEqual([`upload_${kind}_file`, "send_msg"]);
     expect(calls[0]?.params).toMatchObject({ file: "base64://aGk=", name: "demo.txt" });
   });
@@ -76,7 +97,7 @@ describe("OneBot file delivery", () => {
           ]
         }
       )
-    ).resolves.toMatchObject({ ok: false, error: expect.stringContaining("upload failed") });
+    ).resolves.toMatchObject({ status: "failed", error: expect.stringContaining("upload failed") });
     expect(calls).toHaveLength(1);
   });
 
@@ -96,7 +117,7 @@ describe("OneBot file delivery", () => {
         { type: "private", userId: "42" },
         { type: "file", segments: [{ type: "file", name: "demo.txt", url: "base64://aGk=" }] }
       )
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ status: "succeeded" });
     expect(calls).toHaveLength(1);
   });
 });

@@ -11,6 +11,8 @@ export const AgentProviderIdSchema = z
 
 /** 聊天模型请求调节参数模式 */
 const ChatProviderTuningSchema = {
+  timeoutMs: z.number().int().min(100).max(300_000).optional(),
+  maxRequestChars: z.number().int().min(1024).max(2_000_000).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().positive().optional(),
   topP: z.number().min(0).max(1).optional(),

@@ -7,12 +7,14 @@ import { DEFAULT_LOGGER, RuntimeLogBuffer, createLevelLogger, createTeeLogger } 
 import type { RuntimeFetch, RuntimeServerLogger, RuntimeServerOptions, RuntimeServerStartResult } from "../types.js";
 import { validateAdminSecurity } from "./admin/auth.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { registerWebUi } from "./admin/webui.js";
 import { RuntimeChannelManager } from "./channel-manager.js";
 import { registerGatewayRoutes } from "./gateway/routes.js";
 import { serverStartResult, startAdminApp } from "./runtime-lifecycle.js";
 import { createRuntimeFromConfig } from "./runtime-factory.js";
 import { QqOfficialWebhookRegistry } from "./webhook-registry.js";
 import { validateReloadConfig } from "./reload-policy.js";
+import { collectTraceSecrets } from "../secrets.js";
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
@@ -22,6 +24,7 @@ export class RuntimeServer {
   readonly #loadConfigOptions: RuntimeServerOptions["loadConfigOptions"];
   readonly #configPath: string | undefined;
   readonly #logger: RuntimeServerLogger;
+  readonly #logSecrets = new Set<string>();
   readonly #awaitDispatch: boolean;
   readonly #fetch: RuntimeFetch | undefined;
   readonly #channels = new InMemoryChannelRegistry();
@@ -49,7 +52,12 @@ export class RuntimeServer {
     this.#logBuffer = new RuntimeLogBuffer(this.#config.admin.logBufferSize);
     this.#logger = createLevelLogger(
       createTeeLogger([this.#logBuffer, options.logger ?? DEFAULT_LOGGER]),
-      this.#config.runtime.logLevel
+      this.#config.runtime.logLevel,
+      () => {
+        // 热更新后的迟到错误仍可能携带旧凭据，进程存活期间保留旧值用于脱敏
+        for (const secret of collectTraceSecrets(this.#config)) this.#logSecrets.add(secret);
+        return [...this.#logSecrets].sort((a, b) => b.length - a.length);
+      }
     );
     this.#awaitDispatch = options.awaitDispatch ?? false;
     this.#fetch = options.fetch;
@@ -156,11 +164,12 @@ export class RuntimeServer {
     this.#logger.info("Stopping Synapse Runtime server.");
     this.#webhookRegistry.pause();
     this.#shutdownController.abort();
+    const runtimeShutdown = this.#runtime.dispose();
     await this.#cleanupStep("close gateway listener", () => this.#app.close());
     await this.#cleanupStep("close admin listener", () => this.#adminApp.close());
     this.#webhookRegistry.clear();
     await this.#cleanupStep("drain webhook dispatch", () => this.#webhookRegistry.drain());
-    await this.#cleanupStep("drain runtime operations", () => this.#runtime.dispose());
+    await this.#cleanupStep("drain runtime operations", () => runtimeShutdown);
     await this.#cleanupStep("drain branch tasks", () => this.#taskRunner.dispose());
     await this.#cleanupStep("disconnect channels", () => this.#channelManager.disconnectAll());
     await this.#cleanupStep("close runtime context store", async () => {
@@ -175,8 +184,10 @@ export class RuntimeServer {
   }
 
   #configureAdmin(): void {
+    registerWebUi(this.#adminApp);
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
+      getExecutionStatus: () => this.#runtime.executionStatus,
       getListening: () => this.#listening,
       app: this.#adminApp,
       getConfig: () => this.#config,
@@ -204,6 +215,7 @@ export class RuntimeServer {
       getTask: (taskId) => this.#runtime.conversationStore.getTask(taskId),
       cancelTask: (taskId) => this.#taskRunner.cancel(taskId),
       getMemoryStore: () => this.#contextStore,
+      getContextStore: () => this.#contextStore,
       localize: (key, params) => this.#localeResolver.resolve(key, params, this.#config.locale.default)
     });
   }
@@ -233,8 +245,9 @@ export class RuntimeServer {
   async #replaceRuntimeConfig(nextConfig: RuntimeConfig): Promise<void> {
     this.#webhookRegistry.pause();
     this.#webhookRegistry.clear();
+    const runtimeShutdown = this.#runtime.dispose();
     await this.#webhookRegistry.drain();
-    await this.#runtime.dispose();
+    await runtimeShutdown;
     await this.#taskRunner.dispose();
     await this.#channelManager.disconnectAll();
     this.#closeContextStore();

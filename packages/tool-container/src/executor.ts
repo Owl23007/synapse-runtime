@@ -12,6 +12,8 @@ import { PYTHON_RUNNER } from "./python-runner.js";
 
 /** Docker 子进程调用契约，参数数组不会经过宿主 Shell */
 export interface DockerCommand {
+  /** 运行截止或退出时终止受控 Docker 客户端 */
+  readonly signal?: AbortSignal;
   readonly args: readonly string[];
   readonly stdin?: string;
   readonly timeoutMs: number;
@@ -43,9 +45,11 @@ export class ContainerExecutor {
   /** 执行独立工作任务，失败、超时和正常完成均尝试移除本次拥有的容器 */
   async execute(
     input: { readonly script: string; readonly outputs: readonly string[] },
-    inputs: readonly ArtifactContent[] = []
+    inputs: readonly ArtifactContent[] = [],
+    signal?: AbortSignal
   ): Promise<ContainerExecutionResult> {
     const request = ContainerWorkInputSchema.parse(input);
+    signal?.throwIfAborted();
     const limits = this.#settings;
     if (!limits.enabled) throw new Error("容器能力未启用");
     if (request.outputs.length > limits.maxArtifacts || inputs.length > limits.maxArtifacts)
@@ -67,6 +71,7 @@ export class ContainerExecutor {
     let execution: ContainerExecutionResult | undefined;
     try {
       const raw = await this.runCommand({
+        ...(signal ? { signal } : {}),
         args: [
           "run",
           "--rm",
@@ -160,6 +165,7 @@ export class ContainerExecutor {
 /** 启动受限 Docker 命令，超时和输出超限会终止客户端并由执行器清理容器 */
 export function runDockerCommand(command: DockerCommand): Promise<string> {
   return new Promise((resolve, reject) => {
+    command.signal?.throwIfAborted();
     const child = spawn("docker", [...command.args], {
       shell: false,
       windowsHide: true,
@@ -173,12 +179,16 @@ export function runDockerCommand(command: DockerCommand): Promise<string> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      command.signal?.removeEventListener("abort", abort);
       if (error) {
         child.kill();
         reject(error);
       } else resolve(Buffer.concat(stdout).toString("utf8"));
     };
     const timer = setTimeout(() => finish(new Error("容器执行超时")), command.timeoutMs);
+    const abort = () => finish(new Error("容器执行已取消"));
+    command.signal?.addEventListener("abort", abort, { once: true });
+    if (command.signal?.aborted) abort();
     const collect = (target: Buffer[]) => (data: Buffer) => {
       bytes += data.length;
       if (bytes > command.maxBytes) {

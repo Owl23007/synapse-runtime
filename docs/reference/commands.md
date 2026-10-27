@@ -79,3 +79,15 @@ synapse-runtime [command] [options]
 ## 独立 TUI CLI
 
 `synapse-tui` 由 `apps/tui` 提供，使用 `--endpoint`、`--token` 或 `--profile` 连接已有 Runtime。使用 `--spawn --runtime-entry <runtime cli.js>` 启动所属子进程，可附加服务端配置参数。详细参数及退出语义见 [Admin 与 CLI](../guide/admin-cli.md#独立-tui)。
+
+## 离线维护 CLI
+
+构建后使用 `pnpm maintenance`，或安装服务端包提供的 `synapse-maintenance`：
+
+```bash
+pnpm maintenance backup --data-dir <已停止的运行目录> --output <全新备份目录>
+pnpm maintenance verify --backup <备份目录>
+pnpm maintenance restore --backup <备份目录> --data-dir <全新运行目录>
+```
+
+该入口不启动 Runtime、不加载凭据、不执行迁移。目标目录不得已存在，父目录必须已存在；操作失败返回退出码 `1`。完整操作流程和失败处理见[数据备份与恢复](../guide/data-maintenance.md)。

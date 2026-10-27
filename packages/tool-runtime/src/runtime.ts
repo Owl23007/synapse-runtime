@@ -23,6 +23,7 @@ export class ToolRuntime implements ToolRuntimeView {
   readonly #permissionEngine: PermissionEngine;
   readonly #observers = new Map<number, ToolRuntimeObserver>();
   #observerSequence = 0;
+  readonly #handlers = new Set<Promise<unknown>>();
 
   /** 创建工具运行时 */
   constructor(permissionEngine: PermissionEngine) {
@@ -43,6 +44,23 @@ export class ToolRuntime implements ToolRuntimeView {
     return [...this.#tools.values()];
   }
 
+  /** 有界等待受控工具清理，返回仍未结束的处理器数量以便宿主告警 */
+  async drain(timeoutMs = 15_000): Promise<number> {
+    if (this.#handlers.size === 0) return 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.#handlers]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeoutMs);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    return this.#handlers.size;
+  }
+
   /** 注册工具运行事件观察器 */
   addObserver(observer: ToolRuntimeObserver): () => void {
     const observerId = ++this.#observerSequence;
@@ -61,7 +79,7 @@ export class ToolRuntime implements ToolRuntimeView {
 
   /** 创建绑定会话与恢复上下文的工具视图 */
   withContext(defaults: ToolRuntimeScope): ScopedToolRuntimeView {
-    const { durableCallIdPrefix, replayCall, ...bound } = defaults;
+    const { durableCallIdPrefix, replayCall, observePermission, ...bound } = defaults;
     let callSequence = 0;
     let haltedReason: string | undefined;
     let pendingCall: Promise<void> = Promise.resolve();
@@ -90,7 +108,8 @@ export class ToolRuntime implements ToolRuntimeView {
                 ...bound,
                 ...(callId === undefined ? {} : { callId })
               },
-              replayCall
+              replayCall,
+              observePermission
             );
           } catch (error) {
             haltedReason =
@@ -124,8 +143,10 @@ export class ToolRuntime implements ToolRuntimeView {
     name: string,
     input: unknown,
     context: ToolContext,
-    replayCall?: ToolCallReplayResolver
+    replayCall?: ToolCallReplayResolver,
+    observePermission?: ToolRuntimeScope["observePermission"]
   ): Promise<ToolCallResult<TOutput>> {
+    context.signal?.throwIfAborted();
     const callContext: ToolCallContext = {
       ...context,
       callId: context.callId ?? `tool-call-${randomUUID()}`
@@ -154,6 +175,7 @@ export class ToolRuntime implements ToolRuntimeView {
           break;
       }
     }
+    context.signal?.throwIfAborted();
     await this.#notify({
       type: "tool_call_started",
       name,
@@ -180,6 +202,7 @@ export class ToolRuntime implements ToolRuntimeView {
       return this.#fail(name, input, callContext, error);
     }
 
+    await observePermission?.(decision, callContext);
     if (decision.decision !== "allow") {
       const reason = decision.reason ?? `Permission decision was "${decision.decision}".`;
       await this.#notify({
@@ -197,10 +220,36 @@ export class ToolRuntime implements ToolRuntimeView {
     }
 
     let output: TOutput;
+    const controller = new AbortController();
+    const signal = callContext.signal ? AbortSignal.any([callContext.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(new Error("工具执行超时")), callContext.timeoutMs ?? 130_000);
     try {
-      output = (await tool.handle(input, callContext)) as TOutput;
+      signal.throwIfAborted();
+      output = await new Promise<TOutput>((resolve, reject) => {
+        const abort = () =>
+          reject(new ToolCallRecoveryError("outcome_uncertain", "工具执行已中止，外部结果未确认，禁止自动重放"));
+        signal.addEventListener("abort", abort, { once: true });
+        const operation = Promise.resolve().then(() => {
+          signal.throwIfAborted();
+          // 未配置宿主预算的嵌入式调用保留既有上下文形状
+          return tool.handle(
+            input,
+            callContext.signal || callContext.timeoutMs !== undefined ? { ...callContext, signal } : callContext
+          );
+        });
+        this.#handlers.add(operation);
+        void operation
+          .then((value) => resolve(value as TOutput), reject)
+          .finally(() => {
+            this.#handlers.delete(operation);
+            signal.removeEventListener("abort", abort);
+          });
+        if (signal.aborted) abort();
+      });
     } catch (error) {
       return this.#fail(name, input, callContext, error);
+    } finally {
+      clearTimeout(timer);
     }
 
     await this.#notify({

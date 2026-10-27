@@ -20,22 +20,30 @@ const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
 const failures = [];
 const mechanisms = new Set(["@synapse/runtime-config", "@synapse/runtime-i18n", "@synapse/runtime-user-config"]);
 const graph = new Map();
+const channelOperations = new Set(["sendMessage", "uploadGroupFile", "executePlatformAction"]);
 
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(dir, entry.name);
-    return entry.isDirectory() ? files(path) : entry.name.endsWith(".ts") ? [path] : [];
+    return entry.isDirectory() ? files(path) : /\.tsx?$/.test(entry.name) ? [path] : [];
   });
 }
 for (const pkg of packages) {
   const dependencies = Object.keys(pkg.dependencies ?? {}).filter((name) => byName.has(name));
   graph.set(pkg.name, dependencies);
   for (const name of dependencies) {
+    if (pkg.name === "@synapse/runtime-protocol") failures.push(`Channel protocol depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-channel" && name !== "@synapse/runtime-protocol")
+      failures.push(`Channel abstraction depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-core" && name.startsWith("@synapse/runtime-channel-"))
+      failures.push(`Runtime core depends on concrete adapter ${name}`);
     if (pkg.group === "packages" && byName.get(name).group === "apps")
       failures.push(`${pkg.name} depends on application ${name}`);
     if (pkg.group === "apps" && byName.get(name).group === "apps")
       failures.push(`${pkg.name} depends on another application ${name}`);
     if (pkg.name === "@synapse/runtime-client") failures.push(`Runtime client depends on implementation ${name}`);
+    if (pkg.name === "@synapse/runtime-webui" && name !== "@synapse/runtime-client")
+      failures.push(`WebUI depends on server implementation ${name}`);
     if (
       pkg.name === "@synapse/runtime-tui" &&
       ![
@@ -57,6 +65,22 @@ for (const pkg of packages) {
     const imports = [];
     function visit(node) {
       if (
+        ts.isCallExpression(node) &&
+        !path.endsWith(".test.ts") &&
+        ["@synapse/runtime-core", "@synapse/runtime-server"].includes(pkg.name)
+      ) {
+        const expression = ts.isNonNullExpression(node.expression) ? node.expression.expression : node.expression;
+        const member = ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : ts.isElementAccessExpression(expression) && ts.isStringLiteral(expression.argumentExpression)
+            ? expression.argumentExpression.text
+            : undefined;
+        if (channelOperations.has(member))
+          failures.push(
+            `${relative(root, path).split(sep).join("/")}: Runtime platform operation must use executeChannelAction, found ${member}`
+          );
+      }
+      if (
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
         node.moduleSpecifier &&
         ts.isStringLiteral(node.moduleSpecifier)
@@ -76,6 +100,34 @@ for (const pkg of packages) {
     visit(source);
     for (const specifier of imports) {
       const label = relative(root, path).split(sep).join("/");
+      if (pkg.name === "@synapse/runtime-channel-onebot11" && !path.endsWith(".test.ts")) {
+        const sourcePath = relative(pkg.dir, path).split(sep).join("/");
+        const lowerLayers = new Set([
+          "src/codec.ts",
+          "src/message.ts",
+          "src/normalize.ts",
+          "src/utils.ts",
+          "src/types.ts"
+        ]);
+        const transports = new Set(["src/transport.ts", "src/http-transport.ts", "src/websocket-transport.ts"]);
+        const target = specifier.startsWith(".")
+          ? relative(pkg.dir, resolve(dirname(path), specifier))
+              .split(sep)
+              .join("/")
+              .replace(/\.js$/, ".ts")
+          : specifier;
+        if (specifier === "ws" && sourcePath !== "src/websocket-transport.ts")
+          failures.push(`${label}: WebSocket dependency outside transport`);
+        if (
+          (lowerLayers.has(sourcePath) &&
+            (transports.has(target) || ["src/api.ts", "src/napcat.ts", "src/adapter.ts"].includes(target))) ||
+          (transports.has(sourcePath) &&
+            ["src/api.ts", "src/napcat.ts", "src/adapter.ts", "src/message.ts", "src/normalize.ts"].includes(target)) ||
+          (sourcePath === "src/api.ts" &&
+            ["src/napcat.ts", "src/adapter.ts", "src/http-transport.ts", "src/websocket-transport.ts"].includes(target))
+        )
+          failures.push(`${label}: OneBot11 layer depends on higher implementation ${specifier}`);
+      }
       if (specifier.startsWith(".")) {
         const target = resolve(dirname(path), specifier);
         if (!target.startsWith(pkg.dir + sep)) failures.push(`${label}: cross-package relative import ${specifier}`);

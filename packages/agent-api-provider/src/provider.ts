@@ -17,7 +17,13 @@ interface ChatCompletionResponse {
  * 调用 OpenAI 兼容聊天接口的模型提供商
  */
 export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
+  readonly #timeoutMs: number;
+  readonly #maxRequestChars: number;
   readonly id: string;
+  /** 用于运行检查的模型标识，不暴露提供商凭据 */
+  get model(): string {
+    return this.#model;
+  }
   readonly #apiKey: string;
   readonly #baseUrl: string;
   readonly #model: string;
@@ -30,6 +36,15 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
 
   /** 创建 OpenAI 兼容聊天提供商 */
   constructor(options: OpenAiCompatibleChatProviderOptions) {
+    this.#timeoutMs = options.timeoutMs ?? 60_000;
+    this.#maxRequestChars = options.maxRequestChars ?? 128_000;
+    if (
+      !Number.isSafeInteger(this.#timeoutMs) ||
+      this.#timeoutMs < 1 ||
+      !Number.isSafeInteger(this.#maxRequestChars) ||
+      this.#maxRequestChars < 1
+    )
+      throw new Error("模型调用预算无效");
     this.id = options.id;
     this.#apiKey = parseRequiredString(options.apiKey, "apiKey");
     this.#baseUrl = parseRequiredString(options.baseUrl, "baseUrl");
@@ -44,6 +59,25 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
 
   /** 调用聊天完成接口 */
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
+    const controller = new AbortController();
+    const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(new Error("模型调用超时")), this.#timeoutMs);
+    try {
+      signal.throwIfAborted();
+      return await new Promise<ChatCompletionResult>((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        void this.#complete(request, signal)
+          .then(resolve, reject)
+          .finally(() => signal.removeEventListener("abort", abort));
+        if (signal.aborted) abort();
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async #complete(request: ChatCompletionRequest, signal: AbortSignal): Promise<ChatCompletionResult> {
     const temperature = request.temperature ?? this.#temperature;
     const maxTokens = request.maxTokens ?? this.#maxTokens;
     const topP = request.topP ?? this.#topP;
@@ -69,14 +103,19 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
       ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
       ...(topP === undefined ? {} : { top_p: topP })
     };
+    const serialized = JSON.stringify(body);
+    if (serialized.length > this.#maxRequestChars)
+      throw new Error(`模型请求超过 ${this.#maxRequestChars} 字符上限，未调用模型`);
+    signal.throwIfAborted();
     const response = await this.#fetch(`${this.#baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      signal,
       method: "POST",
       headers: {
         ...this.#headers,
         authorization: `Bearer ${this.#apiKey}`,
         "content-type": "application/json"
       },
-      body: JSON.stringify(body)
+      body: serialized
     });
     const responseBody = (await response.json()) as ChatCompletionResponse;
 

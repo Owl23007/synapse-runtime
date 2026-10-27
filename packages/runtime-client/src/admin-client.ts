@@ -4,6 +4,15 @@ import type {
   AdminFetchResponse,
   RuntimeAdminClientOptions
 } from "./admin-client-types.js";
+import type {
+  RunTrace,
+  RunQuery,
+  RunListResponse,
+  RunEventsResponse,
+  RunStreamOptions,
+  InspectionPage
+} from "./run-types.js";
+import { subscribeRuns } from "./run-stream.js";
 
 export type {
   AdminFetch,
@@ -25,6 +34,77 @@ export class RuntimeAdminClient {
     this.#endpoint = options.endpoint.replace(/\/$/, "");
     this.#token = options.token;
     this.#fetch = options.fetch ?? defaultFetch;
+  }
+
+  /** 按状态、频道、会话及时间分页检查运行 */
+  runs(query: RunQuery = {}): Promise<RunListResponse> {
+    return this.#get(`/admin/runs${queryString(query)}`) as Promise<RunListResponse>;
+  }
+
+  /** 读取一个逻辑运行的状态与关联对象 */
+  run(id: string): Promise<{ readonly ok: true; readonly run: RunTrace }> {
+    return this.#get(`/admin/runs/${encodeURIComponent(id)}`) as Promise<{ readonly ok: true; readonly run: RunTrace }>;
+  }
+
+  /** 读取运行内增量事件 */
+  runEvents(id: string, afterSeq = 0, limit = 100): Promise<RunEventsResponse> {
+    return this.#get(
+      `/admin/runs/${encodeURIComponent(id)}/events${queryString({ afterSeq, limit })}`
+    ) as Promise<RunEventsResponse>;
+  }
+
+  /** 读取本次执行的实际上下文快照 */
+  runContext(id: string): Promise<unknown> {
+    return this.#get(`/admin/runs/${encodeURIComponent(id)}/context`);
+  }
+
+  /** 持久运行流，自动重连并按已处理游标补读 */
+  streamRuns(options: RunStreamOptions): () => void {
+    return subscribeRuns(this.#fetch, this.#endpoint, this.#token, options);
+  }
+
+  /** 分页浏览会话 */
+  sessions(before?: number): Promise<InspectionPage> {
+    return this.#get(`/admin/sessions${queryString({ before })}`) as Promise<InspectionPage>;
+  }
+
+  /** 分页检查会话消息 */
+  transcript(sessionId: string, before?: number): Promise<InspectionPage> {
+    return this.#get(
+      `/admin/sessions/${encodeURIComponent(sessionId)}/transcript${queryString({ before })}`
+    ) as Promise<InspectionPage>;
+  }
+
+  /** 分页检查会话引用 */
+  refs(sessionId: string, after?: string): Promise<InspectionPage> {
+    return this.#get(
+      `/admin/sessions/${encodeURIComponent(sessionId)}/refs${queryString({ after })}`
+    ) as Promise<InspectionPage>;
+  }
+
+  /** 检查指定会话内的不可变提交 */
+  commit(sessionId: string, id: string): Promise<unknown> {
+    return this.#get(`/admin/commits/${encodeURIComponent(id)}${queryString({ sessionId })}`);
+  }
+
+  /** 分页检查会话工件 */
+  artifacts(sessionId: string, after?: string): Promise<InspectionPage> {
+    return this.#get(`/admin/artifacts${queryString({ sessionId, after })}`) as Promise<InspectionPage>;
+  }
+
+  /** 检查已登记工件元数据 */
+  artifact(sessionId: string, id: string): Promise<unknown> {
+    return this.#get(`/admin/artifacts/${encodeURIComponent(id)}${queryString({ sessionId })}`);
+  }
+
+  /** 使用认证头下载已登记工件，令牌不会出现在下载 URL 中 */
+  async downloadArtifact(sessionId: string, id: string): Promise<Blob> {
+    const response = await this.#fetch(
+      `${this.#endpoint}/admin/artifacts/${encodeURIComponent(id)}/content${queryString({ sessionId })}`,
+      { method: "GET", headers: { ...(this.#token === undefined ? {} : { authorization: `Bearer ${this.#token}` }) } }
+    );
+    if (!response.ok || !response.body) throw new Error(`工件下载失败：HTTP ${response.status}`);
+    return new Response(response.body).blob();
   }
 
   /** 检查 Admin 服务健康状态 */
@@ -207,6 +287,13 @@ export class RuntimeAdminClient {
 
     return readNext();
   }
+}
+
+function queryString(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query))
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  return params.size ? `?${params}` : "";
 }
 
 async function defaultFetch(url: string, init?: AdminFetchInit): Promise<AdminFetchResponse> {

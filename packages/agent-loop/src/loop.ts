@@ -20,6 +20,8 @@ export class ApiChatAgent implements Agent {
   readonly #provider: ChatCompletionProvider;
   readonly #maxSteps: number;
   readonly #maxToolCalls: number;
+  readonly #maxInputChars: number;
+  readonly #maxOutputTokens: number;
 
   /** 创建支持工具调用的聊天智能体 */
   constructor(options: ApiChatAgentOptions) {
@@ -27,6 +29,8 @@ export class ApiChatAgent implements Agent {
     this.#provider = options.provider;
     this.#maxSteps = positiveInteger(options.maxSteps ?? 8, "maxSteps");
     this.#maxToolCalls = positiveInteger(options.maxToolCalls ?? 16, "maxToolCalls");
+    this.#maxInputChars = positiveInteger(options.maxInputChars ?? 64_000, "maxInputChars");
+    this.#maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 4096, "maxOutputTokens");
   }
 
   /** 执行一次聊天智能体运行 */
@@ -34,7 +38,7 @@ export class ApiChatAgent implements Agent {
     if (request.invocation === undefined) {
       throw new Error("ApiChatAgent requires a compiled Model Invocation Envelope.");
     }
-    const runId = `run-${request.event.id}`;
+    const runId = context?.runId ?? `run-${request.event.id}`;
     const userText = getTextContent(request.input);
     const steps: AgentStep[] = [];
     const attachments: MessageSegment[] = [];
@@ -68,16 +72,41 @@ export class ApiChatAgent implements Agent {
 
     try {
       for (let stepIndex = 1; stepIndex <= this.#maxSteps; stepIndex += 1) {
+        context?.signal?.throwIfAborted();
         const modelStartedAt = new Date().toISOString();
+        const modelCallId = `model-${stepIndex}`;
+        const metadata = {
+          modelCallId,
+          providerId: this.#provider.id,
+          ...(this.#provider.model === undefined ? {} : { model: this.#provider.model })
+        };
+        const modelRequest = {
+          messages,
+          maxTokens: this.#maxOutputTokens,
+          ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" as const })
+        };
+        // 持久开始记录先于实际请求，断电后仍能解释未完成的模型调用
+        // oxlint-disable-next-line no-await-in-loop
+        await context?.observeModel?.({ ...metadata, type: "model_call_started", data: modelRequest });
         let result: ChatCompletionResult;
         try {
+          if (JSON.stringify(modelRequest).length > this.#maxInputChars)
+            throw new Error(`模型输入超过 ${this.#maxInputChars} 字符预算，未裁剪必要上下文，请缩小请求或调整预算`);
           // 模型步骤依赖前一步观察结果必须串行执行
           // oxlint-disable-next-line no-await-in-loop
           result = await this.#provider.complete({
-            messages,
-            ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" })
+            ...modelRequest,
+            ...(context?.signal ? { signal: context.signal } : {})
           });
+          context?.signal?.throwIfAborted();
         } catch (error) {
+          // oxlint-disable-next-line no-await-in-loop
+          await context?.observeModel?.({
+            ...metadata,
+            type: "model_call_failed",
+            durationMs: Date.now() - Date.parse(modelStartedAt),
+            data: { message: error instanceof Error ? error.message : "模型调用失败" }
+          });
           steps.push({
             id: `model-${stepIndex}`,
             kind: "model",
@@ -89,6 +118,19 @@ export class ApiChatAgent implements Agent {
           throw error;
         }
         const modelFinishedAt = new Date().toISOString();
+        // 不保存 Provider 原始响应，避免额外 Header 或调试凭据越过持久化边界
+        // oxlint-disable-next-line no-await-in-loop
+        await context?.observeModel?.({
+          ...metadata,
+          type: "model_call_succeeded",
+          durationMs: Date.parse(modelFinishedAt) - Date.parse(modelStartedAt),
+          data: {
+            content: result.content,
+            toolCalls: result.toolCalls,
+            finishReason: result.finishReason,
+            usage: result.usage ?? null
+          }
+        });
         const toolCalls = result.toolCalls ?? [];
         steps.push({
           id: `model-${stepIndex}`,
@@ -127,6 +169,7 @@ export class ApiChatAgent implements Agent {
           toolCalls
         });
         for (const toolCall of toolCalls) {
+          context?.signal?.throwIfAborted();
           toolCallCount += 1;
           if (toolCallCount > this.#maxToolCalls) {
             throw new Error(`Agent loop exceeded the tool call limit of ${this.#maxToolCalls}.`);

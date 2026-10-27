@@ -15,6 +15,8 @@ import type {
 import type { PresentationProfile } from "../output/index.js";
 import type { MemoryStore } from "../memory/index.js";
 import type { ContextGraph } from "../context-graph/index.js";
+import type { RunTraceStore } from "../trace/types.js";
+import type { SynapseMessage } from "@synapse/runtime-protocol";
 
 /**
  * RuntimeCore 日志记录接口
@@ -40,6 +42,40 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 仅在发送边界读取工件内容，持久事件与模型输出继续使用引用 */
+  readonly materializeMessage?: (sessionId: string, message: SynapseMessage) => SynapseMessage;
+  /** 持久化最终回复前移除未选中与重复工件，发送权限仍按最终内容检查 */
+  readonly selectMessage?: (sessionId: string, message: SynapseMessage) => SynapseMessage;
+  /** 在消息发送前逐项交付工件并落盘回执，避免部分成功被总回复失败掩盖 */
+  readonly prepareDelivery?: (input: {
+    readonly sessionId: string;
+    readonly channelId: string;
+    readonly conversationId: string;
+    readonly conversationKind: string;
+    readonly message: SynapseMessage;
+    readonly signal?: AbortSignal;
+    readonly observe: (
+      type:
+        | "artifact_upload_started"
+        | "artifact_upload_succeeded"
+        | "artifact_upload_failed"
+        | "artifact_upload_uncertain",
+      data: unknown
+    ) => void;
+  }) => Promise<
+    | { readonly status: "ready"; readonly message: SynapseMessage }
+    | { readonly status: "failed" | "uncertain"; readonly error: string }
+  >;
+  /** 实例运行预算，排队请求不占用执行名额 */
+  readonly limits?: {
+    readonly maxConcurrent?: number;
+    readonly maxQueued?: number;
+    readonly runTimeoutMs?: number;
+    readonly toolTimeoutMs?: number;
+    readonly shutdownGraceMs?: number;
+  };
+  /** 持久运行追踪，嵌入式宿主可选择自己的存储实现 */
+  readonly runs?: RunTraceStore;
   readonly channels: ChannelRegistry;
   readonly conversation: ConversationRouter;
   readonly agent: Agent;

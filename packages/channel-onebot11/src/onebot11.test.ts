@@ -119,9 +119,10 @@ describe("OneBot11ChannelAdapter", () => {
     });
 
     expect(adapter.getCapabilities()).toMatchObject({
-      sendMedia: true,
-      manageGroup: false,
-      recallMessage: false
+      capabilities: {
+        "message.media": { status: "supported" },
+        "message.delete": { status: "unsupported" }
+      }
     });
   });
 
@@ -153,7 +154,7 @@ describe("OneBot11ChannelAdapter", () => {
     });
 
     socket.receive({ status: "ok", retcode: 0, data: { message_id: 999 }, echo: request.echo });
-    await expect(sendPromise).resolves.toEqual({ ok: true, messageId: "999" });
+    await expect(sendPromise).resolves.toEqual({ status: "succeeded", messageId: "999" });
     expect(socket.endpoint).toBe("ws://127.0.0.1:3001");
     expect(socket.options).toEqual({ headers: { authorization: "Bearer token-1" } });
   });
@@ -173,7 +174,7 @@ describe("OneBot11ChannelAdapter", () => {
 
     await adapter.connect();
     await expect(adapter.sendMessage({ type: "private", userId: "42" }, textMessage("hello"))).resolves.toEqual({
-      ok: true,
+      status: "succeeded",
       messageId: "1001"
     });
     expect(requests).toEqual([

@@ -64,21 +64,23 @@ describe("Run DAG integration", () => {
       },
       getCapabilities() {
         return {
-          receivePrivateMessage: true,
-          receiveGroupMessage: true,
-          receiveAllGroupMessages: true,
-          requiresMention: false,
-          sendPrivateMessage: true,
-          sendGroupMessage: true,
-          sendMedia: false,
-          manageGroup: false,
-          recallMessage: false,
-          complianceLevel: "community",
-          riskLevel: "high"
+          schemaVersion: "channel-protocol/v1",
+          channelId: "test",
+          adapterType: "test",
+          observedAt: new Date().toISOString(),
+          capabilities: {
+            "message.send": { status: "supported", constraints: { targetTypes: ["private", "group"] } },
+            "message.media": { status: "unsupported" },
+            "message.delete": { status: "unsupported" },
+            "file.upload": {
+              status: "unsupported",
+              constraints: { targetTypes: ["group"], maxFileSizeBytes: 10_485_760 }
+            }
+          }
         };
       },
       async sendMessage() {
-        return { ok: true, messageId: "sent" };
+        return { status: "succeeded", messageId: "sent" };
       }
     };
     runtime.attachChannel(channel);

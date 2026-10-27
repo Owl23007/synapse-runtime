@@ -7,12 +7,10 @@ import type { Agent, AgentRun } from "@synapse/runtime-agent-core";
 import {
   InMemoryChannelRegistry,
   type ChannelAdapter,
-  type ChannelCapabilities,
   type ChannelEventHandler,
-  type ChannelStatus,
-  type ChannelTarget,
-  type SendResult
+  type ChannelStatus
 } from "@synapse/runtime-channel";
+import type { ChannelCapabilityProfile, ChannelActionTarget, ChannelOperationResult } from "@synapse/runtime-protocol";
 import { ConversationRouter } from "@synapse/runtime-conversation";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import {
@@ -42,8 +40,8 @@ class MockChannelAdapter implements ChannelAdapter {
   readonly type = "onebot11";
   readonly provider = "napcat";
   readonly #handlers = new Set<ChannelEventHandler>();
-  readonly sent: Array<{ target: ChannelTarget; message: SynapseMessage }> = [];
-  readonly sendResults: SendResult[] = [];
+  readonly sent: Array<{ target: ChannelActionTarget; message: SynapseMessage }> = [];
+  readonly sendResults: ChannelOperationResult[] = [];
 
   async connect(): Promise<void> {}
 
@@ -53,25 +51,24 @@ class MockChannelAdapter implements ChannelAdapter {
     return { state: "online", checkedAt: new Date(0).toISOString() };
   }
 
-  getCapabilities(): ChannelCapabilities {
+  getCapabilities(): ChannelCapabilityProfile {
     return {
-      receivePrivateMessage: true,
-      receiveGroupMessage: true,
-      receiveAllGroupMessages: true,
-      requiresMention: false,
-      sendPrivateMessage: true,
-      sendGroupMessage: true,
-      sendMedia: false,
-      manageGroup: false,
-      recallMessage: false,
-      complianceLevel: "community",
-      riskLevel: "high"
+      schemaVersion: "channel-protocol/v1",
+      channelId: this.id,
+      adapterType: this.type,
+      observedAt: new Date().toISOString(),
+      capabilities: {
+        "message.send": { status: "supported", constraints: { targetTypes: ["private", "group"] } },
+        "message.media": { status: "unsupported" },
+        "message.delete": { status: "unsupported" },
+        "file.upload": { status: "unsupported", constraints: { targetTypes: ["group"], maxFileSizeBytes: 10_485_760 } }
+      }
     };
   }
 
-  async sendMessage(target: ChannelTarget, message: SynapseMessage): Promise<SendResult> {
+  async sendMessage(target: ChannelActionTarget, message: SynapseMessage): Promise<ChannelOperationResult> {
     this.sent.push({ target, message });
-    return this.sendResults.shift() ?? { ok: true, messageId: "sent-1" };
+    return this.sendResults.shift() ?? { status: "succeeded", messageId: "sent-1" };
   }
 
   onEvent(handler: ChannelEventHandler): void {
@@ -151,6 +148,36 @@ const failingIdentityResolver: IdentityResolver = {
 };
 
 describe("RuntimeCore", () => {
+  it.each(["qq", "discord", "cli"] as const)("根据规范事件平台 %s 检查权限并执行统一发送动作", async (platform) => {
+    const channel = new MockChannelAdapter();
+    const runtime = new RuntimeCore({
+      channels: new InMemoryChannelRegistry(),
+      conversation: new ConversationRouter({ privateTrigger: { mode: "always" }, groupTrigger: { mode: "always" } }),
+      agent: {
+        id: "platform-agent",
+        async run(request): Promise<AgentRun> {
+          return {
+            id: "platform-run",
+            agentId: "platform-agent",
+            sessionId: request.sessionId,
+            status: "succeeded",
+            input: request.input,
+            steps: [],
+            output: textMessage("delivered")
+          };
+        }
+      },
+      tools: new ToolRuntime(new StaticPermissionEngine({ [`channel.${platform}.send_private_message`]: "allow" }))
+    });
+    try {
+      runtime.attachChannel(channel);
+      await channel.emit({ ...privateMessage("platform-event", "hello"), platform });
+      expect(channel.sent).toHaveLength(1);
+      expect(runtime.traces.at(-1)?.status).toBe("succeeded");
+    } finally {
+      await runtime.dispose();
+    }
+  });
   it("persists transcript and event process state in SQLite", async () => {
     const dir = mkdtempSync(join(tmpdir(), "synapse-runtime-core-sqlite-"));
     const databasePath = join(dir, "runtime-context.sqlite");
@@ -1326,7 +1353,7 @@ describe("RuntimeCore", () => {
 
   it("retries a send_failed duplicate without calling the agent again", async () => {
     const channel = new MockChannelAdapter();
-    channel.sendResults.push({ ok: false, error: "network down" }, { ok: true, messageId: "sent-2" });
+    channel.sendResults.push({ status: "failed", error: "network down" }, { status: "succeeded", messageId: "sent-2" });
     let runCount = 0;
     const agent: Agent = {
       id: "retry-agent",
