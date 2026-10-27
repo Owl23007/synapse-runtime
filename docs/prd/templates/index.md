@@ -4,12 +4,9 @@
 
 ```text
 template/
-├── index.md            # 模板说明、formatter 规则、字段语义、使用方式
 ├── template.cn.md      # 中文 PRD 模板
 └── template.en.md      # 英文 PRD 模板
 ```
-
-`index.md` 解释的是文档系统如何读取和展示 PRD，不属于任何一个具体 PRD 的正文。创建新文档时，应复制对应语言的模板，再按实际需求填写内容。
 
 ## Frontmatter
 
@@ -125,12 +122,10 @@ translations:
 3. 修改 `id`、标题、`lang`、翻译映射和关联链接，删除不适用的可选章节
 4. 用目标、行为、范围和验收标准描述产品结果，不把实现细节写成需求结论
 5. 将可验证的实施工作写成 checkbox；若不适合用任务列表表达进度，则设置显式 `progress`
-6. 在 [`docs/prd/index.md`](../index.md) 中补充活动 PRD 入口，归档后移除活动入口并放入 `archive/`
-7. 构建文档站，确认 frontmatter、路线图进度、翻译链接和页面目录均正确
 
 ## Formatter Fallback
 
-路线图 formatter 会尽量从不完整的文档生成摘要：
+脚本会尽量从不完整的文档生成摘要：
 
 - 缺少 frontmatter 时，仍会从一级标题生成标题，并按任务列表计算进度
 - 缺少一级标题时，使用文件名作为标题；连文件名也不可用时使用“未命名 PRD”
@@ -139,14 +134,4 @@ translations:
 - 没有任务且没有显式 `progress` 时，进度为 `null`，路线图显示为待标注
 - 显式 `progress` 即使超出范围也会被规范化到 0～100
 
-fallback 用于让旧文档和草稿仍可被展示，不代表可以省略清晰的 frontmatter。正式 PRD 应主动声明状态、语言和必要的关联信息。
-
-## 模板维护约定
-
-- `index.md` 维护文档系统规范、字段语义和 formatter 行为
-- `template.cn.md` 与 `template.en.md` 只提供可复制的 PRD 结构和占位内容，不解释 formatter 实现
-- 规则发生变化时，先更新 formatter，再同步更新本指南和必要的模板元数据
-- 两种语言模板应保持章节结构基本一致；新增章节时同步维护另一种语言
-- 模板中的示例 checkbox 只保留在确实希望复制到新 PRD 的实施计划或验收标准中
-- 维护模板时不要把某个具体 PRD 的背景、决定或实现结论带入模板
-- 若未来语言数量增加，可将文件重命名为 `zh-CN.md`、`en.md`，或采用 `README.md` 加语言模板的结构，并同步更新本指南中的路径
+fallback 用于让旧文档和草稿仍可被展示，正式 PRD 应主动声明状态、语言和必要的关联信息。
