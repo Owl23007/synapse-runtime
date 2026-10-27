@@ -5,13 +5,6 @@ hero:
   name: Synapse
   text: Agent Infra Runtime
   tagline: 面向本地优先部署的 TypeScript Runtime，统一通道接入、Agent Provider、权限、上下文合成与运维控制面。
-  actions:
-    - theme: brand
-      text: 快速开始
-      link: /guide/getting-started
-    - theme: alt
-      text: 包结构参考
-      link: /reference/packages
 
 features:
   - title: 统一通道
@@ -40,7 +33,3 @@ Synapse Runtime 使用 pnpm workspace 组织代码。当前实现覆盖：
 - Agent 抽象，以及 OpenAI-compatible Chat Provider
 - 通道发送和工具调用的静态权限决策
 - 本地 SQLite 上下文存储，包括 transcript、幂等状态、workspace 绑定和可选 memory schema
-
-建议先阅读[快速开始](/guide/getting-started)，再通过[运行链路](/guide/runtime-flow)和[配置](/guide/configuration)理解消息如何穿过整个系统。
-
-项目当前各条闭环及明确延期边界见[闭环状态](/reference/closure-status)

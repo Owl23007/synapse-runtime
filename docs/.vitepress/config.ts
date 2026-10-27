@@ -1,5 +1,5 @@
 import { defineConfig } from "vitepress";
-import { developmentSidebar, guideSidebar, prdSidebar, roadmapSidebar } from "./sidebar";
+import { prdSidebar, roadmapSidebar } from "./sidebar";
 
 export default defineConfig({
   title: "Synapse Runtime",
@@ -11,14 +11,6 @@ export default defineConfig({
     logo: "/logo.svg",
     nav: [
       { text: "首页", link: "/" },
-      { text: "用户手册", link: "/guide/getting-started" },
-      {
-        text: "开发文档",
-        items: [
-          { text: "架构说明", link: "/architecture" },
-          { text: "技术参考", link: "/reference/packages" }
-        ]
-      },
       {
         text: "产品规划",
         items: [
@@ -33,12 +25,8 @@ export default defineConfig({
       provider: "local"
     },
     sidebar: {
-      "/guide/": guideSidebar,
-      "/reference/": developmentSidebar,
       "/prd/": prdSidebar,
-      "/roadmap": roadmapSidebar,
-      "/architecture": developmentSidebar,
-      "/napcat-docker": guideSidebar
+      "/roadmap": roadmapSidebar
     },
     socialLinks: []
   }
