@@ -137,7 +137,8 @@ export class OneBot11WebSocketTransport implements OneBot11Connection {
       this.#pending.set(echo, { resolve, reject, timeout });
       try {
         socket.send(body, (error) => {
-          if (error !== undefined) fail(error);
+          // ws 的真实成功回调传入 null，不能提前拒绝并丢弃稍后到达的平台回执
+          if (error !== undefined && error !== null) fail(error);
         });
       } catch {
         fail(new Error("OneBot 11 WebSocket send failed."));

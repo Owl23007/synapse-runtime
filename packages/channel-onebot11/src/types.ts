@@ -32,14 +32,14 @@ export interface OneBot11ChannelAdapterOptions {
   readonly WebSocketCtor?: OneBot11WebSocketConstructor;
 }
 
-/** WebSocket 宿主依赖的最小接口，用于独立验证连接生命周期 */
+/** WebSocket 宿主依赖的最小接口，发送成功兼容 null 与 undefined 回调以保留平台回执等待 */
 export interface OneBot11WebSocket {
   readonly readyState: number;
   on(event: "open", listener: () => void): this;
   on(event: "message", listener: (data: unknown) => void): this;
   on(event: "close", listener: (code?: number, reason?: Buffer) => void): this;
   on(event: "error", listener: (error: Error) => void): this;
-  send(data: string, callback?: (error?: Error) => void): void;
+  send(data: string, callback?: (error?: Error | null) => void): void;
   close(code?: number, reason?: string): void;
   terminate(): void;
 }
