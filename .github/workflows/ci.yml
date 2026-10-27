@@ -43,7 +43,8 @@ jobs:
 
   build-and-test:
     name: Build and test
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 支持 Ubuntu 24.04，固定系统以避免 latest 升级后无法安装 Chromium
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
