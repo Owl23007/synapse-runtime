@@ -1,20 +1,10 @@
 import type Database from "better-sqlite3";
-import type { RunTraceStore } from "../../trace/types.js";
+import type { RunTraceStore, RecoverToolOutput } from "../../trace/types.js";
 import type { SqliteConversationRepository } from "./conversation-store.js";
 import { decodeJson } from "./json-codec.js";
 
-/** 只读外部持久回执核对输入，目标来源于已接受的规范化事件 */
-export interface RecoverToolOutputInput {
-  readonly sessionId: string;
-  readonly channelId: string;
-  readonly conversationId: string;
-  readonly conversationType: string;
-  readonly name: string;
-  readonly input: unknown;
-}
-
-/** 仅返回已存在的工具输出，找不到可靠回执时不得推测成功 */
-export type RecoverToolOutput = (input: RecoverToolOutputInput) => Readonly<Record<string, unknown>> | undefined;
+/** 兼容旧内部类型入口，恢复契约由领域追踪层定义 */
+export type { RecoverToolOutput, RecoverToolOutputInput } from "../../trace/types.js";
 
 interface StartedRow {
   readonly ordinal: number;

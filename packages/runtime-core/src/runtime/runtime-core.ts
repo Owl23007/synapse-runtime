@@ -1,32 +1,14 @@
-import { randomUUID } from "node:crypto";
-import { RunContextGraph } from "./run-context-graph.js";
-import { RunRecorder } from "../trace/recorder.js";
-import { ExecutionGate, withAbort } from "./execution-budget.js";
-import type { RunTraceStore } from "../trace/types.js";
-import { isDeepStrictEqual } from "node:util";
-import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
-import { executeChannelAction, type ChannelAdapter, type ChannelRegistry } from "@synapse/runtime-channel";
+import { type ChannelAdapter, type ChannelRegistry } from "@synapse/runtime-channel";
 import type { AgentRequest, ConversationRouter, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
-import {
-  messageSendAction,
-  type ChannelActionResult,
-  type SynapseChannelEvent,
-  type SynapseMessage
-} from "@synapse/runtime-protocol";
-import {
-  ToolCallRecoveryError,
-  type ToolCallReplayRequest,
-  type ToolCallReplayResolution,
-  type ToolRuntime,
-  type ToolRuntimeEvent
-} from "@synapse/runtime-tool-runtime";
+import { type SynapseChannelEvent } from "@synapse/runtime-protocol";
+import { ToolCallRecoveryError, type ToolRuntime, type ToolRuntimeEvent } from "@synapse/runtime-tool-runtime";
 import {
   anonymousActor,
   buildSessionId,
   buildSourceEventId,
   commandResponse,
-  ContextComposer,
   ContextAttributorLite,
+  ContextComposer,
   conversationTypeFromEvent,
   defaultWorkspace,
   IdentityResolverLite,
@@ -37,17 +19,15 @@ import {
   OutputPolicyResolver,
   ResponsePolicy,
   WorkspaceResolverLite,
-  type IdentityStore,
   type AcceptedNormalizedEvent,
-  type ConversationBranch,
-  type ConversationStore,
   type ContextAttributionDecision,
   type ContextAttributor,
+  type ConversationBranch,
+  type ConversationStore,
   type CreateBranchInput,
-  type EventProcessState,
-  type LineEvent,
-  type IdentityResolver,
   type EventProcessStore,
+  type IdentityResolver,
+  type IdentityStore,
   type OutputPolicy,
   type TranscriptStore,
   type WorkspaceRef,
@@ -55,52 +35,35 @@ import {
   type WorkspaceStore
 } from "../context.js";
 import { InMemoryWorkspaceStore } from "../context/workspace.js";
-import { promoteExplicitMemory } from "../memory/promotion.js";
 import type { MemoryStore } from "../memory/index.js";
-import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeTrace } from "./types.js";
+import { promoteExplicitMemory } from "../memory/promotion.js";
+import type { RunRecorder } from "../trace/recorder.js";
+import type { RunTraceStore } from "../trace/types.js";
+import { RuntimeDelivery } from "./delivery.js";
+import { compactGraphToolResult, serializeError, stringifyAgentOutput } from "./event-records.js";
+import { getText, summarizeEvent, textMessage } from "./message-utils.js";
+import { isFreshProcessState, recoveryStatusFromProcess, RuntimeRecovery } from "./recovery.js";
+import { RunContextGraph } from "./run-context-graph.js";
+import { RunCoordinator } from "./run-coordinator.js";
 import {
   conversationStoreFromUnknown,
-  transcriptStoreFromUnknown,
-  workspaceStoreFromUnknown,
+  identityStoreFromUnknown,
   memoryStoreFromUnknown,
-  identityStoreFromUnknown
+  transcriptStoreFromUnknown,
+  workspaceStoreFromUnknown
 } from "./store-resolution.js";
-import {
-  channelSendPermission,
-  conservativeResponse,
-  getText,
-  summarizeEvent,
-  summarizeMessage,
-  targetFromEvent,
-  textMessage,
-  withReplyContext
-} from "./message-utils.js";
-
-type RuntimeEventScope = {
-  readonly provider: string;
-  readonly accepted: AcceptedNormalizedEvent;
-  readonly runId?: string;
-};
-
-type RecoveryStatus = Exclude<EventProcessState["status"], "processing"> | "send_uncertain";
+import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeEventScope, RuntimeTrace } from "./types.js";
 
 /**
- * 编排频道事件持久化、上下文构建、智能体执行与消息投递
+ * 对外运行门面，协调频道接收、上下文用例及独立的执行、交付和恢复流程
  */
 export class RuntimeCore {
-  readonly #materializeMessage: RuntimeCoreOptions["materializeMessage"];
-  readonly #selectMessage: RuntimeCoreOptions["selectMessage"];
-  readonly #prepareDelivery: RuntimeCoreOptions["prepareDelivery"];
-  readonly #gate: ExecutionGate;
-  readonly #runTimeoutMs: number;
-  readonly #toolTimeoutMs: number;
-  readonly #shutdownGraceMs: number;
-  readonly #runControllers = new Map<string, AbortController>();
+  readonly #coordinator: RunCoordinator;
+  readonly #delivery: RuntimeDelivery;
+  readonly #recovery: RuntimeRecovery;
   readonly #runs: RunTraceStore | undefined;
-  readonly #recorders = new Map<string, RunRecorder>();
   readonly #channels: ChannelRegistry;
   readonly #conversation: ConversationRouter;
-  readonly #agent: Agent;
   readonly #runGraph: RunContextGraph | undefined;
   readonly #tools: ToolRuntime;
   readonly #logger: RuntimeCoreLogger | undefined;
@@ -132,29 +95,17 @@ export class RuntimeCore {
   };
   readonly #traces: RuntimeTrace[] = [];
   readonly #locallyClaimedProcesses = new Set<string>();
-  readonly #inFlightOperations = new Set<Promise<unknown>>();
   readonly #removeToolObserver: () => void;
-  #disposed = false;
   #toolObserverRemoved = false;
   #disposePromise: Promise<void> | undefined;
 
   /**
-   * 创建 RuntimeCore 并装配所需运行组件
+   * 注入领域能力并组合内部业务用例，具体依赖由 App 装配
    */
   constructor(options: RuntimeCoreOptions) {
-    this.#materializeMessage = options.materializeMessage;
-    this.#selectMessage = options.selectMessage;
-    this.#prepareDelivery = options.prepareDelivery;
-    this.#gate = new ExecutionGate(options.limits?.maxConcurrent ?? 4, options.limits?.maxQueued ?? 64);
-    this.#runTimeoutMs = options.limits?.runTimeoutMs ?? 300_000;
-    this.#toolTimeoutMs = options.limits?.toolTimeoutMs ?? 130_000;
-    this.#shutdownGraceMs = options.limits?.shutdownGraceMs ?? 30_000;
-    for (const value of [this.#runTimeoutMs, this.#toolTimeoutMs, this.#shutdownGraceMs])
-      if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) throw new Error("运行时间预算无效");
     this.#runs = options.runs;
     this.#channels = options.channels;
     this.#conversation = options.conversation;
-    this.#agent = options.agent;
     this.#runGraph =
       options.context?.graph === undefined
         ? undefined
@@ -224,6 +175,41 @@ export class RuntimeCore {
       ...(options.context?.strategy === undefined ? {} : { strategy: options.context.strategy }),
       ...(options.context?.cacheEnabled === undefined ? {} : { cacheEnabled: options.context.cacheEnabled })
     });
+    this.#coordinator = new RunCoordinator({
+      agent: options.agent,
+      tools: this.#tools,
+      conversationStore: this.#conversationStore,
+      eventProcessStore: this.#eventProcessStore,
+      runs: this.#runs,
+      logger: this.#logger,
+      limits: options.limits
+    });
+    this.#delivery = new RuntimeDelivery({
+      agentId: options.agent.id,
+      channels: this.#channels,
+      tools: this.#tools,
+      conversationStore: this.#conversationStore,
+      eventProcessStore: this.#eventProcessStore,
+      transcriptStore: this.#transcriptStore,
+      contextEnabled: this.#contextEnabled,
+      responsePolicy: this.#responsePolicy,
+      runGraph: this.#runGraph,
+      logger: this.#logger,
+      recorders: this.#coordinator.recorders,
+      controllers: this.#coordinator.controllers,
+      traces: this.#traces,
+      materializeMessage: options.materializeMessage,
+      selectMessage: options.selectMessage,
+      prepareDelivery: options.prepareDelivery
+    });
+    this.#recovery = new RuntimeRecovery({
+      agentId: options.agent.id,
+      conversationStore: this.#conversationStore,
+      eventProcessStore: this.#eventProcessStore,
+      recorders: this.#coordinator.recorders,
+      traces: this.#traces,
+      delivery: this.#delivery
+    });
     this.#removeToolObserver = this.#tools.addObserver((event) => this.#recordToolRuntimeEvent(event));
   }
 
@@ -236,7 +222,7 @@ export class RuntimeCore {
 
   /** 当前实例容量与拒绝数量，不将等待请求伪装为执行中 */
   get executionStatus() {
-    return this.#gate.status;
+    return this.#coordinator.executionStatus;
   }
 
   /**
@@ -250,36 +236,17 @@ export class RuntimeCore {
    * 创建与主线隔离的会话分支
    */
   createBranch(input: CreateBranchInput): Promise<ConversationBranch> {
-    if (this.#disposed) {
+    if (this.#coordinator.disposed) {
       return Promise.reject(new Error("Runtime is shutting down and cannot create a new conversation branch."));
     }
-    return this.#trackOperation(this.#conversationStore.createBranch(input));
+    return this.#coordinator.track(this.#conversationStore.createBranch(input));
   }
 
   /**
    * 等待进行中的操作结束并释放工具观察器
    */
   dispose(): Promise<void> {
-    if (this.#disposePromise !== undefined) {
-      return this.#disposePromise;
-    }
-
-    this.#disposed = true;
-    this.#gate.close();
-    const inFlight = [...this.#inFlightOperations];
-    this.#disposePromise = (async () => {
-      const timer = setTimeout(() => {
-        for (const controller of this.#runControllers.values()) controller.abort(new Error("Runtime 退出收尾超时"));
-      }, this.#shutdownGraceMs);
-      try {
-        await Promise.allSettled(inFlight);
-        const pending = await this.#tools.drain();
-        if (pending > 0) this.#logger?.warn("工具处理器未在收尾预算内结束，相关运行需核对外部结果", { pending });
-      } finally {
-        clearTimeout(timer);
-        this.#removeToolObserverOnce();
-      }
-    })();
+    this.#disposePromise ??= this.#coordinator.dispose().finally(() => this.#removeToolObserverOnce());
     return this.#disposePromise;
   }
 
@@ -300,11 +267,11 @@ export class RuntimeCore {
    * 接收频道事件并纳入运行时操作生命周期
    */
   handleChannelEvent(event: SynapseChannelEvent, providerOverride?: string, targetLineId?: string): Promise<void> {
-    if (this.#disposed) {
+    if (this.#coordinator.disposed) {
       return Promise.resolve();
     }
 
-    return this.#trackOperation(this.#gate.run(() => this.#processChannelEvent(event, providerOverride, targetLineId)));
+    return this.#coordinator.dispatch(() => this.#processChannelEvent(event, providerOverride, targetLineId));
   }
 
   async #processChannelEvent(
@@ -438,15 +405,13 @@ export class RuntimeCore {
       return;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error("运行已超过截止时间")), this.#runTimeoutMs);
     const controlId = scope.runId ?? `event:${scope.accepted.event.id}`;
-    if (this.#runControllers.has(controlId)) {
-      clearTimeout(timer);
+    const execution = this.#coordinator.beginRun(controlId);
+    if (execution === undefined) {
       this.#traces.push({ eventId: event.id, status: "ignored", reason: "already_processing" });
       return;
     }
-    this.#runControllers.set(controlId, controller);
+    const { controller, timer } = execution;
     try {
       let actor = anonymousActor(event, provider);
       try {
@@ -546,8 +511,7 @@ export class RuntimeCore {
       }
       processStateId = claim.state.id;
       if (scope.runId !== undefined && this.#runs !== undefined) {
-        recorder = new RunRecorder(scope.runId, this.#runs);
-        this.#recorders.set(scope.runId, recorder);
+        recorder = this.#coordinator.beginRecording(scope.runId);
       }
 
       if (branchId !== undefined) {
@@ -594,7 +558,7 @@ export class RuntimeCore {
         );
       }
       if (
-        await this.#resumeRecoveredProcess({
+        await this.#recovery.resume({
           event,
           request: enrichedRequest,
           scope,
@@ -667,7 +631,7 @@ export class RuntimeCore {
       }
 
       if (commandOutput !== undefined) {
-        await this.#sendOutput({
+        await this.#delivery.sendOutput({
           event,
           request: enrichedRequest,
           runId: scope.runId ?? `command-${event.id}`,
@@ -698,193 +662,13 @@ export class RuntimeCore {
         invocation: enrichedRequest.invocation ?? null
       });
 
-      const attemptId = recorder?.attemptId ?? `agent-attempt-${randomUUID()}`;
-      const context: AgentRuntimeContext = {
-        signal: controller.signal,
-        ...(scope.runId === undefined ? {} : { runId: scope.runId }),
-        ...(recorder === undefined
-          ? {}
-          : {
-              observeModel: (event: import("@synapse/runtime-agent-core").AgentModelEvent) =>
-                recorder!.emit(
-                  event.type,
-                  {
-                    modelCallId: event.modelCallId,
-                    providerId: event.providerId,
-                    model: event.model ?? null,
-                    ...(event.data as Record<string, unknown>)
-                  },
-                  event.durationMs
-                )
-            }),
-        tools: this.#tools.withContext({
-          signal: controller.signal,
-          timeoutMs: this.#toolTimeoutMs,
-          ...(scope.runId === undefined ? {} : { runId: scope.runId }),
-          ...(recorder === undefined
-            ? {}
-            : {
-                observePermission: (decision, call) =>
-                  recorder!.emit(decision.decision === "allow" ? "permission_allowed" : "permission_blocked", {
-                    ...decision,
-                    callId: call.callId
-                  })
-              }),
-          sessionId,
-          source: enrichedRequest.source,
-          userId: enrichedRequest.userId,
-          attemptId,
-          lineId,
-          ...(branchId === undefined ? {} : { branchId }),
-          causationEventId: scope.accepted.lineEvent.id,
-          durableCallIdPrefix: scope.accepted.event.id,
-          replayCall: async (toolCall) => {
-            const replay = await this.#resolveToolCallReplay(toolCall);
-            if (replay.status !== "missing")
-              recorder?.emit("tool_call_replayed", {
-                callId: toolCall.context.callId,
-                name: toolCall.name,
-                status: replay.status
-              });
-            if (replay.status === "started")
-              recorder?.fail("uncertain", "tool_outcome_uncertain", "工具已有未决动作，未重新执行", "tool");
-            return replay;
-          }
-        }),
-        conversation: {
-          createBranch: async (input) => {
-            controller.signal.throwIfAborted();
-            if (branchId !== undefined) {
-              throw new Error("Nested conversation branches are not supported.");
-            }
-            const branch = await this.#conversationStore.createBranch({
-              sessionId,
-              parentMainlineId: scope.accepted.mainline.id,
-              sourceEventId: scope.accepted.lineEvent.id,
-              title: input.title,
-              goal: input.goal,
-              reason: input.reason,
-              createdBy: this.#agent.id,
-              idempotencyKey: `agent:${this.#agent.id}:${scope.accepted.event.id}:${input.idempotencyKey}`,
-              contextSnapshot: input.contextSnapshot ?? {
-                sourceEventId: scope.accepted.lineEvent.id,
-                sourceText: scope.accepted.event.text
-              }
-            });
-            return {
-              id: branch.id,
-              sessionId: branch.sessionId,
-              parentMainlineId: branch.parentMainlineId,
-              sourceEventId: branch.sourceEventId,
-              status: branch.status
-            };
-          }
-        }
-      };
-      await this.#conversationStore.appendEvent(lineId, {
-        type: "agent_run_started",
-        idempotencyKey: `agent-run:${sourceEventId}:${attemptId}:started`,
-        sourceEventId: scope.accepted.lineEvent.id,
-        causationEventId: scope.accepted.lineEvent.id,
-        correlationId: attemptId,
-        actorId: this.#agent.id,
-        payload: {
-          attemptId,
-          agentId: this.#agent.id,
-          input: enrichedRequest.input,
-          ...(enrichedRequest.invocation === undefined
-            ? {}
-            : { invocation: summarizeInvocation(enrichedRequest.invocation) })
-        }
-      });
-      this.#logger?.info("Runtime agent run started.", {
-        eventId: event.id,
-        agentId: this.#agent.id,
-        sessionId: enrichedRequest.sessionId,
-        userId: enrichedRequest.userId,
-        input: summarizeMessage(enrichedRequest.input),
-        ...(enrichedRequest.invocation === undefined
-          ? {}
-          : { invocation: summarizeInvocation(enrichedRequest.invocation) })
-      });
-      let run: Awaited<ReturnType<Agent["run"]>>;
-      try {
-        controller.signal.throwIfAborted();
-        run = await withAbort(this.#agent.run(enrichedRequest, context), controller.signal);
-        if (scope.runId !== undefined) run = { ...run, id: scope.runId };
-        if (run.status === "failed") recorder?.fail("failed", "agent_failed", run.error ?? "智能体未完成请求", "model");
-      } catch (error) {
-        const serializedError = serializeError(error);
-        await this.#conversationStore.appendEvent(lineId, {
-          type: "agent_run_failed",
-          idempotencyKey: `agent-run:${sourceEventId}:${attemptId}:finished`,
-          sourceEventId: scope.accepted.lineEvent.id,
-          causationEventId: scope.accepted.lineEvent.id,
-          correlationId: attemptId,
-          actorId: this.#agent.id,
-          payload: {
-            attemptId,
-            agentId: this.#agent.id,
-            status: "failed",
-            error: serializedError
-          }
-        });
-        if (processStateId !== undefined) {
-          const recoveryBlocked = error instanceof ToolCallRecoveryError;
-          await this.#eventProcessStore.update(processStateId, {
-            status: recoveryBlocked ? "completed" : "received",
-            errorJson: JSON.stringify({ error: serializedError })
-          });
-        }
-        throw error;
-      }
-      if (run.status === "succeeded" && run.output !== undefined && processStateId !== undefined) {
-        try {
-          await this.#eventProcessStore.update(processStateId, {
-            status: "processing",
-            agentOutputText: getText(run.output),
-            agentOutputJson: stringifyAgentOutput(run.output)
-          });
-        } catch (error) {
-          this.#logger?.warn("Runtime agent output checkpoint failed; completion event will retain the output.", {
-            eventId: event.id,
-            runId: run.id,
-            error: error instanceof Error ? error.message : "Unknown checkpoint error."
-          });
-        }
-      }
-      await this.#conversationStore.appendEvent(lineId, {
-        type: run.status === "succeeded" ? "agent_run_completed" : "agent_run_failed",
-        idempotencyKey: `agent-run:${sourceEventId}:${attemptId}:finished`,
-        sourceEventId: scope.accepted.lineEvent.id,
-        causationEventId: scope.accepted.lineEvent.id,
-        correlationId: attemptId,
-        actorId: run.agentId,
-        payload: {
-          attemptId,
-          runId: run.id,
-          agentId: run.agentId,
-          status: run.status,
-          steps: run.steps,
-          ...(run.output === undefined ? {} : { output: run.output }),
-          ...(run.error === undefined ? {} : { error: run.error })
-        }
-      });
-      this.#logger?.info("Runtime agent run finished.", {
-        eventId: event.id,
-        runId: run.id,
-        agentId: run.agentId,
-        status: run.status,
-        output: run.output === undefined ? undefined : summarizeMessage(run.output),
-        error: run.error,
-        steps: run.steps.map((step) => ({
-          id: step.id,
-          kind: step.kind,
-          status: step.status,
-          detail: step.detail,
-          startedAt: step.startedAt,
-          finishedAt: step.finishedAt
-        }))
+      const run = await this.#coordinator.executeAgent({
+        request: enrichedRequest,
+        event,
+        scope,
+        controller,
+        processStateId,
+        replayToolCall: (toolCall) => this.#recovery.replayToolCall(toolCall)
       });
 
       if (run.status === "succeeded" && run.output !== undefined) {
@@ -895,7 +679,7 @@ export class RuntimeCore {
             agentOutputJson: stringifyAgentOutput(run.output)
           });
         }
-        await this.#sendOutput({
+        await this.#delivery.sendOutput({
           event,
           request: enrichedRequest,
           runId: run.id,
@@ -909,7 +693,7 @@ export class RuntimeCore {
       }
 
       if (run.status === "failed") {
-        await this.#sendOutput({
+        await this.#delivery.sendOutput({
           event,
           request: enrichedRequest,
           runId: run.id,
@@ -971,641 +755,14 @@ export class RuntimeCore {
         error: error instanceof Error ? error.message : "Unknown runtime error."
       });
     } finally {
-      clearTimeout(timer);
-      this.#runControllers.delete(controlId);
-      if (recorder !== undefined) {
-        try {
-          recorder.finish();
-        } catch {
-          this.#logger?.error("Run terminal state could not be persisted; recovery is required.", {
-            runId: recorder.runId
-          });
-        }
-        this.#recorders.delete(recorder.runId);
-      }
+      this.#coordinator.finishRun(controlId, timer, recorder);
       if (locallyClaimedProcessId !== undefined) {
         this.#locallyClaimedProcesses.delete(locallyClaimedProcessId);
       }
     }
   }
 
-  /**
-   * 恢复崩溃前已持久化的智能体输出或投递结果
-   *
-   * 返回 true 表示该事件已被恢复路径完全处理，调用方不应重新执行智能体
-   */
-  async #resumeRecoveredProcess(input: {
-    readonly event: SynapseChannelEvent;
-    readonly request: AgentRequest;
-    readonly scope: RuntimeEventScope;
-    readonly processState: EventProcessState;
-    readonly recoveryStatus: RecoveryStatus;
-    readonly commandOutput: SynapseMessage | undefined;
-    readonly workspace: WorkspaceRef;
-    readonly outputPolicy: OutputPolicy;
-    readonly processStateId: string | undefined;
-  }): Promise<boolean> {
-    const { event, request, scope, processState, commandOutput, workspace, outputPolicy, processStateId } = input;
-    let recoveryStatus = input.recoveryStatus;
-    let recoveredOutput =
-      parseAgentOutput(processState.agentOutputJson) ??
-      (processState.agentOutputText === undefined ? undefined : textMessage(processState.agentOutputText));
-    if (recoveredOutput === undefined) {
-      const completedAgentEvent = await this.#findCompletedAgentEvent(scope.accepted);
-      const persistedOutput = completedAgentEvent === undefined ? undefined : agentOutputFromEvent(completedAgentEvent);
-      if (persistedOutput !== undefined) {
-        recoveredOutput = persistedOutput;
-        if (recoveryStatus === "received") {
-          recoveryStatus = "agent_completed";
-        }
-        await this.#eventProcessStore.update(processState.id, {
-          status: "processing",
-          agentOutputText: getText(persistedOutput),
-          agentOutputJson: stringifyAgentOutput(persistedOutput)
-        });
-      }
-    }
-    if (recoveredOutput !== undefined && commandOutput === undefined) {
-      await this.#ensureCompletedAgentEvent(scope.accepted, recoveredOutput, event.id);
-    }
-
-    if (recoveryStatus === "send_uncertain") {
-      const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-      if (assistantEvent === undefined || recoveredOutput === undefined) {
-        throw new Error(`Uncertain delivery for "${scope.accepted.event.id}" is missing its persisted output.`);
-      }
-      const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
-      await this.#appendDeliveryEvent(
-        { event, runId: recoveredRunId, conversation: scope.accepted },
-        assistantEvent,
-        "delivery_uncertain",
-        {
-          recovered: true,
-          reason: "The previous process stopped after delivery started; output was not sent again."
-        }
-      );
-      const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
-      const assistant = await this.#appendAssistantTranscript(
-        event,
-        output,
-        scope.accepted,
-        undefined,
-        assistantEvent.id
-      );
-      await this.#eventProcessStore.update(processState.id, {
-        status: "completed",
-        ...(assistant === undefined ? {} : { assistantMessageId: assistant.id }),
-        errorJson: JSON.stringify({ phase: "send_uncertain" })
-      });
-      this.#traces.push({
-        eventId: event.id,
-        status: "failed",
-        reason: "delivery_outcome_uncertain",
-        runId: recoveredRunId
-      });
-      return true;
-    }
-
-    if ((recoveryStatus === "agent_completed" || recoveryStatus === "send_failed") && recoveredOutput !== undefined) {
-      const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-      if (assistantEvent !== undefined) {
-        const delivered = await this.#findSuccessfulDelivery(scope.accepted, assistantEvent);
-        if (delivered !== undefined) {
-          const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
-          this.#recorders
-            .get(recoveredRunId)
-            ?.emit("response_sent", { recovered: true, externalMessageId: externalMessageIdFromDelivery(delivered) });
-          const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
-          const assistant = await this.#appendAssistantTranscript(
-            event,
-            output,
-            scope.accepted,
-            externalMessageIdFromDelivery(delivered),
-            assistantEvent.id
-          );
-          await this.#eventProcessStore.update(processState.id, {
-            status: "completed",
-            ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
-          });
-          this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
-          return true;
-        }
-      }
-      await this.#sendOutput({
-        event,
-        request,
-        runId: scope.runId ?? `recovered-${event.id}`,
-        output: recoveredOutput,
-        workspace,
-        outputPolicy,
-        processStateId,
-        conversation: scope.accepted
-      });
-      return true;
-    }
-
-    if (recoveryStatus !== "send_succeeded") {
-      return false;
-    }
-
-    if (recoveredOutput === undefined) {
-      await this.#eventProcessStore.update(processState.id, {
-        status: "completed",
-        errorJson: JSON.stringify({ error: "send_succeeded_without_output" })
-      });
-      this.#traces.push({ eventId: event.id, status: "ignored", reason: "send_succeeded_without_output" });
-      return true;
-    }
-
-    const recoveredRunId = scope.runId ?? `recovered-${event.id}`;
-    const assistantEvent = await this.#findAssistantEvent(scope.accepted);
-    if (assistantEvent === undefined) {
-      throw new Error(`Persisted assistant event for "${scope.accepted.event.id}" does not exist.`);
-    }
-    const sendResult = parseSendResult(processState.sendResultJson);
-    const delivered = await this.#findSuccessfulDelivery(scope.accepted, assistantEvent);
-    if (delivered === undefined) {
-      await this.#appendDeliveryEvent(
-        { event, runId: recoveredRunId, conversation: scope.accepted },
-        assistantEvent,
-        "delivery_succeeded",
-        {
-          ...(sendResult?.messageId === undefined ? {} : { externalMessageId: sendResult.messageId }),
-          recovered: true
-        }
-      );
-    }
-    const output = this.#applyResponsePolicy(recoveredOutput, outputPolicy, event.id, recoveredRunId);
-    const assistant = await this.#appendAssistantTranscript(
-      event,
-      output,
-      scope.accepted,
-      sendResult?.messageId,
-      assistantEvent.id
-    );
-    await this.#eventProcessStore.update(processState.id, {
-      status: "completed",
-      ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
-    });
-    this.#traces.push({ eventId: event.id, status: "succeeded", runId: recoveredRunId });
-    this.#recorders
-      .get(recoveredRunId)
-      ?.emit("response_sent", { recovered: true, externalMessageId: sendResult?.messageId });
-    return true;
-  }
-
-  async #findSuccessfulDelivery(
-    conversation: AcceptedNormalizedEvent,
-    assistantEvent: LineEvent
-  ): Promise<LineEvent | undefined> {
-    const deliveryEvents = await this.#conversationStore.listEvents(conversation.mainline.id, {
-      types: ["delivery_succeeded"]
-    });
-    return deliveryEvents.find((delivery) => delivery.sourceEventId === assistantEvent.id);
-  }
-
-  async #sendOutput(input: {
-    readonly event: SynapseChannelEvent;
-    readonly request: AgentRequest;
-    readonly runId: string;
-    readonly output: SynapseMessage;
-    readonly workspace: WorkspaceRef | undefined;
-    readonly outputPolicy: OutputPolicy | undefined;
-    readonly processStateId: string | undefined;
-    readonly conversation: AcceptedNormalizedEvent;
-  }): Promise<void> {
-    // 恢复路径同样经过这里，图提交可按原事件补齐且不会触发第二次群文件上传
-    const signal = (
-      this.#runControllers.get(input.runId) ?? this.#runControllers.get(`event:${input.conversation.event.id}`)
-    )?.signal;
-    signal?.throwIfAborted();
-    if (this.#runGraph !== undefined) {
-      const results = await this.#conversationStore.listEvents(input.conversation.lineEvent.lineId, {
-        types: ["tool_result"]
-      });
-      for (const result of results) {
-        if (result.sourceEventId !== input.conversation.lineEvent.id) continue;
-        const payload = recordPayload(result);
-        if (typeof payload?.callId !== "string") continue;
-        this.#runGraph.record(
-          input.conversation.session.id,
-          input.conversation.lineEvent.id,
-          `graph-tool:${payload.callId}`,
-          "tool_result",
-          {
-            name: payload.name,
-            callId: payload.callId,
-            ...compactGraphToolResult(payload)
-          }
-        );
-      }
-    }
-    const publishedCommit = this.#runGraph?.finish(
-      input.conversation.session.id,
-      input.conversation.lineEvent.lineId,
-      input.conversation.lineEvent.id,
-      getText(input.output)
-    );
-    this.#recorders.get(input.runId)?.emit("context_committed", {
-      sessionId: input.conversation.session.id,
-      ...(publishedCommit === undefined ? {} : { commitId: publishedCommit.id, parents: publishedCommit.parents }),
-      refName: `run:${input.conversation.lineEvent.id}`,
-      lineRef: `line:${input.conversation.lineEvent.lineId}`
-    });
-    const channel = this.#channels.get(input.event.channelId);
-    const selectedOutput = this.#selectMessage?.(input.conversation.session.id, input.output) ?? input.output;
-    const presented = this.#applyResponsePolicy(selectedOutput, input.outputPolicy, input.event.id, input.runId);
-    // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
-    const output: SynapseMessage =
-      channel?.getCapabilities().capabilities["message.media"]?.status === "unsupported"
-        ? { ...presented, type: "text", segments: [{ type: "text", text: getText(presented) }] }
-        : presented;
-    if (
-      output !== presented &&
-      presented.segments.some((segment) => ["image", "file", "audio", "video", "sticker"].includes(segment.type))
-    ) {
-      this.#logger?.warn("Runtime channel does not support media; delivering text fallback.", {
-        eventId: input.event.id,
-        channelId: input.event.channelId
-      });
-    }
-    const assistantEvent = await this.#conversationStore.appendEvent(input.conversation.lineEvent.lineId, {
-      type: "assistant_message",
-      idempotencyKey: `assistant:${input.conversation.event.id}`,
-      sourceEventId: input.conversation.lineEvent.id,
-      causationEventId: input.conversation.lineEvent.id,
-      correlationId: input.conversation.event.id,
-      actorId: this.#agent.id,
-      payload: {
-        role: "assistant",
-        message: output,
-        text: getText(output)
-      }
-    });
-
-    if (input.conversation.lineEvent.lineId !== input.conversation.mainline.id) {
-      await this.#publishBranchOutput(input.conversation, assistantEvent, output);
-    }
-
-    const target = targetFromEvent(input.event);
-
-    if (channel === undefined) {
-      await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
-        error: `Channel "${input.event.channelId}" is not registered.`
-      });
-      if (input.processStateId !== undefined) {
-        await this.#eventProcessStore.update(input.processStateId, {
-          status: "completed",
-          errorJson: JSON.stringify({ error: `Channel "${input.event.channelId}" is not registered.` })
-        });
-      }
-      this.#traces.push({
-        eventId: input.event.id,
-        status: "failed",
-        reason: `Channel "${input.event.channelId}" is not registered.`
-      });
-      this.#logger?.error("Runtime send failed because channel is not registered.", {
-        eventId: input.event.id,
-        runId: input.runId,
-        channelId: input.event.channelId
-      });
-      return;
-    }
-
-    if (input.processStateId !== undefined) {
-      /**
-       * 在频道发送前保存完整输出以便崩溃恢复时跳过重复智能体执行
-       */
-      await this.#eventProcessStore.update(input.processStateId, {
-        agentOutputText: getText(input.output),
-        agentOutputJson: stringifyAgentOutput(input.output)
-      });
-    }
-
-    let permission = await this.#tools.decidePermission({
-      action: channelSendPermission(input.event.platform, target),
-      resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
-      subject: input.request.userId,
-      metadata: {
-        eventId: input.event.id,
-        runId: input.runId,
-        conversationKind: input.event.conversation.kind
-      }
-    });
-
-    if (
-      permission.decision === "allow" &&
-      output.segments.some((segment) => ["image", "file", "audio", "video", "sticker"].includes(segment.type))
-    ) {
-      permission = await this.#tools.decidePermission({
-        action: `channel.${input.event.platform}.send_media`,
-        resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
-        subject: input.request.userId
-      });
-    }
-
-    if (
-      permission.decision === "allow" &&
-      target.type === "group" &&
-      output.segments.some((segment) => segment.type === "file")
-    ) {
-      permission = await this.#tools.decidePermission({
-        action: `channel.${input.event.platform}.upload_group_file`,
-        resource: `${input.event.platform}:${input.event.channelId}:${input.event.conversation.id}`,
-        subject: input.request.userId
-      });
-    }
-
-    this.#recorders
-      .get(input.runId)
-      ?.emit(permission.decision === "allow" ? "permission_allowed" : "permission_blocked", {
-        ...permission,
-        purpose: "response"
-      });
-    if (permission.decision !== "allow") {
-      const reason = permission.reason ?? `Permission decision was "${permission.decision}".`;
-      await this.#appendDeliveryEvent(input, assistantEvent, "delivery_blocked", {
-        decision: permission.decision,
-        reason
-      });
-      if (input.processStateId !== undefined) {
-        await this.#eventProcessStore.update(input.processStateId, {
-          status: "completed",
-          errorJson: JSON.stringify({ error: reason })
-        });
-      }
-      this.#traces.push({
-        eventId: input.event.id,
-        status: "blocked",
-        reason,
-        runId: input.runId
-      });
-      return;
-    }
-
-    let result: ChannelActionResult;
-    if (input.processStateId === undefined) {
-      throw new Error("Event process state is required before channel delivery.");
-    }
-    signal?.throwIfAborted();
-    await this.#eventProcessStore.update(input.processStateId, {
-      status: "processing",
-      errorJson: JSON.stringify({ phase: "send_started", runId: input.runId })
-    });
-    this.#recorders.get(input.runId)?.emit("response_sending", { target, output });
-    /**
-     * send_started 之后的异常按投递结果不确定处理以避免自动重复发送
-     */
-    let deliveryFailureKnown = false;
-    try {
-      signal?.throwIfAborted();
-      let deliveryMessage = output;
-      if (this.#prepareDelivery) {
-        const preparation = this.#prepareDelivery({
-          sessionId: input.conversation.session.id,
-          channelId: input.event.channelId,
-          conversationId: input.event.conversation.id,
-          conversationKind: input.event.conversation.kind,
-          message: output,
-          ...(signal === undefined ? {} : { signal }),
-          observe: (type, data) => this.#recorders.get(input.runId)?.emit(type, data)
-        });
-        const prepared = await (signal ? withAbort(preparation, signal) : preparation);
-        if (prepared.status !== "ready") {
-          deliveryFailureKnown = prepared.status === "failed";
-          throw new Error(prepared.error);
-        }
-        deliveryMessage = prepared.message;
-      }
-      signal?.throwIfAborted();
-      const delivery = executeChannelAction(
-        channel,
-        messageSendAction({
-          actionId: `message.send:${input.event.id}`,
-          channelId: input.event.channelId,
-          target,
-          message: withReplyContext(
-            this.#materializeMessage?.(input.conversation.session.id, deliveryMessage) ?? deliveryMessage,
-            input.event
-          ),
-          conversation: input.event.conversation,
-          idempotencyKey: `send:${input.event.id}`
-        })
-      );
-      result = await (signal ? withAbort(delivery, signal) : delivery);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : "Channel send threw an unknown error.";
-      await this.#appendDeliveryEvent(input, assistantEvent, "delivery_failed", {
-        error: reason,
-        thrown: !deliveryFailureKnown
-      });
-      await this.#eventProcessStore.update(input.processStateId, {
-        status: deliveryFailureKnown ? "send_failed" : "completed",
-        errorJson: JSON.stringify({ phase: deliveryFailureKnown ? "send_failed" : "send_uncertain", error: reason })
-      });
-      this.#traces.push({
-        eventId: input.event.id,
-        status: "failed",
-        reason,
-        runId: input.runId
-      });
-      return;
-    }
-
-    if (result.status !== "succeeded") {
-      const reason = result.error;
-      await this.#appendDeliveryEvent(
-        input,
-        assistantEvent,
-        result.status === "uncertain" ? "delivery_uncertain" : "delivery_failed",
-        {
-          error: reason,
-          errorCode: result.errorCode,
-          retryable: result.retryable
-        }
-      );
-      if (input.processStateId !== undefined) {
-        await this.#eventProcessStore.update(input.processStateId, {
-          status: result.status === "uncertain" ? "completed" : "send_failed",
-          errorJson: JSON.stringify({
-            phase: result.status === "uncertain" ? "send_uncertain" : "send_failed",
-            error: reason,
-            errorCode: result.errorCode
-          })
-        });
-      }
-      this.#traces.push({
-        eventId: input.event.id,
-        status: "failed",
-        reason,
-        runId: input.runId
-      });
-      return;
-    }
-
-    if (input.processStateId !== undefined) {
-      await this.#eventProcessStore.update(input.processStateId, {
-        status: "send_succeeded",
-        sendResultJson: JSON.stringify(result)
-      });
-    }
-    await this.#appendDeliveryEvent(input, assistantEvent, "delivery_succeeded", {
-      artifactIds: output.segments.flatMap((part) =>
-        (part.type === "file" || part.type === "image") && part.url?.startsWith("artifact://")
-          ? [part.url.slice(11)]
-          : []
-      ),
-      ...(result.messageId === undefined ? {} : { externalMessageId: result.messageId })
-    });
-
-    try {
-      const assistant = await this.#appendAssistantTranscript(
-        input.event,
-        output,
-        input.conversation,
-        result.messageId,
-        assistantEvent.id
-      );
-
-      if (input.processStateId !== undefined) {
-        await this.#eventProcessStore.update(input.processStateId, {
-          status: "completed",
-          ...(assistant === undefined ? {} : { assistantMessageId: assistant.id })
-        });
-      }
-    } catch (error) {
-      this.#logger?.warn("Runtime assistant transcript append failed after successful send.", {
-        eventId: input.event.id,
-        runId: input.runId,
-        error: error instanceof Error ? error.message : "Unknown transcript error."
-      });
-    }
-
-    this.#traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
-  }
-
-  /**
-   * Branches provide isolated, durable context; they are not an alternate user-facing
-   * output line. Persist the raw assistant event on the branch, then publish a
-   * structured result to the parent mainline before delivery. Both operations have
-   * event-scoped idempotency keys so recovery can safely repeat this projection.
-   */
-  async #publishBranchOutput(
-    conversation: AcceptedNormalizedEvent,
-    assistantEvent: LineEvent,
-    output: SynapseMessage
-  ): Promise<void> {
-    const branchId = conversation.lineEvent.lineId;
-    const result = await this.#conversationStore.createBranchResult(branchId, {
-      status: "completed",
-      summary: getText(output).trim() || "Assistant response.",
-      artifacts: [
-        {
-          kind: "assistant_output",
-          message: output,
-          text: getText(output)
-        }
-      ],
-      sourceEventId: assistantEvent.id,
-      idempotencyKey: `runtime:branch-output:${conversation.event.id}`
-    });
-    await this.#conversationStore.publishBranchResult(branchId, conversation.mainline.id, {
-      resultId: result.id,
-      idempotencyKey: `runtime:branch-output:${conversation.event.id}:publish`
-    });
-  }
-
-  async #appendDeliveryEvent(
-    input: {
-      readonly event: SynapseChannelEvent;
-      readonly runId: string;
-      readonly conversation: AcceptedNormalizedEvent;
-    },
-    assistantEvent: LineEvent,
-    type: "delivery_succeeded" | "delivery_failed" | "delivery_blocked" | "delivery_uncertain",
-    payload: Readonly<Record<string, unknown>>
-  ): Promise<void> {
-    await this.#conversationStore.appendEvent(input.conversation.mainline.id, {
-      type,
-      idempotencyKey: `${type}:${input.conversation.event.id}:${input.runId}`,
-      sourceEventId: assistantEvent.id,
-      causationEventId: assistantEvent.id,
-      correlationId: input.conversation.event.id,
-      actorId: this.#agent.id,
-      payload: {
-        runId: input.runId,
-        ...payload
-      }
-    });
-    const recorder = this.#recorders.get(input.runId);
-    if (type === "delivery_blocked")
-      recorder?.fail("blocked", "response_blocked", String(payload.reason ?? "消息发送被权限阻止"), "response");
-    else
-      recorder?.emit(
-        type === "delivery_succeeded"
-          ? "response_sent"
-          : type === "delivery_uncertain" || payload.thrown === true
-            ? "response_send_uncertain"
-            : "response_send_failed",
-        payload
-      );
-  }
-
-  #applyResponsePolicy(
-    message: SynapseMessage,
-    policy: OutputPolicy | undefined,
-    eventId: string,
-    runId: string
-  ): SynapseMessage {
-    if (policy === undefined) {
-      return message;
-    }
-
-    try {
-      return this.#responsePolicy.apply(message, policy);
-    } catch (error) {
-      this.#logger?.warn("Runtime response policy failed; using conservative truncation.", {
-        eventId,
-        runId,
-        error: error instanceof Error ? error.message : "Unknown response policy error."
-      });
-      return conservativeResponse(message, policy);
-    }
-  }
-
-  async #appendAssistantTranscript(
-    event: SynapseChannelEvent,
-    output: SynapseMessage,
-    conversation: AcceptedNormalizedEvent,
-    externalMessageId?: string,
-    lineEventId?: string
-  ) {
-    if (!this.#contextEnabled) {
-      return undefined;
-    }
-
-    const provider = conversation.event.provider;
-    const normalizedExternalMessageId = normalizeMessageId(externalMessageId);
-    return this.#transcriptStore.append({
-      sessionId: conversation.session.id,
-      lineId: conversation.lineEvent.lineId,
-      platform: event.platform,
-      provider,
-      channelId: event.channelId,
-      conversationType: conversationTypeFromEvent(event),
-      conversationId: event.conversation.id,
-      sourceEventId: `${buildSourceEventId(event, provider)}:assistant`,
-      role: "assistant",
-      text: getText(output),
-      message: output,
-      eventType: "assistant_message",
-      idempotencyKey: `assistant:${conversation.event.id}`,
-      ...(lineEventId === undefined ? {} : { lineEventId }),
-      ...(normalizedExternalMessageId === undefined ? {} : { externalMessageId: normalizedExternalMessageId }),
-      createdAt: new Date().toISOString()
-    });
-  }
-
+  /** 将已接收事件纳入会话历史，避免平台原始载荷进入上下文 */
   async #appendIncomingTranscript(event: SynapseChannelEvent, provider: string, conversation: AcceptedNormalizedEvent) {
     return this.#transcriptStore.append({
       sessionId: conversation.session.id,
@@ -1626,61 +783,6 @@ export class RuntimeCore {
       normalizedEventId: conversation.event.id,
       lineEventId: conversation.lineEvent.id,
       createdAt: event.receivedAt
-    });
-  }
-
-  async #findAssistantEvent(conversation: AcceptedNormalizedEvent): Promise<LineEvent | undefined> {
-    const events = await this.#conversationStore.listEvents(conversation.lineEvent.lineId, {
-      types: ["assistant_message"]
-    });
-    return events.find((event) => event.idempotencyKey === `assistant:${conversation.event.id}`);
-  }
-
-  async #findCompletedAgentEvent(conversation: AcceptedNormalizedEvent): Promise<LineEvent | undefined> {
-    const events = await this.#conversationStore.listEvents(conversation.lineEvent.lineId, {
-      types: ["agent_run_completed"]
-    });
-    return events.findLast((event) => event.sourceEventId === conversation.lineEvent.id);
-  }
-
-  async #ensureCompletedAgentEvent(
-    conversation: AcceptedNormalizedEvent,
-    output: SynapseMessage,
-    runtimeEventId: string
-  ): Promise<LineEvent | undefined> {
-    const completed = await this.#findCompletedAgentEvent(conversation);
-    if (completed !== undefined) {
-      return completed;
-    }
-
-    const startedEvents = await this.#conversationStore.listEvents(conversation.lineEvent.lineId, {
-      types: ["agent_run_started"]
-    });
-    const started = startedEvents.findLast((event) => event.sourceEventId === conversation.lineEvent.id);
-    if (started === undefined) {
-      return undefined;
-    }
-    const attemptId = agentAttemptIdFromEvent(started);
-    if (attemptId === undefined) {
-      return undefined;
-    }
-
-    return this.#conversationStore.appendEvent(conversation.lineEvent.lineId, {
-      type: "agent_run_completed",
-      idempotencyKey: `agent-run:${conversation.event.sourceEventId}:${attemptId}:finished`,
-      sourceEventId: conversation.lineEvent.id,
-      causationEventId: conversation.lineEvent.id,
-      correlationId: started.correlationId ?? attemptId,
-      actorId: this.#agent.id,
-      payload: {
-        attemptId,
-        runId: `recovered-${runtimeEventId}`,
-        agentId: this.#agent.id,
-        status: "succeeded",
-        steps: [],
-        output,
-        recovered: true
-      }
     });
   }
 
@@ -1779,7 +881,7 @@ export class RuntimeCore {
       },
       createdAt: event.occurredAt
     });
-    const recorder = this.#recorders.get(event.context.runId);
+    const recorder = this.#coordinator.recorders.get(event.context.runId);
     if (
       event.type === "tool_call_failed" &&
       event.error instanceof ToolCallRecoveryError &&
@@ -1838,79 +940,6 @@ export class RuntimeCore {
     }
   }
 
-  async #resolveToolCallReplay(request: ToolCallReplayRequest): Promise<ToolCallReplayResolution> {
-    const lineId = request.context.lineId;
-    if (lineId === undefined) {
-      return {
-        status: "conflict",
-        reason: `Durable tool call "${request.context.callId}" has no conversation line scope.`
-      };
-    }
-
-    const events = await this.#conversationStore.listEvents(lineId, {
-      types: ["tool_call", "tool_result"]
-    });
-    const started = events.find((event) => event.idempotencyKey === `tool:${request.context.callId}:tool_call_started`);
-    if (started === undefined) {
-      return { status: "missing" };
-    }
-    const startedPayload = recordPayload(started);
-    if (
-      startedPayload?.callId !== request.context.callId ||
-      startedPayload.name !== request.name ||
-      !isDeepStrictEqual(startedPayload.input, request.input) ||
-      started.taskId !== request.context.taskId
-    ) {
-      return {
-        status: "conflict",
-        reason: `Durable tool call "${request.context.callId}" conflicts with the replayed name, input, or task scope.`
-      };
-    }
-
-    const succeeded = events.find(
-      (event) => event.idempotencyKey === `tool:${request.context.callId}:tool_call_succeeded`
-    );
-    if (succeeded !== undefined) {
-      return { status: "succeeded", output: recordPayload(succeeded)?.output };
-    }
-    const blocked = events.find((event) => event.idempotencyKey === `tool:${request.context.callId}:tool_call_blocked`);
-    if (blocked !== undefined) {
-      const reason = recordPayload(blocked)?.reason;
-      return {
-        status: "blocked",
-        reason: typeof reason === "string" ? reason : "The durable permission decision blocked this tool call."
-      };
-    }
-    const failed = events.find((event) => event.idempotencyKey === `tool:${request.context.callId}:tool_call_failed`);
-    if (failed !== undefined) {
-      return { status: "failed", error: recordPayload(failed)?.error };
-    }
-    await this.#conversationStore.appendEvent(lineId, {
-      type: "tool_result",
-      idempotencyKey: `tool:${request.context.callId}:tool_call_uncertain`,
-      ...(started.sourceEventId === undefined ? {} : { sourceEventId: started.sourceEventId }),
-      causationEventId: started.id,
-      correlationId: started.correlationId ?? request.context.attemptId ?? request.context.runId,
-      ...(started.taskId === undefined ? {} : { taskId: started.taskId }),
-      actorId: request.context.userId,
-      payload: {
-        callId: request.context.callId,
-        name: request.name,
-        ...(request.input === undefined ? {} : { input: request.input }),
-        status: "uncertain",
-        reason: "The tool call started previously, but no durable outcome was recorded; it was not executed again."
-      }
-    });
-    return { status: "started" };
-  }
-
-  #trackOperation<T>(operation: Promise<T>): Promise<T> {
-    this.#inFlightOperations.add(operation);
-    const remove = (): boolean => this.#inFlightOperations.delete(operation);
-    void operation.then(remove, remove);
-    return operation;
-  }
-
   #removeToolObserverOnce(): void {
     if (this.#toolObserverRemoved) {
       return;
@@ -1945,33 +974,6 @@ export class RuntimeCore {
       }
     };
   }
-}
-
-function compactGraphToolResult(payload: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
-  const raw = payload.output;
-  const output =
-    raw !== null && typeof raw === "object" && !Array.isArray(raw)
-      ? Object.fromEntries(Object.entries(raw).filter(([key]) => !["stdout", "stderr", "logs", "script"].includes(key)))
-      : raw;
-  const result = { status: payload.status, reason: payload.reason, output, error: payload.error };
-  const json = JSON.stringify(result);
-  // 不截断 JSON，也不把未验证的工具全文当成新的系统指令
-  return json.length <= 4000 ? result : { status: payload.status, truncated: true };
-}
-
-function summarizeInvocation(invocation: ModelInvocationEnvelope): Readonly<Record<string, unknown>> {
-  return {
-    recipeId: invocation.prompt.recipeId,
-    recipeVersion: invocation.prompt.recipeVersion,
-    purpose: invocation.prompt.scene.purpose,
-    dimensions: invocation.prompt.scene.dimensions,
-    promptIds: invocation.prompt.blocks.map((block) => `${block.promptId}@${block.version}`),
-    promptDigest: invocation.prompt.digest,
-    toolIds: invocation.capabilities.toolIds,
-    toolSetDigest: invocation.capabilities.toolSetDigest,
-    skills: invocation.capabilities.activeSkills.map((skill) => `${skill.id}@${skill.version}`),
-    skillSetDigest: invocation.capabilities.skillSetDigest
-  };
 }
 
 function maxMessagesForConversation(
@@ -2021,117 +1023,6 @@ function historyTtlForConversation(
   return undefined;
 }
 
-function parseSendResult(value: string | undefined): { readonly messageId?: string } | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as { readonly messageId?: unknown; readonly externalMessageId?: unknown };
-    const messageId = normalizeMessageId(parsed.messageId ?? parsed.externalMessageId);
-    return messageId === undefined ? {} : { messageId };
-  } catch {
-    return undefined;
-  }
-}
-
-function stringifyAgentOutput(message: SynapseMessage): string {
-  return JSON.stringify(message, (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value));
-}
-
-function parseAgentOutput(value: string | undefined): SynapseMessage | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as Partial<SynapseMessage>;
-    return typeof parsed.type === "string" && Array.isArray(parsed.segments) ? (parsed as SynapseMessage) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function processPhase(value: string | undefined): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as { readonly phase?: unknown };
-    return typeof parsed.phase === "string" ? parsed.phase : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function recoveryStatusFromProcess(process: EventProcessState): RecoveryStatus {
-  if (process.status !== "processing") {
-    return process.status;
-  }
-
-  if (processPhase(process.errorJson) === "send_started") {
-    return "send_uncertain";
-  }
-
-  if (process.sendResultJson !== undefined) {
-    return "send_succeeded";
-  }
-
-  return process.agentOutputJson !== undefined || process.agentOutputText !== undefined
-    ? "agent_completed"
-    : "received";
-}
-
-function agentOutputFromEvent(event: LineEvent): SynapseMessage | undefined {
-  if (typeof event.payload !== "object" || event.payload === null || !("output" in event.payload)) {
-    return undefined;
-  }
-  const output = (event.payload as { readonly output?: unknown }).output;
-  if (
-    typeof output !== "object" ||
-    output === null ||
-    !("type" in output) ||
-    typeof output.type !== "string" ||
-    !("segments" in output) ||
-    !Array.isArray(output.segments)
-  ) {
-    return undefined;
-  }
-  return output as SynapseMessage;
-}
-
-function agentAttemptIdFromEvent(event: LineEvent): string | undefined {
-  if (typeof event.payload === "object" && event.payload !== null && "attemptId" in event.payload) {
-    const attemptId = (event.payload as { readonly attemptId?: unknown }).attemptId;
-    if (typeof attemptId === "string" && attemptId.length > 0) {
-      return attemptId;
-    }
-  }
-  return event.correlationId;
-}
-
-function recordPayload(event: LineEvent): Readonly<Record<string, unknown>> | undefined {
-  return typeof event.payload === "object" && event.payload !== null
-    ? (event.payload as Readonly<Record<string, unknown>>)
-    : undefined;
-}
-
-function externalMessageIdFromDelivery(event: LineEvent): string | undefined {
-  if (typeof event.payload !== "object" || event.payload === null || !("externalMessageId" in event.payload)) {
-    return undefined;
-  }
-  return normalizeMessageId((event.payload as { readonly externalMessageId?: unknown }).externalMessageId);
-}
-
-function isFreshProcessState(updatedAt: string): boolean {
-  const updatedAtMs = Date.parse(updatedAt);
-  if (Number.isNaN(updatedAtMs)) {
-    return false;
-  }
-  return Date.now() - updatedAtMs < 5 * 60 * 1000;
-}
-
 function runtimeEventIdempotencyKey(event: SynapseChannelEvent, provider: string, sourceEventId: string): string {
   return ["channel-event", event.platform, provider, event.channelId, sourceEventId, event.eventType].join("\u001f");
 }
@@ -2144,16 +1035,4 @@ function lineEventTypeFromChannelEvent(event: SynapseChannelEvent): "user_messag
     return "correction";
   }
   return "system_message";
-}
-
-function serializeError(error: unknown): unknown {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      ...(error instanceof ToolCallRecoveryError ? { code: error.code } : {}),
-      ...(error.stack === undefined ? {} : { stack: error.stack })
-    };
-  }
-  return error;
 }

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { z } from "zod";
-import type { ChannelRegistry, ChannelAdapter } from "@synapse/runtime-channel";
+import type { ChannelRegistry } from "@synapse/runtime-channel";
 import {
   ArtifactStore,
   ContainerExecutor,
@@ -8,27 +8,35 @@ import {
   type DockerCommandRunner
 } from "@synapse/runtime-tool-container";
 import type { ContainerSettings } from "@synapse/runtime-tool-container/config";
-import type { ToolContext, ToolRuntime } from "@synapse/runtime-tool-runtime";
+import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import { ArtifactDeliveryStore } from "./artifact-delivery.js";
-import { canUploadGroupFile, deliverGroupArtifact } from "./channel-delivery.js";
+import {
+  requireGroupArtifactDestination,
+  uploadSelectedArtifact,
+  type ArtifactDeliveryReceipts
+} from "@synapse/runtime-core/artifacts";
 
 const uploadInput = z.union([
   z.object({ operation: z.literal("upload").default("upload"), artifactId: z.string().uuid() }).strict(),
   z.object({ operation: z.enum(["select", "discard"]), artifactIds: z.array(z.string().uuid()).max(16) }).strict()
 ]);
 
-/** 装配容器工作与群文件交付，所有文件归属和群目标均来自运行时上下文 */
+/** 注册容器工具并注入共享工件能力，交付规则委托 Core 用例，归属和目标来自可信上下文 */
 export function registerContainerTools(options: {
   readonly tools: ToolRuntime;
   readonly settings: ContainerSettings;
   readonly dataDir: string;
   readonly channels: ChannelRegistry;
   readonly runner?: DockerCommandRunner;
+  /** 生产装配注入与 docker.run 共用的工件库，独立调用保留默认创建行为 */
+  readonly artifacts?: ArtifactStore;
+  /** 工具上传与最终回复交付必须复用同一持久回执边界 */
+  readonly deliveries?: ArtifactDeliveryReceipts;
 }): void {
   if (!options.settings.enabled) return;
   const executor = new ContainerExecutor(options.settings, options.runner);
-  const artifacts = new ArtifactStore(join(options.dataDir, "artifacts"), options.settings);
-  const deliveries = new ArtifactDeliveryStore(join(options.dataDir, "artifact-deliveries"));
+  const artifacts = options.artifacts ?? new ArtifactStore(join(options.dataDir, "artifacts"), options.settings);
+  const deliveries = options.deliveries ?? new ArtifactDeliveryStore(join(options.dataDir, "artifact-deliveries"));
   options.tools.register({
     name: "container.run",
     description:
@@ -36,7 +44,7 @@ export function registerContainerTools(options: {
     inputSchema: z.toJSONSchema(ContainerWorkInputSchema),
     permission: { action: "container.execute", resource: "container" },
     async handle(raw, context) {
-      requireGroupDestination(options.channels, context);
+      requireGroupArtifactDestination(options.channels, context);
       if (context.callId === undefined) throw new Error("容器调用缺少持久化调用标识");
       const input = ContainerWorkInputSchema.parse(raw);
       const inputs = input.inputs.map((id) => artifacts.read(context.sessionId, id));
@@ -72,7 +80,7 @@ export function registerContainerTools(options: {
     inputSchema: z.toJSONSchema(uploadInput),
     permission: { action: "channel.qq.upload_group_file", resource: "group-file" },
     async handle(raw, context) {
-      const { adapter, channelId, groupId } = requireGroupDestination(options.channels, context);
+      const { adapter, channelId, groupId } = requireGroupArtifactDestination(options.channels, context);
       const input = uploadInput.parse(raw);
       context.signal?.throwIfAborted();
       if (input.operation !== "upload") {
@@ -83,27 +91,13 @@ export function registerContainerTools(options: {
         return { status: input.operation === "select" ? "selected" : "discarded", selection };
       }
       const { artifactId } = input;
-      if (artifacts.describe(context.sessionId, artifactId).disposition !== "selected")
-        throw new Error("工件未被选为最终产物，请先明确选择后再交付");
-      const artifact = artifacts.read(context.sessionId, artifactId);
-      context.signal?.throwIfAborted();
-      const result = await deliverGroupArtifact(
+      return uploadSelectedArtifact(
+        artifacts,
         deliveries,
         adapter,
         { sessionId: context.sessionId, channelId, groupId, artifactId },
-        artifact
+        context.signal
       );
-      return { ...result, artifactId, name: artifact.name, size: artifact.size, sha256: artifact.sha256 };
     }
   });
-}
-
-function requireGroupDestination(
-  channels: ChannelRegistry,
-  context: ToolContext
-): { adapter: ChannelAdapter; channelId: string; groupId: string } {
-  if (context.source?.conversationKind !== "group") throw new Error("0.1 的容器工件能力仅向群聊开放");
-  const adapter = channels.get(context.source.channelId);
-  if (adapter === undefined || !canUploadGroupFile(adapter)) throw new Error("当前频道不支持群文件上传");
-  return { adapter, channelId: context.source.channelId, groupId: context.source.conversationId };
 }

@@ -3,6 +3,7 @@ import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { AgentRequest, ConversationRouter, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import type { ToolRuntime } from "@synapse/runtime-tool-runtime";
 import type {
+  AcceptedNormalizedEvent,
   ContextAttributor,
   ConversationStore,
   EventProcessStore,
@@ -124,5 +125,12 @@ export interface RuntimeTrace {
   readonly eventId: string;
   readonly status: "ignored" | "succeeded" | "failed" | "blocked";
   readonly reason?: string;
+  readonly runId?: string;
+}
+
+/** 频道接收后固定的业务作用域，恢复与调度共用同一持久身份 */
+export interface RuntimeEventScope {
+  readonly provider: string;
+  readonly accepted: AcceptedNormalizedEvent;
   readonly runId?: string;
 }
