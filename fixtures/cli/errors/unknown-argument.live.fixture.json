@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "cli.errors.unknown-argument.live.v1",
+  "channel": "cli",
+  "direction": "errors",
+  "capability": "unknown-argument",
+  "status": "tested-supported",
+  "capturedAt": "2026-10-27T14:28:39.082Z",
+  "provenance": {
+    "kind": "local-terminal-capture",
+    "source": "README.md; apps/runtime/src/cli.ts --help; tools/channel-fixtures/probe-cli.mjs",
+    "testRunId": "63f1cb2d-7e9f-4c26-a5cb-4d500edc91df"
+  },
+  "environment": {
+    "provider": "runtime-cli-tui",
+    "adapterVersion": "0.1.0",
+    "nodeVersion": "v24.21.0",
+    "runtimeCommit": "9f76142a3fd199052f88e32f385bbc8be78e64b5",
+    "transport": "child-process/admin-http"
+  },
+  "redactions": ["测试使用独立临时配置、随机管理令牌和临时端口", "端点、时间戳、路径和令牌替换为占位符"],
+  "artifacts": {
+    "terminalInput": {
+      "executable": "synapse-runtime",
+      "args": ["--fixture-unknown-argument"]
+    },
+    "terminalOutput": {
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "Unknown argument \"--fixture-unknown-argument\".\n"
+    }
+  },
+  "conclusion": "未知选项有明确错误，但未知位置参数与它的行为不同，channel 需定义一致的命令拒绝语义",
+  "limitations": []
+}

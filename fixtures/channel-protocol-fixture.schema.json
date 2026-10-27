@@ -19,6 +19,17 @@
     "conclusion",
     "limitations"
   ],
+  "allOf": [
+    {
+      "if": { "properties": { "channel": { "const": "cli" } } },
+      "then": { "properties": { "artifacts": { "required": ["terminalInput", "terminalOutput"] } } },
+      "else": {
+        "if": { "properties": { "direction": { "const": "inbound" } } },
+        "then": { "properties": { "artifacts": { "required": ["platformEvent"] } } },
+        "else": { "properties": { "artifacts": { "required": ["platformRequest"] } } }
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": { "const": "channel-protocol-fixture/v1" },
     "id": { "type": "string", "minLength": 1 },

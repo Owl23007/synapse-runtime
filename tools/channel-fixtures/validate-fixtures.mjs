@@ -59,6 +59,7 @@ for (const { path, fixture, error } of fixtureReads) {
 
 function validateAndCollectFixture(path, fixture) {
   validateFixture(path, fixture);
+  if (!isRecord(fixture)) return;
   if (typeof fixture.id === "string") {
     const previousPath = fixtureIds.get(fixture.id);
     if (previousPath !== undefined) {
@@ -129,14 +130,22 @@ function validateFixture(path, fixture) {
 
   if (!Array.isArray(fixture.redactions)) {
     errors.push(`${label}: redactions must be an array`);
+  } else if (fixture.redactions.some((item) => typeof item !== "string")) {
+    errors.push(`${label}: redactions entries must be strings`);
   }
 
   if (!Array.isArray(fixture.limitations)) {
     errors.push(`${label}: limitations must be an array`);
+  } else if (fixture.limitations.some((item) => typeof item !== "string")) {
+    errors.push(`${label}: limitations entries must be strings`);
   }
 
   if (!isRecord(fixture.artifacts)) {
     errors.push(`${label}: artifacts must be an object`);
+  } else if (fixture.channel === "cli") {
+    if (fixture.artifacts.terminalInput === undefined || fixture.artifacts.terminalOutput === undefined) {
+      errors.push(`${label}: CLI fixture requires artifacts.terminalInput and terminalOutput`);
+    }
   } else if (fixture.direction === "inbound" && fixture.artifacts.platformEvent === undefined) {
     errors.push(`${label}: inbound fixture requires artifacts.platformEvent`);
   } else if (

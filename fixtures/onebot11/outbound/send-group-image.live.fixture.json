@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "onebot11.outbound.send-group-image.live.v1",
+  "channel": "onebot11",
+  "direction": "outbound",
+  "capability": "send-group-image",
+  "status": "tested-supported",
+  "capturedAt": "2026-10-27T14:21:20.478Z",
+  "provenance": {
+    "kind": "real-api-capture",
+    "source": "tools/channel-fixtures/probe-napcat.mjs",
+    "testRunId": "a70e8c34-a21f-4dda-9782-7cd8e29411e8"
+  },
+  "environment": {
+    "provider": "napcat",
+    "adapterVersion": "4.18.19",
+    "transport": "websocket",
+    "nodeVersion": "v24.18.0",
+    "runtimeCommit": "54f0fbf75c3925456236a98d9fcbc8a36b9caa13",
+    "documentation": "https://napneko.github.io/api/4.18.19",
+    "messagePostFormat": "array"
+  },
+  "redactions": [
+    "账号、群、消息、文件标识使用稳定占位符",
+    "昵称、路径、签名 URL、令牌和文件内容已脱敏",
+    "仅记录带本轮测试标记的消息"
+  ],
+  "artifacts": {
+    "platformRequest": {
+      "action": "send_msg",
+      "params": {
+        "group_id": "<group-1>",
+        "message_type": "group",
+        "message": "fixture protocol text image[CQ:image,file=base64://[REDACTED]]",
+        "auto_escape": false
+      },
+      "echo": "<request-1>"
+    },
+    "platformResponse": {
+      "status": "ok",
+      "retcode": 0,
+      "data": {
+        "message_id": "<message-3>"
+      },
+      "message": "",
+      "wording": "",
+      "echo": "<request-1>",
+      "stream": "normal-action"
+    }
+  },
+  "conclusion": "验证 base64 图片与文本的混合 CQ 消息",
+  "limitations": ["仅验证单张 16×16 PNG，客户端显示需要人工确认"]
+}

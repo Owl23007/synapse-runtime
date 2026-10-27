@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "onebot11.outbound.upload-group-file.live.v1",
+  "channel": "onebot11",
+  "direction": "outbound",
+  "capability": "upload-group-file",
+  "status": "tested-supported",
+  "capturedAt": "2026-10-27T14:18:18.426Z",
+  "provenance": {
+    "kind": "real-api-capture",
+    "source": "tools/channel-fixtures/probe-napcat.mjs",
+    "testRunId": "ca251924-4ff3-4cd8-a05b-50c748895570"
+  },
+  "environment": {
+    "provider": "napcat",
+    "adapterVersion": "4.18.19",
+    "transport": "websocket",
+    "nodeVersion": "v24.18.0",
+    "runtimeCommit": "54f0fbf75c3925456236a98d9fcbc8a36b9caa13",
+    "documentation": "https://napneko.github.io/api/4.18.19",
+    "messagePostFormat": "array"
+  },
+  "redactions": [
+    "账号、群、消息、文件标识使用稳定占位符",
+    "昵称、路径、签名 URL、令牌和文件内容已脱敏",
+    "仅记录带本轮测试标记的消息"
+  ],
+  "artifacts": {
+    "platformRequest": {
+      "action": "upload_group_file",
+      "params": {
+        "group_id": "<group-1>",
+        "file": "base64://[REDACTED]",
+        "name": "synapse-protocol-fixture.txt",
+        "upload_file": true
+      },
+      "echo": "<request-1>"
+    },
+    "platformResponse": {
+      "status": "ok",
+      "retcode": 0,
+      "data": {
+        "file_id": "<file-9>"
+      },
+      "message": "[REDACTED]",
+      "wording": "[REDACTED]",
+      "echo": "<request-1>",
+      "stream": "normal-action"
+    }
+  },
+  "conclusion": "验证远端 NapCat 支持 base64 内容上传及 upload_file 参数；上传成功不保证响应包含 file_id",
+  "limitations": ["仅测试小型 UTF-8 文本文件，不代表文件大小上限或所有类型均可用"]
+}

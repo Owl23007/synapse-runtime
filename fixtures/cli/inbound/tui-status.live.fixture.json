@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "channel-protocol-fixture/v1",
+  "id": "cli.inbound.tui-status.live.v1",
+  "channel": "cli",
+  "direction": "inbound",
+  "capability": "tui-status",
+  "status": "tested-supported",
+  "capturedAt": "2026-10-27T14:28:39.131Z",
+  "provenance": {
+    "kind": "local-terminal-capture",
+    "source": "README.md; apps/runtime/src/cli.ts --help; tools/channel-fixtures/probe-cli.mjs",
+    "testRunId": "63f1cb2d-7e9f-4c26-a5cb-4d500edc91df"
+  },
+  "environment": {
+    "provider": "runtime-cli-tui",
+    "adapterVersion": "0.1.0",
+    "nodeVersion": "v24.21.0",
+    "runtimeCommit": "9f76142a3fd199052f88e32f385bbc8be78e64b5",
+    "transport": "child-process/admin-http"
+  },
+  "redactions": ["测试使用独立临时配置、随机管理令牌和临时端口", "端点、时间戳、路径和令牌替换为占位符"],
+  "artifacts": {
+    "terminalInput": "/status",
+    "terminalOutput": {
+      "result": "continue",
+      "status": "running",
+      "view": "overview",
+      "notices": ["状态=running 服务=127.0.0.1:59401 日志=3"]
+    }
+  },
+  "conclusion": "TUI 控制器连接真实服务解释管理命令；命令改变本地视图但不构成 SynapseChannelEvent",
+  "limitations": ["未通过伪终端验证 Ink 渲染、键盘与终端宽度"]
+}
