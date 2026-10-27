@@ -1,3 +1,4 @@
+import { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { type LocaleResolver } from "@synapse/runtime-i18n";
 import { join } from "node:path";
 import type { ChannelRegistry } from "@synapse/runtime-channel";
@@ -39,6 +40,8 @@ export class RuntimeAssembly {
   #quiescePromise: Promise<void> | undefined;
   #disposePromise: Promise<void> | undefined;
   #closed = false;
+  /** 与当前组合绑定的查询门面，热重载后由宿主整体替换 */
+  readonly inspection: RuntimeInspection;
 
   /** 接收已经完成装配的资源，构造阶段不启动后台任务 */
   constructor(
@@ -48,7 +51,9 @@ export class RuntimeAssembly {
     readonly localeResolver: LocaleResolver,
     readonly artifacts: ArtifactStore,
     readonly taskRunner: TaskRunner
-  ) {}
+  ) {
+    this.inspection = new RuntimeInspection(contextStore, artifacts);
+  }
 
   /** 供宿主判断查询资源是否仍然可用 */
   get closed(): boolean {

@@ -63,6 +63,11 @@ for (const pkg of packages) {
   for (const path of files(resolve(pkg.dir, "src"))) {
     const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
     const imports = [];
+    const sourcePath = relative(pkg.dir, path).split(sep).join("/");
+    const httpRoute =
+      pkg.name === "@synapse/runtime-server" &&
+      sourcePath.startsWith("src/server/") &&
+      /(?:^|\/)routes?\.ts$|(?:^|\/)[\w-]+-routes\.ts$/.test(sourcePath);
     function visit(node) {
       if (
         ts.isCallExpression(node) &&
@@ -84,8 +89,22 @@ for (const pkg of packages) {
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
         node.moduleSpecifier &&
         ts.isStringLiteral(node.moduleSpecifier)
-      )
+      ) {
         imports.push(node.moduleSpecifier.text);
+        // 同一公共入口同时导出领域契约与 SQLite 实现，检查命名导入而非禁止整个 Core 包
+        if (
+          httpRoute &&
+          ts.isImportDeclaration(node) &&
+          node.importClause?.namedBindings &&
+          ts.isNamedImports(node.importClause.namedBindings)
+        ) {
+          for (const item of node.importClause.namedBindings.elements) {
+            const name = (item.propertyName ?? item.name).text;
+            if (/^(?:Sqlite\w*|ArtifactStore)$/.test(name))
+              failures.push(`${relative(root, path)}: HTTP route imports concrete business storage ${name}`);
+          }
+        }
+      }
       if (
         ts.isCallExpression(node) &&
         node.expression.kind === ts.SyntaxKind.ImportKeyword &&
@@ -100,8 +119,24 @@ for (const pkg of packages) {
     visit(source);
     for (const specifier of imports) {
       const label = relative(root, path).split(sep).join("/");
+      if (
+        httpRoute &&
+        (specifier === "better-sqlite3" ||
+          specifier.startsWith("@synapse/runtime-tool-container") ||
+          /(?:^|\/)(?:storage|infrastructure|composition)(?:\/|$)/.test(specifier))
+      )
+        failures.push(`${label}: HTTP route depends on business storage implementation ${specifier}`);
+      if (
+        pkg.name === "@synapse/runtime-core" &&
+        !path.endsWith(".test.ts") &&
+        /src\/(?:runtime|inspection)\//.test(sourcePath) &&
+        (specifier === "better-sqlite3" ||
+          /^(?:node:)?(?:http|https|sqlite)$/.test(specifier) ||
+          /^@synapse\/runtime-(?:tool-container|tool-execution|channel-)/.test(specifier) ||
+          specifier.includes("/storage/sqlite"))
+      )
+        failures.push(`${label}: Runtime use case depends on concrete infrastructure ${specifier}`);
       if (pkg.name === "@synapse/runtime-channel-onebot11" && !path.endsWith(".test.ts")) {
-        const sourcePath = relative(pkg.dir, path).split(sep).join("/");
         const lowerLayers = new Set([
           "src/codec.ts",
           "src/message.ts",

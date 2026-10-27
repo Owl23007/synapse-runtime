@@ -203,7 +203,7 @@ export class RuntimeServer {
       getTask: (taskId) => this.#assembly.runtime.conversationStore.getTask(taskId),
       cancelTask: (taskId) => this.#assembly.taskRunner.cancel(taskId),
       getMemoryStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore),
-      getContextStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore),
+      getInspection: () => (this.#assembly.closed ? undefined : this.#assembly.inspection),
       localize: (key, params) => this.#assembly.localeResolver.resolve(key, params, this.#config.locale.default)
     });
   }
