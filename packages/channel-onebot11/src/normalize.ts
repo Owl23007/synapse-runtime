@@ -2,6 +2,7 @@ import { CHANNEL_PROTOCOL_SCHEMA_VERSION, type SynapseChannelEvent } from "@syna
 import { oneBot11SegmentsToSynapseSegments } from "./message.js";
 import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
+/** 将平台消息归一化为完整原生内容，同时保留自发消息来源供运行时防止回复循环 */
 export function normalizeOneBot11Event(channelId: string, payload: unknown): SynapseChannelEvent | undefined {
   if (!isRecord(payload)) {
     return undefined;
@@ -49,6 +50,7 @@ export function normalizeOneBot11Event(channelId: string, payload: unknown): Syn
     platform: "qq",
     channelId,
     eventType: "message.created",
+    origin: payload.post_type === "message_sent" ? "outgoing" : "incoming",
     conversation,
     sender: {
       id: senderId,

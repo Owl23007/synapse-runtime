@@ -116,6 +116,7 @@ export class RuntimeChannelManager {
       adapter: channelConfig.adapter,
       enabled: channelConfig.enabled,
       provider: channelConfig.adapter === "onebot11" ? channelConfig.provider : "qq-official",
+      capabilities: adapter?.getCapabilities(),
       status:
         adapter === undefined
           ? { state: channelConfig.enabled ? "offline" : "disabled", checkedAt: new Date(0).toISOString() }

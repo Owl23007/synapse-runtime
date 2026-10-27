@@ -1,9 +1,12 @@
 import type { ChannelAdapter, ChannelEventHandler, ChannelStatus } from "@synapse/runtime-channel";
+import { createChannelCapabilityProfile } from "@synapse/runtime-channel";
 import type {
   ChannelCapabilityProfile,
   ChannelActionTarget,
   GroupFileUpload,
   ChannelOperationResult,
+  ChannelOutputAction,
+  PlatformAction,
   SynapseChannelEvent,
   SynapseMessage
 } from "@synapse/runtime-protocol";
@@ -54,17 +57,18 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
 
   /** 组合标准能力与扩展实现来源，不将 NapCat 文件接口声明为 OneBot11 原生能力 */
   getCapabilities(): ChannelCapabilityProfile {
-    return {
-      schemaVersion: "channel-protocol/v1",
+    return createChannelCapabilityProfile({
       channelId: this.id,
       adapterType: this.type,
-      observedAt: new Date().toISOString(),
       capabilities: {
         "message.receive": { status: "supported", constraints: { targetTypes: ["private", "group"] } },
         "message.send": {
           status: "partially-supported",
           constraints: {
             targetTypes: ["private", "group"],
+            messageComponents: [],
+            replyContextKinds: ["message"],
+            perTarget: { private: { mentionTargets: [] }, group: { mentionTargets: ["user", "all"] } },
             messageSegmentTypes: [
               ...ONEBOT11_MESSAGE_SEGMENT_TYPES,
               ...(this.#napcat === undefined ? [] : ["file" as const])
@@ -72,10 +76,44 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
           }
         },
         "message.media": { status: "supported" },
-        "message.delete": { status: "unsupported" },
-        "file.upload": this.#napcat?.getGroupFileCapability() ?? { status: "unsupported" }
+        "message.delete": {
+          status: "partially-supported",
+          source: "documented",
+          implementation: "onebot11:delete_msg",
+          constraints: { targetTypes: ["private", "group"] },
+          reason: "撤回权限和时限由平台决定"
+        },
+        "message.get": {
+          status: "partially-supported",
+          source: "documented",
+          implementation: "onebot11:get_msg",
+          constraints: { targetTypes: ["private", "group"] }
+        },
+        "file.upload": this.#napcat?.getFileCapability() ?? { status: "unsupported" }
       }
-    };
+    });
+  }
+
+  /** 映射原生动作，未实现的原生能力仍可被协议表达，但不向平台伪发请求 */
+  executeAction(action: Exclude<ChannelOutputAction, PlatformAction>): Promise<ChannelOperationResult> {
+    switch (action.actionType) {
+      case "message.send":
+        return this.sendMessage(action.target, action.message);
+      case "message.delete":
+        return this.#api.deleteMessage(action.target, action.targetMessageId);
+      case "message.get":
+        return this.#api.getMessage(action.target, action.targetMessageId, this.id);
+      case "file.upload":
+        return (
+          this.#napcat?.uploadFile(action.target, action.file) ??
+          Promise.resolve({ status: "unsupported", error: "File upload requires NapCat." })
+        );
+      default:
+        return Promise.resolve({
+          status: "unsupported",
+          error: "OneBot 11 adapter has no mapping for this native action."
+        });
+    }
   }
 
   /** 由扩展拥有附件交付编排，标准 API 不认识文件上传动作 */

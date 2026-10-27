@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import { defaultFetch, redactSensitive, safeJson } from "./utils.js";
 
+/** 管理服务端访问令牌及过期前缓存，不将 HTTP 200 误当作业务鉴权成功 */
 export class QqOfficialAccessTokenClient {
   readonly #appId: string;
   readonly #appSecret: string;
@@ -23,6 +24,7 @@ export class QqOfficialAccessTokenClient {
     this.#now = options.now ?? Date.now;
   }
 
+  /** 缓存在到期前六十秒失效，平台返回的剩余有效期可能小于两小时 */
   async getAccessToken(): Promise<string> {
     if (this.#cached !== undefined && this.#cached.expiresAtMs > this.#now() + 60_000) {
       return this.#cached.accessToken;
@@ -32,6 +34,7 @@ export class QqOfficialAccessTokenClient {
     return token.accessToken;
   }
 
+  /** 根据 HTTP 状态及业务 code 共同校验鉴权回执 */
   async refreshAccessToken(): Promise<QqOfficialAccessToken> {
     const response = await this.#fetch(this.#tokenEndpoint, {
       method: "POST",
@@ -51,8 +54,12 @@ export class QqOfficialAccessTokenClient {
         `QQ official token request failed with HTTP ${response.status}: ${safeJson(redactSensitive(body))}`
       );
     }
-
     const accessToken = parseRequiredString(body.access_token ?? body.accessToken, "access_token/accessToken", body);
+    if (body.code !== undefined && body.code !== 0 && body.code !== "0") {
+      const code = typeof body.code === "number" || typeof body.code === "string" ? String(body.code) : "invalid";
+      throw new Error(`QQ official token request rejected (code ${code}).`);
+    }
+
     const expiresIn = parseExpiresIn(body.expires_in ?? body.expiresIn, body);
     this.#cached = {
       accessToken,

@@ -11,6 +11,7 @@ export default defineConfig({
     logo: "/logo.svg",
     nav: [
       { text: "首页", link: "/" },
+      { text: "Channel 契约", link: "/channel" },
       {
         text: "产品规划",
         items: [

@@ -48,12 +48,13 @@ pnpm start
 | `apps/tui`     | 独立终端客户端与可选的本地子进程管理                      |
 | `packages`     | 协议、配置、国际化、通道、Agent、工具、上下文与存储等模块 |
 | `examples`     | 版本化部署配置示例                                        |
-| `fixtures`     | 脱敏的通道协议输入输出样本                                |
-| `tools`        | 架构检查、Fixture 校验与 Runtime/TUI 进程集成测试         |
+| `tools`        | 架构检查与 Runtime/TUI 进程集成测试                       |
 | `deploy`       | 部署辅助文件                                              |
 | `docs`         | VitePress 用户手册、架构、技术参考与 PRD                  |
 
 应用和包的依赖边界由 `pnpm architecture:check` 校验
+
+Channel 使用原生能力全集描述消息、资源、交互和管理动作，平台 adapter 只映射其已实现的子集，后续 WebUI 等入口复用同一协议。职责、能力与限制见 [Channel 契约](docs/channel.md)
 
 ## 开发与验收
 

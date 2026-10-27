@@ -7,6 +7,7 @@ import {
 import type { QqOfficialDispatchPayload, QqOfficialMessagePayload } from "./types.js";
 import { isRecord, numberFromUnknown, stringFromUnknown } from "./utils.js";
 
+/** 以官方 OpenID 建立原生消息身份，群成员 OpenID 与 QQ 号不互换 */
 export function normalizeQqOfficialDispatch(
   channelId: string,
   payload: QqOfficialDispatchPayload
@@ -43,10 +44,12 @@ export function normalizeQqOfficialDispatch(
     platform: "qq",
     channelId,
     eventType: "message.created",
+    origin: "incoming",
     conversation,
     sender: {
       id:
         stringFromUnknown(messagePayload.author?.user_openid) ??
+        stringFromUnknown(messagePayload.author?.member_openid) ??
         stringFromUnknown(messagePayload.author?.id) ??
         stringFromUnknown(messagePayload.user_openid) ??
         "unknown",
