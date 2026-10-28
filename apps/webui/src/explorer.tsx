@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InspectionPage, RuntimeAdminClient } from "@synapse/runtime-client";
-import { Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad } from "./app.js";
+import { Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad } from "./ui.js";
 import { record, time } from "./model.js";
 
 /** 分页浏览会话、消息、引用、提交与工件，所有读取保持会话作用域 */
