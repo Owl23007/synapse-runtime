@@ -40,11 +40,11 @@ export function registerContainerTools(options: {
   options.tools.register({
     name: "container.run",
     description:
-      "在无网络的本地 Python 容器中生成报告、表格、图片等文件，工作目录为 /work。outputs 声明要返回的单层文件名，inputs 可指定当前会话已有工件 ID。返回工件 ID，不会自动上传。请继续调用 artifact.upload 上传群文件。镜像中的依赖已由管理员安装，无法联网安装依赖。",
+      "在无网络的本地 Python 容器中生成报告、表格、图片等文件，工作目录为 /work。outputs 声明要返回的单层文件名，inputs 可指定当前会话已有工件 ID。返回工件 ID，不会自动上传。本地会话可直接下载工件，群聊可调用 artifact.upload 上传群文件。镜像中的依赖已由管理员安装，无法联网安装依赖。",
     inputSchema: z.toJSONSchema(ContainerWorkInputSchema),
     permission: { action: "container.execute", resource: "container" },
     async handle(raw, context) {
-      requireGroupArtifactDestination(options.channels, context);
+      if (context.source?.platform !== "native") requireGroupArtifactDestination(options.channels, context);
       if (context.callId === undefined) throw new Error("容器调用缺少持久化调用标识");
       const input = ContainerWorkInputSchema.parse(raw);
       const inputs = input.inputs.map((id) => artifacts.read(context.sessionId, id));

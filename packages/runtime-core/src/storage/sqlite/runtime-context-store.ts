@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+import { decodeJson } from "./json-codec.js";
 import type { ConversationType, WorkspaceRef } from "../../context/types.js";
 import type {
   AcceptNormalizedEventInput,
@@ -216,9 +217,17 @@ export class SqliteRuntimeContextStore
     validateInspectionPage(limit, before);
     return this.#db
       .prepare(
-        "SELECT rowid AS cursor, id, mainline_id AS mainlineId, channel_id AS channelId, conversation_type AS conversationType, status, created_at AS createdAt FROM conversation_sessions WHERE rowid < ? ORDER BY rowid DESC LIMIT ?"
+        "SELECT rowid AS cursor, id, mainline_id AS mainlineId, channel_id AS channelId, conversation_type AS conversationType, status, metadata_json AS metadataJson, created_at AS createdAt FROM conversation_sessions WHERE rowid < ? ORDER BY rowid DESC LIMIT ?"
       )
-      .all(before, limit);
+      .all(before, limit)
+      .map((row) => {
+        const { metadataJson, ...session } = row as Record<string, unknown>;
+        // 结构化元数据沿用存储编解码，不能用普通 JSON 路径绕过版本包装
+        const metadata = typeof metadataJson === "string" ? decodeJson(metadataJson, "session metadata") : undefined;
+        const title =
+          metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>).title : undefined;
+        return this.inspectValue({ ...session, ...(typeof title === "string" ? { title } : {}) });
+      });
   }
 
   /** 分页检查消息文本和标准消息，不返回平台原始载荷 */

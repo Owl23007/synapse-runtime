@@ -13,6 +13,7 @@ import type {
   InspectionPage
 } from "./run-types.js";
 import { subscribeRuns } from "./run-stream.js";
+import type { WorkspaceView, WorkspaceSession, WorkspaceBranch, SessionGraphView } from "./workspace-types.js";
 
 export type {
   AdminFetch,
@@ -66,6 +67,60 @@ export class RuntimeAdminClient {
   /** 分页浏览会话 */
   sessions(before?: number): Promise<InspectionPage> {
     return this.#get(`/admin/sessions${queryString({ before })}`) as Promise<InspectionPage>;
+  }
+
+  /** 创建无需外部频道的持久原生会话 */
+  createSession(title: string, idempotencyKey: string): Promise<{ session: WorkspaceSession }> {
+    return this.#request("/admin/sessions", {
+      method: "POST",
+      body: JSON.stringify({ title, idempotencyKey })
+    }) as Promise<{ session: WorkspaceSession }>;
+  }
+
+  /** 在指定会话线上发起真实 Agent 运行，重试沿用原幂等键 */
+  submitRun(input: {
+    sessionId: string;
+    lineId: string;
+    text: string;
+    idempotencyKey: string;
+  }): Promise<{ run: RunTrace }> {
+    return this.#request("/admin/runs", { method: "POST", body: JSON.stringify(input) }) as Promise<{ run: RunTrace }>;
+  }
+
+  /** 按会话线读取消息与可操作分支 */
+  workspace(sessionId: string, lineId?: string, before?: number): Promise<WorkspaceView> {
+    return this.#get(
+      `/admin/sessions/${encodeURIComponent(sessionId)}/workspace${queryString({ lineId, before })}`
+    ) as Promise<WorkspaceView>;
+  }
+
+  /** 单次读取完整预算内子图，历史浏览不会触发任何执行 */
+  sessionGraph(sessionId: string, head?: string): Promise<SessionGraphView> {
+    return this.#get(
+      `/admin/sessions/${encodeURIComponent(sessionId)}/graph${queryString({ head })}`
+    ) as Promise<SessionGraphView>;
+  }
+
+  /** 从选定不可变提交建立可继续对话的分支 */
+  forkSession(
+    sessionId: string,
+    input: { commitId: string; title: string; idempotencyKey: string }
+  ): Promise<{ branch: WorkspaceBranch }> {
+    return this.#request(`/admin/sessions/${encodeURIComponent(sessionId)}/fork`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    }) as Promise<{ branch: WorkspaceBranch }>;
+  }
+
+  /** 显式合并已比较的分支头，目标版本或来源变化时返回冲突 */
+  mergeSession(
+    sessionId: string,
+    input: { branchId: string; expectedVersion: number; sourceCommitId: string; idempotencyKey: string }
+  ): Promise<unknown> {
+    return this.#request(`/admin/sessions/${encodeURIComponent(sessionId)}/merge`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    });
   }
 
   /** 分页检查会话消息 */

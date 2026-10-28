@@ -6,6 +6,7 @@ import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { ChannelConfig, RuntimeConfig } from "../config/index.js";
 import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import { RuntimeCore, SqliteRuntimeContextStore, TaskRunner } from "@synapse/runtime-core";
+import { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools, InMemoryWebCache } from "@synapse/runtime-tool-web";
 import { createDockerTool } from "@synapse/runtime-tool-execution";
@@ -43,6 +44,8 @@ export class RuntimeAssembly {
   #closed = false;
   /** 与当前组合绑定的查询门面，热重载后由宿主整体替换 */
   readonly inspection: RuntimeInspection;
+  /** 与当前执行链路共享会话、分支及上下文图的第一方操作门面 */
+  readonly workspace: RuntimeWorkspace;
 
   /** 接收已经完成装配的资源，构造阶段不启动后台任务 */
   constructor(
@@ -54,6 +57,7 @@ export class RuntimeAssembly {
     readonly taskRunner: TaskRunner
   ) {
     this.inspection = new RuntimeInspection(contextStore, artifacts);
+    this.workspace = new RuntimeWorkspace(runtime, contextStore);
   }
 
   /** 供宿主判断查询资源是否仍然可用 */
@@ -183,9 +187,10 @@ function createInvocationCompiler(
     const visibleTools = (
       await Promise.all(
         tools.list().map(async (tool) => {
-          // 群文件工具只向具备实际交付能力的当前群开放，避免模型先生成无法交付的文件
+          // 原生会话直接下载本地工件，外部频道仍需具备真实的群文件交付能力
           if (
-            (tool.name === "container.run" || tool.name === "artifact.upload") &&
+            ((tool.name === "container.run" && request.source.platform !== "native") ||
+              tool.name === "artifact.upload") &&
             (request.source.conversationKind !== "group" || !canUploadGroupFile(channels.get(request.source.channelId)))
           )
             return undefined;

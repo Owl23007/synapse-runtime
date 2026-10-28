@@ -9,6 +9,7 @@ export class RunOutcome {
   readonly #deliveryFailures = new Map<string, RunError>();
   #selected: Set<string> | undefined;
   #delivered = false;
+  #nativeDelivered = false;
   #containerFailed = false;
   #failure: { status: "failed" | "blocked" | "uncertain"; error: RunError } | undefined;
 
@@ -22,6 +23,7 @@ export class RunOutcome {
     if (["response_sent", "response_send_failed"].includes(type)) this.#pending.delete("response");
     if (type === "response_sent") {
       this.#delivered = true;
+      this.#nativeDelivered = data.destination === "native";
       if (Array.isArray(data.artifactIds))
         for (const id of data.artifactIds) if (typeof id === "string") this.#uploaded.add(id);
     }
@@ -91,7 +93,11 @@ export class RunOutcome {
       const failure = this.#deliveryFailures.get(id);
       if (failure) return { status: "failed", error: failure };
     }
-    if (this.#delivered && [...required].some((id) => !this.#uploaded.has(id)))
+    // 原生会话直接读取已持久生成的工件，不能伪造外部上传回执来满足终态
+    if (
+      this.#delivered &&
+      [...required].some((id) => !this.#uploaded.has(id) && !(this.#nativeDelivered && this.#generated.has(id)))
+    )
       return {
         status: "failed",
         error: { code: "artifact_not_delivered", message: "已生成工件尚无成功上传回执", phase: "artifact" }

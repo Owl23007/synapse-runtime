@@ -8,6 +8,8 @@ export interface PermissionRequirement {
 
 /** 工具执行的可信来源，目标由运行时绑定而不从模型参数读取 */
 export interface ToolSource {
+  /** 宿主绑定的平台，原生会话生成本地工件时不要求外部群文件能力 */
+  readonly platform?: string;
   readonly channelId: string;
   readonly conversationId: string;
   readonly conversationKind: string;
