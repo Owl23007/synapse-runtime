@@ -14,11 +14,14 @@ import { isChannelAdminPatch, parsePositiveInt, type ChannelAdminPatch } from ".
 import { streamLogEvents } from "./logs-sse.js";
 import { ReloadRequiresRestartError } from "../reload-policy.js";
 import { registerRunRoutes } from "./run-routes.js";
+import { registerWorkspaceRoutes } from "./workspace-routes.js";
+import type { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import type { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly getWorkspace?: () => RuntimeWorkspace | undefined;
   readonly getExecutionStatus?: () => unknown;
   readonly getInspection?: () => RuntimeInspection | undefined;
   readonly getListening?: () => RuntimeServerStartResult | undefined;
@@ -50,7 +53,17 @@ export interface AdminRouteDeps {
 /** 注册统一认证保护的 Runtime 管理接口 */
 export function registerAdminRoutes(deps: AdminRouteDeps): void {
   deps.app.use("/admin", (request: NovaRequest, response: NovaResponse, next: () => void) => {
-    if (!authorizeAdminRequest(deps.getConfig().admin, request, response)) {
+    const admin = deps.getConfig().admin;
+    const listening = deps.getListening?.()?.admin;
+    // 同源 WebUI 的写请求包含 Origin，动态端口只信任真实监听地址，不信任请求 Host
+    const hosts =
+      listening && ["127.0.0.1", "localhost", "::1"].includes(listening.host)
+        ? ["127.0.0.1", "localhost", "[::1]"]
+        : listening
+          ? [listening.host.includes(":") ? `[${listening.host}]` : listening.host]
+          : [];
+    const allowedOrigins = [...admin.allowedOrigins, ...hosts.map((host) => `http://${host}:${listening!.port}`)];
+    if (!authorizeAdminRequest({ ...admin, allowedOrigins }, request, response)) {
       return;
     }
 
@@ -61,6 +74,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     getInspection: deps.getInspection ?? (() => undefined),
     shutdownSignal: deps.shutdownSignal
   });
+  registerWorkspaceRoutes(deps.app, deps.getWorkspace ?? (() => undefined));
   deps.app.get("/admin/health", (_request: NovaRequest, response: NovaResponse) => {
     sendJson(response, 200, { ok: true });
   });

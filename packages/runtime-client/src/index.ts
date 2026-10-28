@@ -1,5 +1,14 @@
 export { RuntimeAdminClient } from "./admin-client.js";
 export type {
+  WorkspaceSession,
+  WorkspaceBranch,
+  WorkspaceMessage,
+  WorkspaceView,
+  GraphCommit,
+  GraphRef,
+  SessionGraphView
+} from "./workspace-types.js";
+export type {
   RunStatus,
   RunTrace,
   RunEvent,

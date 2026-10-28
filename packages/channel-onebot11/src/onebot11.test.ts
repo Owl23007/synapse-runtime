@@ -67,7 +67,7 @@ describe("normalizeOneBot11Event", () => {
   });
 
   it("preserves unknown ordered segments as namespaced protocol parts", () => {
-    const payload = loadPlatformEvent("../../../fixtures/onebot11/inbound/unknown-segments.documented.fixture.json");
+    const payload = loadPlatformEvent("../src/test-data/unknown-segments.json");
     const rawSegment = (
       payload as {
         readonly message: readonly unknown[];
@@ -112,7 +112,7 @@ describe("renderOneBot11Message", () => {
 });
 
 describe("OneBot11ChannelAdapter", () => {
-  it("does not advertise management operations absent from the adapter contract", () => {
+  it("only advertises management operations with an adapter mapping", () => {
     const adapter = new OneBot11ChannelAdapter({
       id: "qq-local",
       endpoint: "ws://127.0.0.1:3001"
@@ -121,7 +121,8 @@ describe("OneBot11ChannelAdapter", () => {
     expect(adapter.getCapabilities()).toMatchObject({
       capabilities: {
         "message.media": { status: "supported" },
-        "message.delete": { status: "unsupported" }
+        "message.delete": { status: "partially-supported" },
+        "message.edit": { status: "unsupported" }
       }
     });
   });
@@ -266,8 +267,5 @@ function fakeWebSocketCtor(socket: FakeWebSocket): OneBot11WebSocketConstructor 
 }
 
 function loadPlatformEvent(path: string): unknown {
-  const fixture = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as {
-    readonly artifacts: { readonly platformEvent: unknown };
-  };
-  return fixture.artifacts.platformEvent;
+  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 }

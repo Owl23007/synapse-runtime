@@ -147,6 +147,23 @@ export class RuntimeDelivery {
       }
     });
 
+    if (input.event.platform === "native") {
+      // 本地结果以持久消息为交付事实，不经过外部发送权限，也不自动发布分支
+      await this.appendDeliveryEvent(input, assistantEvent, "delivery_succeeded", {
+        destination: "native",
+        assistantEventId: assistantEvent.id
+      });
+      await this.appendAssistantTranscript(input.event, output, input.conversation, undefined, assistantEvent.id);
+      if (input.processStateId !== undefined)
+        await this.options.eventProcessStore.update(input.processStateId, {
+          status: "completed",
+          agentOutputText: getText(output),
+          agentOutputJson: stringifyAgentOutput(output)
+        });
+      this.options.traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
+      return;
+    }
+
     if (input.conversation.lineEvent.lineId !== input.conversation.mainline.id) {
       await this.#publishBranchOutput(input.conversation, assistantEvent, output);
     }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   RuntimeAdminClient,
   type RunTrace,
@@ -9,6 +9,9 @@ import {
 import { STATUS_LABELS, normalizeEndpoint, record, time } from "./model.js";
 import { RunDetail } from "./run-detail.js";
 import { Explorer } from "./explorer.js";
+import { Workspace } from "./workspace.js";
+import { System } from "./system.js";
+import { Badge, Empty, ErrorNotice, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
 
 /** Runtime 控制台入口，凭据只保存在当前页面内存 */
 export function App() {
@@ -92,6 +95,7 @@ export function App() {
         <span className="nav-label">工作空间</span>
         <nav aria-label="主导航">
           {[
+            ["workspace", "⌘", "会话工作台", "/workspace"],
             ["overview", "◈", "总览", "/"],
             ["runs", "↗", "运行记录", "/runs"],
             ["explorer", "◇", "数据浏览", "/explorer"],
@@ -105,7 +109,6 @@ export function App() {
         </nav>
         <div className="sidebar-footer">
           <span className="version">v0.1 · 开发版</span>
-          <p>可观测的 DAG Agent Runtime</p>
           <button className="text-button" onClick={() => setConnection(undefined)}>
             断开连接 ↗
           </button>
@@ -116,7 +119,13 @@ export function App() {
           <span>
             工作空间 <span className="separator">/</span>{" "}
             {(
-              { overview: "总览", runs: "运行记录", explorer: "数据浏览", system: "系统状态" } as Record<string, string>
+              {
+                workspace: "会话工作台",
+                overview: "总览",
+                runs: "运行记录",
+                explorer: "数据浏览",
+                system: "系统状态"
+              } as Record<string, string>
             )[section] ?? "页面"}
           </span>
           <span role="status" className={`connection ${stream === "connected" ? "online" : ""}`}>
@@ -144,7 +153,15 @@ export function App() {
           </div>
         )}
         <main>
-          {section === "overview" ? (
+          {section === "workspace" ? (
+            <Workspace
+              key={route}
+              client={connection.client}
+              revision={revision}
+              initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
+              initialLine={new URLSearchParams(route.split("?")[1]).get("line") ?? ""}
+            />
+          ) : section === "overview" ? (
             <Overview client={connection.client} revision={revision} />
           ) : section === "runs" ? (
             id ? (
@@ -154,6 +171,7 @@ export function App() {
             )
           ) : section === "explorer" ? (
             <Explorer
+              key={route}
               client={connection.client}
               initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
             />
@@ -200,34 +218,25 @@ function Connect({ onConnect }: { onConnect: (client: RuntimeAdminClient, endpoi
           </span>
         </a>
         <div>
-          <span className="eyebrow">从请求到交付，完整可见</span>
+          <span className="eyebrow">SYNAPSE WORKSPACE</span>
           <h1>
-            让每一次执行
+            思考。执行。
             <br />
-            都有迹可循。
+            探索新的分支。
           </h1>
-          <p>
-            检查模型输入、追踪工具调用、回溯上下文。
-            <br />
-            在同一个工作空间，理解 Agent 的每一步。
-          </p>
-          <div className="journey">
-            <span>请求</span>
+          <div className="connect-graph" aria-hidden="true">
+            <span>输入</span>
             <i />
-            <span>上下文</span>
+            <span>Agent</span>
             <i />
-            <span>模型 · 工具</span>
-            <i />
-            <span>交付</span>
+            <span>结果</span>
           </div>
         </div>
         <small>Synapse Runtime / 0.1 开发版</small>
       </div>
       <div className="connect-form">
         <form onSubmit={submit}>
-          <span className="eyebrow">连接你的工作空间</span>
           <h2>连接 Runtime</h2>
-          <p className="muted">使用 Runtime 的管理地址和访问令牌</p>
           <label>
             服务地址
             <input
@@ -248,7 +257,7 @@ function Connect({ onConnect }: { onConnect: (client: RuntimeAdminClient, endpoi
               placeholder="输入 Admin Token"
             />
           </label>
-          <p className="hint">令牌仅保留在本页内存中，刷新后需要重新连接。未配置令牌的本地服务可直接连接。</p>
+          <p className="hint">令牌仅保留在内存中，刷新后清除</p>
           {error && <ErrorNotice error={error} />}
           <button className="primary full" disabled={busy}>
             {busy ? "正在连接…" : "连接工作空间 →"}
@@ -268,29 +277,20 @@ function Overview({ client, revision }: ViewProps) {
       <PageTitle
         eyebrow="WORKSPACE OVERVIEW"
         title="运行总览"
-        description="从一条请求，看到完整执行路径。"
-        action={
-          <a className="button" href="#/runs">
-            查看全部运行 ↗
-          </a>
-        }
+        description=""
+        action={<button onClick={data.reload}>刷新</button>}
       />
       <ErrorNotice error={data.error} retry={data.reload} />
       <div className="metrics">
         {[
-          ["最近运行", runs.length, "最近 50 条记录"],
-          ["执行中", runs.filter((r) => ["accepted", "running"].includes(r.status)).length, "等待或正在执行"],
-          ["已完成", runs.filter((r) => r.status === "succeeded").length, "结果与回复已确认交付"],
-          [
-            "需要关注",
-            runs.filter((r) => ["failed", "blocked", "uncertain", "interrupted"].includes(r.status)).length,
-            "检查失败与待确认结果"
-          ]
-        ].map(([label, value, note]) => (
+          ["最近运行", runs.length],
+          ["执行中", runs.filter((r) => ["accepted", "running"].includes(r.status)).length],
+          ["已完成", runs.filter((r) => r.status === "succeeded").length],
+          ["需要关注", runs.filter((r) => ["failed", "blocked", "uncertain", "interrupted"].includes(r.status)).length]
+        ].map(([label, value]) => (
           <div className="metric" key={label}>
             <span>{label}</span>
             <strong>{data.loading && !data.value ? "—" : value}</strong>
-            <small>{note}</small>
           </div>
         ))}
       </div>
@@ -298,26 +298,11 @@ function Overview({ client, revision }: ViewProps) {
         <div className="panel-heading">
           <div>
             <h2>最近运行</h2>
-            <p>运行状态来自持久记录，实时更新</p>
           </div>
           <span className="subtle-label">LATEST ACTIVITY</span>
         </div>
         {data.loading && !data.value ? <Loading /> : <RunTable runs={runs.slice(0, 8)} />}
       </section>
-      <div className="guide-grid">
-        <a href="#/explorer" className="guide-card">
-          <span className="guide-icon">◇</span>
-          <h3>沿着上下文，找到依据</h3>
-          <p>浏览会话消息、引用与不可变提交，检查执行时使用的数据。</p>
-          <span>打开数据浏览 →</span>
-        </a>
-        <div className="guide-card">
-          <span className="guide-icon">↗</span>
-          <h3>交付确认，才算完成</h3>
-          <p>“结果待确认”表示外部操作缺少可靠回执。请先核实平台结果，避免重复发送。</p>
-          <span className="muted">可在运行详情查看回执与处理建议</span>
-        </div>
-      </div>
     </>
   );
 }
@@ -371,7 +356,7 @@ function Runs({ client, revision }: ViewProps) {
       <PageTitle
         eyebrow="EXECUTION HISTORY"
         title="运行记录"
-        description="检查每一次执行的输入、决策与交付结果。"
+        description=""
         action={<button onClick={data.reload}>刷新记录 ↻</button>}
       />
       <form
@@ -438,145 +423,6 @@ function localDateTime(value?: string): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-function System({ client }: { client: RuntimeAdminClient }) {
-  const load = useCallback(() => client.status(), [client]);
-  const data = useLoad(load);
-  const status = record(data.value);
-  return (
-    <>
-      <PageTitle
-        eyebrow="SYSTEM"
-        title="系统状态"
-        description="检查 Runtime 与频道连接的当前状态。"
-        action={<button onClick={data.reload}>刷新 ↻</button>}
-      />
-      <ErrorNotice error={data.error} retry={data.reload} />
-      {data.loading ? (
-        <Loading />
-      ) : (
-        <>
-          <section className="panel padded">
-            <h2>Runtime</h2>
-            <Json value={status.runtime} />
-          </section>
-          <section className="panel padded">
-            <h2>频道</h2>
-            {Array.isArray(status.channels) && status.channels.length ? (
-              status.channels.map((channel, i) => <Json key={i} value={channel} />)
-            ) : (
-              <Empty title="尚未配置频道" text="在 Runtime 配置中启用频道后，连接状态会显示在这里" />
-            )}
-          </section>
-        </>
-      )}
-    </>
-  );
-}
-
-/** 页面共享的真实服务访问上下文 */
-export interface ViewProps {
-  readonly client: RuntimeAdminClient;
-  readonly revision: number;
-}
-
-/** 丢弃页面切换与刷新前的旧响应，保留错误前的可用数据 */
-export function useLoad<T>(load: () => Promise<T>, revision = 0) {
-  const [result, setResult] = useState<{ source: () => Promise<T>; value: T }>();
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [nonce, setNonce] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError("");
-    void load()
-      .then((result) => {
-        if (active) setResult({ source: load, value: result });
-      })
-      .catch((cause) => {
-        if (active) setError(message(cause));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [load, revision, nonce]);
-  return {
-    value: result?.source === load ? result.value : undefined,
-    error,
-    loading,
-    reload: () => setNonce((v) => v + 1)
-  };
-}
-/** 将未知错误转换为可呈现文本 */
-export function message(error: unknown): string {
-  return error instanceof Error ? error.message : "请求失败，请检查服务连接";
-}
-/** 状态徽章同时使用文字和颜色传达结果 */
-export function Badge({ status }: { status: RunStatus }) {
-  return (
-    <span className={`badge ${status}`}>
-      <span className="dot" />
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
-/** 页面标题与主要操作 */
-export function PageTitle({
-  eyebrow,
-  title,
-  description,
-  action
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="page-title">
-      <div>
-        <span className="eyebrow">{eyebrow}</span>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
-/** 无数据状态 */
-export function Empty({ title, text }: { title: string; text: string }) {
-  return (
-    <div className="empty">
-      <span>◇</span>
-      <h3>{title}</h3>
-      <p>{text}</p>
-    </div>
-  );
-}
-/** 请求等待状态 */
-export function Loading() {
-  return (
-    <div className="loading" role="status">
-      正在读取记录…
-    </div>
-  );
-}
-/** 请求失败保持在页面内并提供明确的重试入口 */
-export function ErrorNotice({ error, retry }: { error?: string | undefined; retry?: () => void }) {
-  return error ? (
-    <div className="notice error" role="alert">
-      <span>{error}</span>
-      {retry && <button onClick={retry}>重试</button>}
-    </div>
-  ) : null;
-}
-/** 以文本显示结构化数据，模型内容不会作为 HTML 执行 */
-export function Json({ value }: { value: unknown }) {
-  return <pre className="json">{value === undefined ? "未记录" : JSON.stringify(value, null, 2)}</pre>;
-}
 function RunTable({ runs }: { runs: readonly RunTrace[] }) {
   return runs.length ? (
     <div className="table-scroll">
@@ -608,17 +454,13 @@ function RunTable({ runs }: { runs: readonly RunTrace[] }) {
               </td>
               <td>{run.phase}</td>
               <td className="nowrap muted">{time(run.startedAt)}</td>
-              <td>
-                <a aria-label={`查看运行 ${run.id}`} href={`#/runs/${encodeURIComponent(run.id)}`}>
-                  ↗
-                </a>
-              </td>
+              <td aria-hidden="true">↗</td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
   ) : (
-    <Empty title="暂无运行记录" text="向已连接的频道发送消息后，可在这里查看执行过程。也可以调整筛选条件。" />
+    <Empty title="暂无运行记录" text="发送消息开始运行，或调整筛选条件" />
   );
 }

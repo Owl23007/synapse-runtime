@@ -96,7 +96,10 @@ export class RuntimeInspection {
   listSessions(limit = 50, before = Number.MAX_SAFE_INTEGER) {
     page(limit, before);
     const items = this.store.inspectSessions(limit, before);
-    return { items, nextCursor: (items.at(-1) as { cursor?: number } | undefined)?.cursor ?? null };
+    return {
+      items,
+      nextCursor: items.length === limit ? ((items.at(-1) as { cursor?: number } | undefined)?.cursor ?? null) : null
+    };
   }
 
   /** 只在目标会话存在时读取消息分页 */
@@ -119,6 +122,40 @@ export class RuntimeInspection {
   getCommit(sessionId: string, id: string) {
     const commit = this.store.contextGraph.getCommit(sessionId, id);
     return commit === undefined ? undefined : this.store.inspectValue(commit);
+  }
+
+  /** 单次返回有界多父子图，截断边界保留缺失父标识供客户端继续回溯 */
+  async getSessionGraph(sessionId: string, head?: string, limit = 200) {
+    page(limit, 0);
+    if (!(await this.store.getSession(sessionId))) return undefined;
+    const refs = this.store.inspectRefs(sessionId, 200, "") as readonly {
+      name: string;
+      commitId: string;
+      version: number;
+    }[];
+    if (head && !this.store.contextGraph.getCommit(sessionId, head)) return undefined;
+    const pending = head ? [head] : refs.map((ref) => ref.commitId);
+    const visited = new Set<string>();
+    const commits = [];
+    while (pending.length && commits.length < limit) {
+      const id = pending.shift()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const commit = this.store.contextGraph.getCommit(sessionId, id);
+      if (!commit) continue;
+      commits.push(commit);
+      pending.push(...commit.parents);
+    }
+    const nodes = commits.map((commit) => this.store.inspectValue(commit));
+    const ids = new Set(commits.map((commit) => commit.id));
+    const boundary = [...new Set(pending.filter((id) => !ids.has(id)))];
+    return {
+      nodes,
+      edges: commits.flatMap((commit) => commit.parents.map((parent) => ({ source: parent, target: commit.id }))),
+      refs,
+      truncated: boundary.length > 0 || refs.length === 200,
+      boundary
+    };
   }
 
   /** 工件列表只返回目标会话数据，不加载二进制内容 */

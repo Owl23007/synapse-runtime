@@ -6,6 +6,3 @@ export const LocaleSettingsSchema = z
     catalogPath: z.string().min(1).optional()
   })
   .passthrough();
-
-/** 用户可见消息的语言资源配置 */
-export type LocaleSettings = z.infer<typeof LocaleSettingsSchema>;

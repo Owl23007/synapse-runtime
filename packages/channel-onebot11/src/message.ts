@@ -1,6 +1,7 @@
 import type { ChannelActionTarget, MessageSegment, SynapseMessage } from "@synapse/runtime-protocol";
 import { isRecord, safeJson, stringFromUnknown } from "./utils.js";
 
+/** 编码原生片段时区分文本与 CQ 指令，避免文本中的 CQ 字面量变成平台操作 */
 export function renderOneBot11Message(message: SynapseMessage): string {
   const rendered = message.segments.map(renderSegment).join("");
 
@@ -22,7 +23,7 @@ export function createOneBot11SendParams(
     return {
       message_type: "private",
       user_id: target.userId,
-      message: rendered,
+      message: withReplyContext(message, rendered),
       auto_escape: false
     };
   }
@@ -31,7 +32,7 @@ export function createOneBot11SendParams(
     return {
       message_type: "group",
       group_id: target.groupId,
-      message: rendered,
+      message: withReplyContext(message, rendered),
       auto_escape: false
     };
   }
@@ -39,6 +40,7 @@ export function createOneBot11SendParams(
   throw new Error("OneBot 11 adapter does not support channel targets.");
 }
 
+/** 解码已知片段并无损保留未知内容，平台原始对象不直接成为可执行指令 */
 export function oneBot11SegmentsToSynapseSegments(
   value: unknown,
   fallbackRawMessage?: string
@@ -57,23 +59,34 @@ export function oneBot11SegmentsToSynapseSegments(
 
 function renderSegment(segment: SynapseMessage["segments"][number]): string {
   if (segment.type === "text") {
-    return segment.text;
+    return segment.text.replaceAll("&", "&amp;").replaceAll("[", "&#91;").replaceAll("]", "&#93;");
   }
 
   if (segment.type === "mention") {
-    return segment.userId === undefined ? "" : `[CQ:at,qq=${escapeCqValue(segment.userId)}]`;
+    if (segment.target === "all") return "[CQ:at,qq=all]";
+    if (segment.userId === undefined) throw new Error("OneBot 11 mention requires a user identifier.");
+    return `[CQ:at,qq=${escapeCqValue(segment.userId)}]`;
   }
 
   if (segment.type === "reply") {
-    return segment.messageId === undefined ? "" : `[CQ:reply,id=${escapeCqValue(segment.messageId)}]`;
+    if (segment.messageId === undefined) throw new Error("OneBot 11 reply requires a message identifier.");
+    return `[CQ:reply,id=${escapeCqValue(segment.messageId)}]`;
   }
 
   if (segment.type === "image") {
     const file = segment.url ?? segment.fileId ?? segment.localPath;
-    return file === undefined ? "" : `[CQ:image,file=${escapeCqValue(file)}]`;
+    if (file === undefined) throw new Error("OneBot 11 image requires a resource.");
+    return `[CQ:image,file=${escapeCqValue(file)}]`;
   }
 
   return "";
+}
+
+function withReplyContext(message: SynapseMessage, rendered: string): string {
+  const messageId = message.replyTo?.messageId;
+  return !message.replyTo?.required || messageId === undefined || message.segments.some((part) => part.type === "reply")
+    ? rendered
+    : `[CQ:reply,id=${escapeCqValue(messageId)}]${rendered}`;
 }
 
 function oneBot11SegmentToSynapseSegments(segment: unknown): readonly MessageSegment[] {
@@ -239,7 +252,8 @@ function escapeCqValue(value: string): string {
 }
 
 function unescapeCqValue(value: string): string {
-  return unescapeCqText(value).replaceAll("&#44;", ",");
+  // 先解码参数逗号再解码 &，避免把字面量 &amp;#44; 二次转换成逗号
+  return unescapeCqText(value.replaceAll("&#44;", ","));
 }
 
 function unescapeCqText(value: string): string {

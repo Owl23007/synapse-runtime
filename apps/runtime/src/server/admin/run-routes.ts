@@ -103,6 +103,14 @@ export function registerRunRoutes(options: RunRouteOptions): void {
     const commit = inspection.getCommit(requiredQuery(request, "sessionId"), request.params.id ?? "");
     sendJson(response, commit ? 200 : 404, commit ? { ok: true, commit } : { ok: false, error: "commit_not_found" });
   });
+  route("/admin/sessions/:id/graph", async (inspection, request, response) => {
+    const graph = await inspection.getSessionGraph(
+      request.params.id ?? "",
+      request.query.get("head") ?? undefined,
+      numberQuery(request, "limit", 200, 1, 200)
+    );
+    sendJson(response, graph ? 200 : 404, graph ? { ok: true, ...graph } : { ok: false, error: "graph_not_found" });
+  });
   route("/admin/artifacts", async (inspection, request, response) => {
     const sessionId = requiredQuery(request, "sessionId");
     if (!(await inspection.getSession(sessionId))) {

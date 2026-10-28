@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RunEvent } from "@synapse/runtime-client";
-import { Badge, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad, type ViewProps } from "./app.js";
+import { Badge, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
 import { eventLabel, mergeEvents, record, time } from "./model.js";
 
 /** 运行详情只呈现持久状态与执行时快照，不提供不安全的重放操作 */
@@ -87,7 +87,11 @@ export function RunDetail({ client, id, revision }: ViewProps & { readonly id: s
         </div>
         <div>
           <span>会话</span>
-          <a href={`#/explorer?session=${encodeURIComponent(run.sessionId)}`}>{run.sessionId} ↗</a>
+          <a
+            href={`#/${run.channelId === "native" ? "workspace" : "explorer"}?session=${encodeURIComponent(run.sessionId)}`}
+          >
+            {run.sessionId} ↗
+          </a>
         </div>
       </div>
       {run.error && (

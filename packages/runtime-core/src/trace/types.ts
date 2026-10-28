@@ -1,6 +1,3 @@
-/** 运行协议版本，客户端必须显式处理不支持的版本 */
-export const RUN_TRACE_VERSION = 1;
-
 /** 逻辑运行状态，未知外部结果不能视为普通失败重试 */
 export type RunStatus = "accepted" | "running" | "succeeded" | "failed" | "blocked" | "uncertain" | "interrupted";
 

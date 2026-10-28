@@ -17,6 +17,17 @@ export const NAPCAT_MAX_GROUP_FILE_BYTES = 10_485_760;
 export class NapCatApi {
   constructor(private readonly connection: OneBot11Connection) {}
 
+  /** 私聊与群文件共享原生上传动作，具体 API 仍明确标记为 NapCat 扩展 */
+  getFileCapability(): ChannelCapability {
+    return {
+      status: "partially-supported",
+      source: "documented",
+      implementation: "napcat:file.upload",
+      constraints: { targetTypes: ["private", "group"], maxFileSizeBytes: NAPCAT_MAX_GROUP_FILE_BYTES },
+      reason: "按目标映射 upload_private_file 或 upload_group_file，不等于发送媒体消息"
+    };
+  }
+
   /** 声明统一上传语义的扩展实现来源 */
   getGroupFileCapability(): ChannelCapability {
     return {
@@ -60,8 +71,15 @@ export class NapCatApi {
 
   /** 使用内容传输群文件，不能假设远端 NapCat 可以读取 Runtime 的宿主路径 */
   async uploadGroupFile(groupId: string, file: GroupFileUpload): Promise<ChannelOperationResult> {
+    return this.uploadFile({ type: "group", groupId }, file);
+  }
+
+  /** 上传原生字节内容，禁止通过路径假定远端可访问 Runtime 文件系统 */
+  async uploadFile(target: ChannelActionTarget, file: GroupFileUpload): Promise<ChannelOperationResult> {
+    if (target.type === "channel")
+      return { status: "unsupported", error: "NapCat file upload requires a private or group target." };
     if (
-      !/^\d+$/.test(groupId) ||
+      !/^\d+$/.test(target.type === "group" ? target.groupId : target.userId) ||
       file.name.length === 0 ||
       file.name.length > 120 ||
       /[\\/:]/.test(file.name) ||
@@ -71,7 +89,7 @@ export class NapCatApi {
     }
     if (file.data.byteLength === 0 || file.data.byteLength > NAPCAT_MAX_GROUP_FILE_BYTES)
       return { status: "failed", error: "群文件必须介于 1 字节和 10 MiB 之间" };
-    return this.#upload({ type: "group", groupId }, file.name, `base64://${Buffer.from(file.data).toString("base64")}`);
+    return this.#upload(target, file.name, `base64://${Buffer.from(file.data).toString("base64")}`);
   }
 
   async #upload(

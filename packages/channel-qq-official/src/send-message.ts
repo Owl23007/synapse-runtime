@@ -8,27 +8,33 @@ export function createQqOfficialSendBody(
   content: string
 ): Readonly<Record<string, unknown>> {
   const reply = message.replyTo;
-  const messageId = reply?.messageId;
+  const replyPart = message.segments.find((part) => part.type === "reply");
+  const messageId = reply?.messageId ?? replyPart?.messageId;
+  const eventId = reply?.eventId ?? replyPart?.eventId;
   const replyFields = {
-    ...(messageId !== undefined
-      ? { msg_id: messageId }
-      : reply?.eventId === undefined
-        ? {}
-        : { event_id: reply.eventId }),
-    msg_seq: reply?.sequence ?? (messageId === undefined ? 1 : createQqOfficialMessageSequence(messageId))
+    ...(messageId !== undefined ? { msg_id: messageId } : eventId === undefined ? {} : { event_id: eventId }),
+    // 序号由调用方分配并持久化，随机序号会让同一动作重放时绕过去重
+    msg_seq: reply?.sequence ?? replyPart?.sequence ?? 1
   };
+  const reference = message.segments.find((part) => part.type === "reference");
+  const referenceFields =
+    reference?.messageId === undefined ? {} : { message_reference: { message_id: reference.messageId } };
+  const markdown = message.segments.find((part) => part.type === "rich-content");
+  const contentFields = markdown?.format === "markdown" ? { markdown: { content: markdown.value } } : { content };
 
   if (target.type === "channel") {
     return {
-      content,
-      ...replyFields
+      ...contentFields,
+      ...replyFields,
+      ...referenceFields
     };
   }
 
   return {
-    content,
-    msg_type: 0,
-    ...replyFields
+    ...contentFields,
+    msg_type: markdown === undefined ? 0 : 2,
+    ...replyFields,
+    ...referenceFields
   };
 }
 
@@ -53,16 +59,6 @@ export function extractMessageId(value: unknown): string | undefined {
   }
 
   return stringFromUnknown(value.id) ?? stringFromUnknown(value.message_id);
-}
-
-function createQqOfficialMessageSequence(messageId: string): number {
-  let hash = 0;
-
-  for (let index = 0; index < messageId.length; index += 1) {
-    hash = (hash * 31 + messageId.charCodeAt(index)) >>> 0;
-  }
-
-  return (hash ^ Date.now() ^ Math.floor(Math.random() * 65_536)) & 0xffff;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

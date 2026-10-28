@@ -111,9 +111,7 @@ describe("normalizeQqOfficialDispatch", () => {
   });
 
   it("preserves ordered attachments as normalized namespaced protocol parts", () => {
-    const payload = loadPlatformEvent(
-      "../../../fixtures/qq-official/inbound/group-attachments.documented.fixture.json"
-    );
+    const payload = loadPlatformEvent("../src/test-data/group-attachments.json");
     const attachments = (
       payload.d as {
         readonly attachments: readonly unknown[];
@@ -313,15 +311,5 @@ function loadPlatformEvent(path: string): {
   readonly id?: string;
   readonly d?: unknown;
 } {
-  const fixture = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as {
-    readonly artifacts: {
-      readonly platformEvent: {
-        readonly op?: number;
-        readonly t?: string;
-        readonly id?: string;
-        readonly d?: unknown;
-      };
-    };
-  };
-  return fixture.artifacts.platformEvent;
+  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 }

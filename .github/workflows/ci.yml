@@ -38,9 +38,6 @@ jobs:
       - name: Check architecture boundaries
         run: pnpm architecture:check
 
-      - name: Validate channel fixtures
-        run: pnpm fixtures:validate
-
   build-and-test:
     name: Build and test
     # Playwright 1.56.1 支持 Ubuntu 24.04，固定系统以避免 latest 升级后无法安装 Chromium

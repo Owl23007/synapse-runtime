@@ -9,8 +9,8 @@ export class RunContextGraph {
     private readonly maxChars: number
   ) {}
 
-  /** 从当前对话头建立独立运行分支，重试复用原输入快照 */
-  begin(sessionId: string, lineId: string, eventId: string, input: string, userId: string): void {
+  /** 从当前对话头建立运行分支并关联持久运行身份，重试复用原输入快照 */
+  begin(sessionId: string, lineId: string, eventId: string, input: string, userId: string, runId?: string): void {
     const lineName = `line:${lineId}`;
     if (!this.graph.getRef(sessionId, lineName)) {
       this.graph.commit({
@@ -31,11 +31,11 @@ export class RunContextGraph {
       type: "input",
       additionalParents: [this.graph.getRef(sessionId, lineName)!.commitId],
       content: { input, userId },
-      metadata: { eventId, lineId }
+      metadata: { eventId, lineId, ...(runId === undefined ? {} : { runId }) }
     });
   }
 
-  /** 只提交已知终态，不把开始执行误认为可复用的完成结果 */
+  /** 只提交已知终态并继承运行身份，不把开始执行误认为可复用结果 */
   record(
     sessionId: string,
     eventId: string,
@@ -53,7 +53,8 @@ export class RunContextGraph {
       expectedVersion: ref.version,
       idempotencyKey: key,
       type,
-      content
+      content,
+      metadata: this.graph.getCommit(sessionId, ref.commitId)?.metadata ?? {}
     });
   }
 
@@ -71,7 +72,8 @@ export class RunContextGraph {
       idempotencyKey: `run:${eventId}:publish`,
       type: "merge",
       additionalParents: [result.id],
-      content: { resultId: result.id, summary: output }
+      content: { resultId: result.id, summary: output },
+      metadata: result.metadata
     });
   }
 

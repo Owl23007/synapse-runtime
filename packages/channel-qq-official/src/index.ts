@@ -1,5 +1,10 @@
 export { QqOfficialChannelAdapter } from "./adapter.js";
-export { QQ_OFFICIAL_API_BASE_URL, QQ_OFFICIAL_TOKEN_ENDPOINT } from "./constants.js";
+export {
+  QQ_OFFICIAL_API_BASE_URL,
+  QQ_OFFICIAL_TOKEN_ENDPOINT,
+  QQ_OFFICIAL_UNIFIED_API_BASE_URL,
+  QQ_OFFICIAL_UNIFIED_TOKEN_ENDPOINT
+} from "./constants.js";
 export { normalizeQqOfficialDispatch } from "./normalize.js";
 export { QqOfficialAccessTokenClient } from "./token-client.js";
 export type {

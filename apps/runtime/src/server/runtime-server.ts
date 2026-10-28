@@ -175,6 +175,7 @@ export class RuntimeServer {
     registerWebUi(this.#adminApp);
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
+      getWorkspace: () => (this.#assembly.closed ? undefined : this.#assembly.workspace),
       getExecutionStatus: () => this.#assembly.runtime.executionStatus,
       getListening: () => this.#listening,
       app: this.#adminApp,

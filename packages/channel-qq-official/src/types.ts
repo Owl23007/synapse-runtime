@@ -56,13 +56,16 @@ export interface FetchResponseLike {
   text?(): Promise<string>;
 }
 
+/** 官方令牌回执，HTTP 200 仍可能通过业务 code 拒绝请求 */
 export interface TokenResponseBody {
+  readonly code?: unknown;
   readonly access_token?: unknown;
   readonly accessToken?: unknown;
   readonly expires_in?: unknown;
   readonly expiresIn?: unknown;
 }
 
+/** 官方消息原始字段，群成员 OpenID 与用户 OpenID 按平台场景分别保留 */
 export interface QqOfficialMessagePayload {
   readonly id?: string;
   readonly msg_id?: string;
@@ -72,6 +75,7 @@ export interface QqOfficialMessagePayload {
   readonly author?: {
     readonly id?: string;
     readonly user_openid?: string;
+    readonly member_openid?: string;
     readonly username?: string;
   };
   readonly group_id?: string;

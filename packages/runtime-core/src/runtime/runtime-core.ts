@@ -242,6 +242,98 @@ export class RuntimeCore {
     return this.#coordinator.track(this.#conversationStore.createBranch(input));
   }
 
+  /** 接收第一方输入并复用执行、恢复和工具链路，身份与来源由宿主确定 */
+  submitNative(input: {
+    readonly sessionId: string;
+    readonly lineId?: string;
+    readonly text: string;
+    readonly idempotencyKey: string;
+  }) {
+    // 接收写入也纳入关闭等待，避免确认运行前宿主已经释放会话存储
+    return this.#coordinator.track(this.#acceptNative(input));
+  }
+
+  async #acceptNative(input: Parameters<RuntimeCore["submitNative"]>[0]) {
+    if (this.#coordinator.disposed || !this.#runs) throw new Error("Runtime unavailable");
+    const session = await this.#conversationStore.getSession(input.sessionId);
+    if (!session || session.locator?.platform !== "native") throw new Error("Native session required");
+    const lineId = input.lineId ?? session.mainlineId;
+    const line = await this.#conversationStore.getLine(lineId);
+    if (!line || line.sessionId !== session.id) throw new Error("Invalid session line");
+    const eventId = `native:${session.id}:${input.idempotencyKey}`;
+    const previous = await this.#conversationStore.getNormalizedEvent(eventId);
+    const event: SynapseChannelEvent = {
+      id: eventId,
+      platform: "native",
+      channelId: "native",
+      eventType: "message.created",
+      origin: "incoming",
+      conversation: { id: session.locator.conversationId, kind: "private" },
+      sender: { id: "runtime-admin" },
+      message: textMessage(input.text),
+      receivedAt: previous?.receivedAt ?? new Date().toISOString()
+    };
+    // 原生请求绕过频道触发策略，仍使用同一份归一化事实和运行幂等键
+    const accepted = await this.#conversationStore.acceptNormalizedEvent({
+      id: event.id,
+      sessionId: session.id,
+      targetLineId: lineId,
+      platform: "native",
+      provider: "native",
+      channelId: "native",
+      conversationType: "private",
+      conversationId: event.conversation.id,
+      sourceEventId: event.id,
+      sourceEventType: event.eventType,
+      senderId: event.sender.id,
+      text: input.text,
+      message: event.message!,
+      receivedAt: event.receivedAt,
+      idempotencyKey: event.id,
+      lineEventType: "user_message"
+    });
+    if (accepted.lineEvent.lineId !== lineId || accepted.event.text !== input.text)
+      throw new Error("Idempotency key conflicts with an existing request");
+    const run = this.#runs.accept({
+      sourceEventId: accepted.event.id,
+      sessionId: session.id,
+      channelId: "native",
+      lineId,
+      ...(lineId === session.mainlineId ? {} : { branchId: lineId }),
+      summary: input.text
+    });
+    const request: AgentRequest = {
+      sessionId: session.id,
+      userId: "runtime-admin",
+      input: event.message!,
+      source: {
+        platform: "native",
+        channelId: "native",
+        conversationId: event.conversation.id,
+        conversationKind: "private",
+        provider: "native"
+      },
+      contextPolicy: { includeHistory: true, maxMessages: 20 },
+      event
+    };
+    void this.#coordinator
+      .dispatch(() => this.#runAgent(request, event, { provider: "native", accepted, runId: run.id }))
+      .catch((error: unknown) => {
+        if (this.#runs?.get(run.id)?.status === "accepted")
+          this.#runs.append(run.id, {
+            key: "dispatch-failed",
+            type: "run_failed",
+            status: "failed",
+            error: {
+              code: "dispatch_failed",
+              message: error instanceof Error ? error.message : "运行无法开始",
+              phase: "queue"
+            }
+          });
+      });
+    return run;
+  }
+
   /**
    * 等待进行中的操作结束并释放工具观察器
    */
@@ -554,7 +646,8 @@ export class RuntimeCore {
           lineId,
           scope.accepted.lineEvent.id,
           getText(request.input),
-          enrichedRequest.userId
+          enrichedRequest.userId,
+          scope.runId
         );
       }
       if (
