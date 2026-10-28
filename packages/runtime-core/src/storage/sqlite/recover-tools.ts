@@ -3,9 +3,6 @@ import type { RunTraceStore, RecoverToolOutput } from "../../trace/types.js";
 import type { SqliteConversationRepository } from "./conversation-store.js";
 import { decodeJson } from "./json-codec.js";
 
-/** 兼容旧内部类型入口，恢复契约由领域追踪层定义 */
-export type { RecoverToolOutput, RecoverToolOutputInput } from "../../trace/types.js";
-
 interface StartedRow {
   readonly ordinal: number;
   readonly id: string;

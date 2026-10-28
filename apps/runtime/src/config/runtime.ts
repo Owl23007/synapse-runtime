@@ -53,17 +53,8 @@ export const AdminSettingsSchema = z
   })
   .passthrough();
 
-/** 运行模式 */
-export type RuntimeMode = z.infer<typeof RuntimeModeSchema>;
-
 /** 日志等级 */
 export type LogLevel = z.infer<typeof LogLevelSchema>;
-
-/** 运行时基础配置 */
-export type RuntimeSettings = z.infer<typeof RuntimeSettingsSchema>;
-
-/** 业务服务监听配置 */
-export type ServerSettings = z.infer<typeof ServerSettingsSchema>;
 
 /** 管理服务配置 */
 export type AdminSettings = z.infer<typeof AdminSettingsSchema>;

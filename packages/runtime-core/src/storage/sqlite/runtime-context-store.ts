@@ -75,10 +75,10 @@ import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
 import { SqliteContextGraphRepository } from "./context-graph-store.js";
 import type { ContextGraph } from "../../context-graph/index.js";
 import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
-import type { RunTraceStore } from "../../trace/types.js";
+import type { RunTraceStore, RecoverToolOutput } from "../../trace/types.js";
 import { redactTrace } from "../../trace/redact.js";
 import { acquireDirectoryLease } from "./directory-lease.js";
-import { recoverToolOutputs, type RecoverToolOutput } from "./recover-tools.js";
+import { recoverToolOutputs } from "./recover-tools.js";
 
 function validateInspectionPage(limit: number, cursor: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
