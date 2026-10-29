@@ -1,3 +1,4 @@
+/** Runtime SQLite 表与幂等索引定义，会话消息索引用于有界只读投影 */
 export const RUNTIME_CONTEXT_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS identities (
     id TEXT PRIMARY KEY,
@@ -203,6 +204,10 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_line_event_recent
   ON line_events(line_id, sequence DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_line_event_session_message
+  ON line_events(session_id, ordinal DESC)
+  WHERE type IN ('user_message', 'assistant_message', 'branch_result');
 
   CREATE INDEX IF NOT EXISTS idx_line_event_correlation
   ON line_events(correlation_id, ordinal);

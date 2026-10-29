@@ -212,21 +212,40 @@ export class SqliteRuntimeContextStore
     return redactTrace(value, this.#traceSecrets);
   }
 
-  /** 按固定创建顺序分页发现会话，返回有限的公开元数据 */
+  /** 保留创建游标分页，补充定位信息与最近消息时间，避免界面误用创建时间 */
   inspectSessions(limit = 50, before = Number.MAX_SAFE_INTEGER): readonly unknown[] {
     validateInspectionPage(limit, before);
     return this.#db
       .prepare(
-        "SELECT rowid AS cursor, id, mainline_id AS mainlineId, channel_id AS channelId, conversation_type AS conversationType, status, metadata_json AS metadataJson, created_at AS createdAt FROM conversation_sessions WHERE rowid < ? ORDER BY rowid DESC LIMIT ?"
+        `SELECT s.rowid AS cursor, s.id, s.mainline_id AS mainlineId, s.platform, s.provider,
+          s.channel_id AS channelId, s.conversation_type AS conversationType, s.conversation_id AS conversationId,
+          s.status, s.metadata_json AS metadataJson, s.created_at AS createdAt, s.updated_at AS updatedAt,
+          (SELECT created_at FROM line_events WHERE session_id = s.id AND type IN ('user_message', 'assistant_message', 'branch_result') ORDER BY ordinal DESC LIMIT 1) AS latestLineAt,
+          (SELECT created_at FROM conversation_messages WHERE session_id = s.id AND deleted_at IS NULL ORDER BY rowid DESC LIMIT 1) AS latestTranscriptAt
+         FROM conversation_sessions s WHERE s.rowid < ? ORDER BY s.rowid DESC LIMIT ?`
       )
       .all(before, limit)
       .map((row) => {
-        const { metadataJson, ...session } = row as Record<string, unknown>;
+        const { metadataJson, latestLineAt, latestTranscriptAt, ...session } = row as Record<string, unknown>;
         // 结构化元数据沿用存储编解码，不能用普通 JSON 路径绕过版本包装
         const metadata = typeof metadataJson === "string" ? decodeJson(metadataJson, "session metadata") : undefined;
         const title =
           metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>).title : undefined;
-        return this.inspectValue({ ...session, ...(typeof title === "string" ? { title } : {}) });
+        const conversationTitle =
+          metadata && typeof metadata === "object"
+            ? (metadata as Record<string, unknown>).conversationTitle
+            : undefined;
+        // 历史导入可能带时区偏移，跨来源比较按时间戳进行，不按字符串比较
+        const lastMessageAt =
+          [latestLineAt, latestTranscriptAt]
+            .filter((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value)))
+            .toSorted((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+        return this.inspectValue({
+          ...session,
+          lastMessageAt,
+          ...(typeof title === "string" ? { title } : {}),
+          ...(typeof conversationTitle === "string" ? { conversationTitle } : {})
+        });
       });
   }
 
