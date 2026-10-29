@@ -78,7 +78,7 @@ export class RuntimeWorkspace {
     return { run };
   }
 
-  /** 按会话线返回有界消息、分支和历史游标 */
+  /** 按会话线返回有界消息，独立限制内容体积以保留分页和消息身份 */
   async getWorkspace(sessionId: string, lineIdQuery?: string, beforeQuery?: string) {
     const { contextStore } = this;
     const session = await contextStore.getSession(sessionId);
@@ -95,14 +95,31 @@ export class RuntimeWorkspace {
       limit: 100
     });
     const branches = await contextStore.listBranches(session.id);
-    return contextStore.inspectValue({
-      session,
-      line,
-      branches,
-      messages: events,
+    // 追踪快照会以字符串替换超限对象，不能让整页消息共享预算而丢失身份与游标
+    return {
+      session: contextStore.inspectValue(session),
+      line: contextStore.inspectValue(line),
+      branches: branches.map((branch) => contextStore.inspectValue(branch)),
+      messages: events.map((event) => {
+        const payload =
+          event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)
+            ? (event.payload as Record<string, unknown>)
+            : {};
+        return {
+          id: contextStore.inspectValue(event.id),
+          sequence: event.sequence,
+          type: event.type,
+          createdAt: event.createdAt,
+          payload: {
+            ...(typeof payload.text === "string" ? { text: contextStore.inspectValue(payload.text) } : {}),
+            ...(typeof payload.summary === "string" ? { summary: contextStore.inspectValue(payload.summary) } : {}),
+            ...(payload.message === undefined ? {} : { message: contextStore.inspectValue(payload.message) })
+          }
+        };
+      }),
       nextCursor: events[0]?.sequence ?? 0,
       hasMore: events.length === 100
-    });
+    };
   }
 
   /** 从历史上下文提交建立隔离会话线 */

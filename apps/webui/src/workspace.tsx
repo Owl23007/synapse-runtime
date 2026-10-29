@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { WorkspaceMessage } from "@synapse/runtime-client";
 import { Badge, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
-import { time } from "./model.js";
+import { time, workspaceMessageText } from "./model.js";
 import { DagCanvas } from "./dag-canvas.js";
 import { COMMIT_LABELS, commitSummary } from "./graph-layout.js";
 
@@ -360,9 +360,7 @@ export function Workspace({
                             </strong>
                             <time>{time(item.createdAt)}</time>
                           </div>
-                          <div className="message-text">
-                            {item.payload.text || item.payload.summary || "[附件消息]"}
-                          </div>
+                          <div className="message-text">{workspaceMessageText(item.payload)}</div>
                         </div>
                       </article>
                     ))}
