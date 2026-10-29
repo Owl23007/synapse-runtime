@@ -14,7 +14,7 @@ import {
   workspaceSummary
 } from "../lib/session-presentation.js";
 
-/** 工作台状态与 API 编排保持在功能内，视图组件不重建执行或幂等规则 */
+/** 工作台统一管理分栏显隐、搜索恢复与 API 编排，视图组件不重建执行或幂等规则 */
 export function useWorkspace({
   client,
   revision,
@@ -42,6 +42,7 @@ export function useWorkspace({
   const [notice, setNotice] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(() => matchMedia("(min-width: 1280px)").matches);
   const [sessionsOpen, setSessionsOpen] = useState(() => matchMedia("(min-width: 761px)").matches);
+  const [sessionListExpanded, setSessionListExpanded] = useState(true);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const sessionLoadingRef = useRef(false);
@@ -182,6 +183,7 @@ export function useWorkspace({
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSessionsOpen(true);
+        setSessionListExpanded(true);
         requestAnimationFrame(() => sessionSearch.current?.focus());
       }
       if (event.key === "Escape" && inspectorOpen) setInspectorOpen(false);
@@ -319,6 +321,8 @@ export function useWorkspace({
     setInspectorOpen,
     sessionsOpen,
     setSessionsOpen,
+    sessionListExpanded,
+    setSessionListExpanded,
     sessionLoading,
     sessionError,
     sessionSearch,
