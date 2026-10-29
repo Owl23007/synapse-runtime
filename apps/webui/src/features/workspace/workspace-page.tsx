@@ -12,7 +12,7 @@ import { WorkspaceGraph } from "./components/context-dag.js";
 import { WorkspaceTasks } from "./components/tasks.js";
 import "./workspace.css";
 
-/** 会话内容内嵌运行辅助面板，标题与标签共享主区域，列表状态由同一个功能实例持有 */
+/** 会话正文与浮动运行卡片共用主区域，卡片开合不重建列表与消息状态 */
 export function Workspace(props: WorkspaceProps) {
   const workspace = useWorkspace(props);
   const {
@@ -76,7 +76,7 @@ export function Workspace(props: WorkspaceProps) {
             <>
               <WorkspaceHeader workspace={workspace} />
               {merging && branch && <MergePreview workspace={workspace} />}
-              <div className="workspace-body" data-view={tab}>
+              <div className={`workspace-body ${inspectorOpen ? "with-inspector" : ""}`} data-view={tab}>
                 <div className="workspace-view">
                   {tab === "chat" ? (
                     <WorkspaceConversation workspace={workspace} />

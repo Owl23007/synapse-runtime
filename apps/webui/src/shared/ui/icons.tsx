@@ -28,7 +28,7 @@ const paths = {
   task: "M8 4H4v17h16V4h-4 M8 2h8v5H8V2Z M8 12l2 2 5-4 M8 18h8"
 };
 
-/** 统一使用描边图标，按导航领域与界面动作命名，不映射业务状态 */
+/** 按导航与动作命名描边图标，更多操作加粗圆点以保持小尺寸下可辨认 */
 export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSProperties }) {
   return (
     <svg
@@ -36,7 +36,7 @@ export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSPro
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth={name === "more" ? 3.2 : 1.6}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

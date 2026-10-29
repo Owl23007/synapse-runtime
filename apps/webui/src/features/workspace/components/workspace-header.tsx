@@ -4,7 +4,7 @@ import { Icon } from "../../../shared/ui/icons.js";
 import { Surface } from "../../../shared/ui/surface.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 
-/** 会话标题、分支与视图切换共用工作台当前作用域 */
+/** 会话标题与分支共享当前作用域，运行卡片的开关统一收纳到更多操作中 */
 export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController }) {
   const {
     initialSession,
@@ -51,7 +51,7 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
         </label>
         <div className="workspace-header-actions">
           <button
-            className="icon-button"
+            className="icon-button workspace-more"
             aria-label="更多会话操作"
             title="更多会话操作"
             popoverTarget={menuId}
@@ -62,21 +62,21 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
           >
             <Icon name="more" />
           </button>
-          {!inspectorOpen && (
-            <button
-              className="icon-button"
-              aria-label={inspectorOpen ? "收起运行面板" : "展开运行面板"}
-              title="运行面板"
-              aria-expanded={inspectorOpen}
-              aria-controls="workspace-inspector"
-              onClick={() => setInspectorOpen(!inspectorOpen)}
-            >
-              <Icon name="panel" />
-            </button>
-          )}
         </div>
         <div id={menuId} popover="auto" className="workspace-menu" style={{ inset: "auto", ...menuPosition }}>
           <Surface material="frosted">
+            <button
+              aria-label={inspectorOpen ? "收起运行面板" : "展开运行面板"}
+              aria-expanded={inspectorOpen}
+              aria-controls="workspace-inspector"
+              onClick={(event) => {
+                event.currentTarget.closest<HTMLElement>("[popover]")?.hidePopover();
+                setInspectorOpen(!inspectorOpen);
+              }}
+            >
+              <Icon name="activity" />
+              {inspectorOpen ? "收起运行信息" : "查看运行信息"}
+            </button>
             <button onClick={() => setNonce((value) => value + 1)}>
               <Icon name="refresh" />
               刷新会话
