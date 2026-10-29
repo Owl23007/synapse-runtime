@@ -1,17 +1,22 @@
 import { useMemo, useSyncExternalStore } from "react";
 
-/** 导航与页面名称共用配置，避免应用壳重复维护路由文案 */
-export const NAV_ITEMS = [
-  { section: "workspace", icon: "chat", label: "会话工作台", path: "/workspace" },
+/** 页面名称与深链接共用配置，兼容页面不必固定展示在主导航中 */
+export const PAGE_ITEMS = [
+  { section: "workspace", icon: "workspace", label: "工作空间", path: "/workspace" },
   { section: "overview", icon: "folder", label: "总览", path: "/" },
-  { section: "runs", icon: "run", label: "运行记录", path: "/runs" },
-  { section: "explorer", icon: "file", label: "数据浏览", path: "/explorer" },
+  { section: "runs", icon: "activity", label: "运行", path: "/runs" },
+  { section: "explorer", icon: "database", label: "数据", path: "/explorer" },
   { section: "channels", icon: "folder", label: "频道", path: "/channels" },
   { section: "tasks", icon: "task", label: "任务", path: "/tasks" }
 ] as const;
 
-/** 受支持的页面范围，未知路径保持明确的空状态 */
-export type AppSection = (typeof NAV_ITEMS)[number]["section"] | "system" | "not-found";
+/** 主导航只保留工作空间、运行、数据与任务，顺序沿用页面配置 */
+export const NAV_ITEMS = PAGE_ITEMS.filter(
+  ({ section }) => section === "workspace" || section === "runs" || section === "explorer" || section === "tasks"
+);
+
+/** 受支持的页面范围包含兼容深链接，未知路径保持明确的空状态 */
+export type AppSection = (typeof PAGE_ITEMS)[number]["section"] | "system" | "not-found";
 
 /** Hash 路由投影，查询参数保留原生 URL 语义且运行标识只解码一次 */
 export interface AppRoute {
@@ -29,7 +34,7 @@ export function parseRoute(hash: string): AppRoute {
   const query = new URLSearchParams(split < 0 ? "" : key.slice(split + 1));
   const segments = pathname.split("/").filter(Boolean);
   const section = segments[0] || "overview";
-  const known = section === "system" || NAV_ITEMS.some((item) => item.section === section);
+  const known = section === "system" || PAGE_ITEMS.some((item) => item.section === section);
   if (!known || segments.length > (section === "runs" ? 2 : 1))
     return { key, section: "not-found", id: undefined, query };
   try {

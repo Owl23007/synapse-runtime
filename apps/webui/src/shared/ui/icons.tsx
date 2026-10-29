@@ -1,6 +1,10 @@
 import { type CSSProperties } from "react";
 
 const paths = {
+  workspace: "M3 3h7v7H3V3Z M14 3h7v7h-7V3Z M3 14h7v7H3v-7Z M14 14h7v7h-7v-7Z",
+  activity: "M3 12h4l3-8 4 16 3-8h4",
+  database:
+    "M20 6c0 1.66-3.58 3-8 3S4 7.66 4 6s3.58-3 8-3 8 1.34 8 3Z M4 6v12c0 1.66 3.58 3 8 3s8-1.34 8-3V6 M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3",
   chat: "M4 4h16v12H8l-4 4V4Z M8 8h8 M8 12h5",
   run: "M9 7l8 5-8 5V7Z M21 12a9 9 0 1 1-9-9",
   folder: "M3 6h7l2 2h9v12H3V6Z",
@@ -23,7 +27,7 @@ const paths = {
   task: "M8 4H4v17h16V4h-4 M8 2h8v5H8V2Z M8 12l2 2 5-4 M8 18h8"
 };
 
-/** 统一使用描边图标，名称只表达界面动作，不映射业务状态 */
+/** 统一使用描边图标，按导航领域与界面动作命名，不映射业务状态 */
 export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSProperties }) {
   return (
     <svg
