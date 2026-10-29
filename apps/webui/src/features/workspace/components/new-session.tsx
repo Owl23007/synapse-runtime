@@ -20,7 +20,6 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
             <SynapseMark />
           </div>
           <h2>开始新的会话</h2>
-          <p>输入消息，即可开始</p>
         </div>
         <form
           id="create-session"
@@ -46,10 +45,6 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
             }}
           />
           <div className="composer-footer">
-            <span className="new-session-agent">
-              <SynapseMark />
-              默认 Agent
-            </span>
             <span className="new-session-shortcut">Enter 发送 · Shift + Enter 换行</span>
             <button
               className="primary send-button"
@@ -61,9 +56,9 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
             </button>
           </div>
         </form>
-        <p className="new-session-hint" role="status">
-          {busy ? "正在开始会话…" : "从一个问题或想法开始"}
-        </p>
+        <span className="sr-only" role="status">
+          {busy ? "正在开始会话…" : ""}
+        </span>
       </div>
     </div>
   );
