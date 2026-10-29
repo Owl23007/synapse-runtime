@@ -74,6 +74,17 @@ export function shortTime(value: unknown): string {
   );
 }
 
+/** 每条对话均显示具体时刻，历史消息同时保留日期以避免只看到月日 */
+export function messageTime(value: string): string {
+  if (!Number.isFinite(Date.parse(value))) return "时间未记录";
+  return new Date(value).toLocaleString("zh-CN", {
+    ...(sessionDay(value) === "今天" ? {} : { month: "numeric", day: "numeric" }),
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
 /** 翻译已知运行阶段，未知扩展保留原始名称供排查 */
 export function phaseLabel(phase: string): string {
   const labels: Record<string, string> = {
