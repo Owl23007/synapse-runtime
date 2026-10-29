@@ -6,7 +6,7 @@ import { MaterialProvider, MaterialSettings } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { type RuntimeConnection } from "./types.js";
 
-/** 应用壳管理可折叠导航与连接状态，业务页面通过内容槽挂载 */
+/** 应用壳保留同一导航按钮完成收起前后的移位动画与焦点延续，业务页面通过内容槽挂载 */
 export function AppShell({
   connection,
   route,
@@ -56,7 +56,6 @@ export function AppShell({
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             >
               <Icon name="sidebar" />
-              <span className="sidebar-label">收起导航</span>
             </button>
             {NAV_ITEMS.map(({ section: key, icon, label, path }) => (
               <a
