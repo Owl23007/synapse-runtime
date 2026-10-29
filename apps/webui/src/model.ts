@@ -88,3 +88,10 @@ export function time(value: unknown): string {
 export function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
+
+/** 兼容历史消息缺失或被截断的载荷，未知结构不直接作为 React 内容渲染 */
+export function workspaceMessageText(value: unknown): string {
+  const payload = record(value);
+  for (const text of [payload.text, payload.summary]) if (typeof text === "string" && text) return text;
+  return value === "[TRUNCATED]" || payload._truncated === true ? "[消息内容已截断]" : "[附件消息]";
+}
