@@ -1,0 +1,60 @@
+/* 频道、任务与配置管理的局部样式 */
+.system-metric strong {
+  margin-top: var(--space-4);
+}
+.system-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.system-row:last-child {
+  border-bottom: 0;
+}
+.system-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.system-row strong {
+  display: block;
+  font-size: var(--text-control);
+  font-weight: var(--weight-heading);
+  overflow-wrap: anywhere;
+}
+.system-row small {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-small);
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.system-setting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.system-setting p {
+  margin: 0;
+  font-size: var(--text-small);
+}
+.system-metric strong {
+  display: inline;
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0;
+}
+.system-row {
+  min-height: var(--row-height);
+}
+.system-row {
+  padding: var(--space-3) var(--space-4);
+}
+@media (max-width: 760px) {
+  .system-setting {
+    align-items: start;
+    flex-direction: column;
+  }
+}

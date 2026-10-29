@@ -26,7 +26,7 @@
     "test:workspace": "node --test tools/workspace.test.mjs",
     "test:workspace-layout": "node --test tools/workspace-layout.test.mjs",
     "test:workspace-refinements": "node --test tools/workspace-refinements.test.mjs",
-    "test:webui-design": "node --test tools/webui-design.test.mjs",
+    "test:webui-design": "node tools/run-webui-design-test.mjs",
     "test:docker": "node tools/docker-execution-smoke.mjs",
     "typecheck": "pnpm -r typecheck",
     "prepare": "husky install",

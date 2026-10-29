@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "lib": ["ES2023"],
+    "noEmit": true
+  },
+  "include": ["vite.config.ts", "config/**/*.ts"]
+}

@@ -1,0 +1,51 @@
+/* 连接入口布局，不包含任何凭据持久化行为 */
+.connect-page {
+  background: var(--canvas);
+}
+.connect-form {
+  display: grid;
+  place-items: center;
+}
+.connect-form form {
+  width: 100%;
+  max-width: 360px;
+}
+.connect-form .hint {
+  margin: var(--space-4) 0 var(--space-6);
+}
+@media (max-width: 760px) {
+  .connect-page {
+    grid-template-columns: 1fr;
+  }
+  .connect-form {
+    padding: var(--space-8) 28px;
+  }
+  .connect-form form {
+    max-width: none;
+  }
+}
+.connect-page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+.connect-form {
+  width: min(100%, 420px);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+}
+.connect-form h2 {
+  font-size: var(--text-page);
+  margin-bottom: var(--space-6);
+}
+.connect-form label {
+  margin-top: var(--space-5);
+}
+@media (max-width: 760px) {
+  .connect-form {
+    padding: var(--space-5);
+  }
+}
