@@ -1,0 +1,204 @@
+/* 基础排版与原生控件，所有颜色和尺寸来自共享 Token */
+:root {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--canvas);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  text-decoration: none;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  color: inherit;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+textarea {
+  resize: vertical;
+}
+label {
+  display: flex;
+  flex-direction: column;
+}
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+h1 {
+  margin-bottom: var(--space-1);
+  line-height: 1.35;
+}
+h2 {
+  margin-bottom: var(--space-2);
+}
+h3 {
+  margin-bottom: var(--space-2);
+}
+p {
+  color: var(--muted);
+}
+code,
+pre {
+  font-family: var(--font-mono);
+}
+main {
+  margin: auto;
+  max-width: 1920px;
+  padding: var(--space) var(--page-padding) var(--space-10);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--text-small);
+}
+th {
+  color: var(--muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+td {
+  border-top: 1px solid var(--border);
+}
+tbody tr:hover {
+  background: var(--surface-hover);
+}
+details summary {
+  color: var(--muted);
+  font-size: var(--text-small);
+  cursor: pointer;
+}
+@media (min-width: 1600px) {
+  :root {
+    --sidebar: 224px;
+  }
+}
+@media (max-width: 1150px) {
+  :root {
+    --sidebar: 224px;
+    --space: var(--space-6);
+  }
+}
+@media (max-width: 760px) {
+  :root {
+    --space: 16px;
+    --page-padding: 16px;
+  }
+  main {
+    padding-top: var(--space-5);
+  }
+}
+button {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--text-control);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-control);
+}
+input,
+select {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--leading-control);
+}
+input,
+select,
+textarea {
+  border-radius: var(--radius-control);
+}
+label {
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+small {
+  font-size: var(--text-small);
+}
+h1 {
+  font-size: var(--text-page);
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.4px;
+}
+h2 {
+  font-size: var(--text-section);
+  font-weight: var(--weight-heading);
+}
+h3 {
+  font-size: var(--text-panel);
+  font-weight: var(--weight-heading);
+}
+strong {
+  font-weight: var(--weight-heading);
+}
+th {
+  background: var(--surface-secondary);
+  font-weight: var(--weight-medium);
+  padding: var(--space-3) var(--space-4);
+}
+td {
+  padding: var(--space-3) var(--space-4);
+}

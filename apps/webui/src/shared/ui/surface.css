@@ -1,0 +1,99 @@
+/* 材质自行拥有背景与边界，避免异步页面样式覆盖玻璃与透明度降级 */
+.surface.surface-standard {
+  box-shadow: var(--shadow-panel);
+}
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.surface.surface-frosted,
+.surface.surface-liquid {
+  border-radius: var(--radius-float);
+  box-shadow: var(--shadow-float);
+}
+.material-filter {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.material-popover {
+  inset: 64px 24px auto auto;
+  width: min(300px, calc(100vw - 32px));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: visible;
+}
+.material-popover .surface {
+  padding: var(--space-4);
+}
+.material-popover h3 {
+  margin-bottom: var(--space-4);
+}
+.material-trigger {
+  color: var(--muted);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .surface.surface-frosted,
+  .surface.surface-liquid {
+    background: var(--glass-fill);
+    backdrop-filter: blur(var(--glass-blur));
+  }
+  .surface.surface-liquid {
+    border-color: var(--glass-edge);
+    box-shadow: var(--shadow-liquid);
+    transition:
+      box-shadow var(--motion-fast),
+      border-color var(--motion-fast);
+  }
+  .surface.surface-liquid:hover {
+    border-color: var(--border);
+    box-shadow:
+      var(--shadow-liquid),
+      0 0 0 1px var(--glass-edge);
+  }
+  .surface.surface-liquid[data-refraction] {
+    backdrop-filter: var(--refraction-filter);
+  }
+}
+.surface:is(.surface-frosted, .surface-liquid) .surface,
+[data-material="solid"] .surface {
+  background: var(--surface);
+  backdrop-filter: none;
+}
+[data-material="solid"] .material-filter {
+  display: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .surface.surface-frosted,
+  .surface.surface-liquid,
+  .surface.surface-liquid[data-refraction] {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce), (update: slow) {
+  .surface.surface-liquid[data-refraction] {
+    backdrop-filter: none;
+    background: var(--surface);
+  }
+}
+@media (forced-colors: active) {
+  .surface,
+  .surface.surface-liquid[data-refraction] {
+    border: 1px solid CanvasText;
+    backdrop-filter: none;
+  }
+}
+@media (max-width: 760px) {
+  .material-trigger {
+    padding-inline: var(--space-2);
+  }
+}
+.workspace-menu .surface {
+  padding: var(--space-2);
+  min-width: 180px;
+}
