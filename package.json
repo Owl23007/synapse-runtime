@@ -24,6 +24,7 @@
     "test:integration": "node --test tools/runtime-tui.test.mjs",
     "test:webui": "node --test tools/webui.test.mjs",
     "test:runs": "node --test tools/runs.test.mjs",
+    "test:new-conversation": "node --test tools/new-conversation.test.mjs",
     "test:workspace": "node --test tools/workspace.test.mjs",
     "test:workspace-layout": "node --test tools/workspace-layout.test.mjs",
     "test:workspace-refinements": "node --test tools/workspace-refinements.test.mjs",

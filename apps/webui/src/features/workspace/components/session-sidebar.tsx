@@ -17,9 +17,6 @@ export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceCon
     initialSession,
     search,
     setSearch,
-    title,
-    setTitle,
-    initialText,
     setInitialText,
     sessionKind,
     setSessionKind,
@@ -75,16 +72,13 @@ export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceCon
           </h2>
           <button
             className="primary"
-            type={initialSession ? "button" : "submit"}
-            form={initialSession ? undefined : "create-session"}
+            type="button"
             disabled={busy}
-            onClick={(event) => {
+            onClick={() => {
               if (initialSession) {
-                setTitle("");
                 setInitialText("");
                 navigate("");
-              } else if (!title.trim() && !initialText.trim()) {
-                event.preventDefault();
+              } else {
                 initialMessage.current?.focus();
               }
             }}

@@ -22,7 +22,6 @@ export function useWorkspace({
   initialLine
 }: ViewProps & { initialSession: string; initialLine: string }) {
   const [search, setSearch] = useState("");
-  const [title, setTitle] = useState("");
   const [initialText, setInitialText] = useState("");
   const [sessionKind, setSessionKind] = useState("all");
   const [tab, setTab] = useState("chat");
@@ -213,20 +212,18 @@ export function useWorkspace({
   };
   const create = (event: FormEvent) => {
     event.preventDefault();
-    if (!title.trim() && !initialText.trim()) return;
     const content = initialText.trim();
-    const name = title.trim() || initialSessionTitle(content);
+    if (!content || busy) return;
+    const name = initialSessionTitle(content);
     const key = actionKey(`create:${name}:${content}`);
     void act(async () => {
       const result = await client.createSession(name, key);
-      if (content)
-        await client.submitRun({
-          sessionId: result.session.id,
-          lineId: result.session.mainlineId,
-          text: content,
-          idempotencyKey: `${key}:initial`
-        });
-      setTitle("");
+      await client.submitRun({
+        sessionId: result.session.id,
+        lineId: result.session.mainlineId,
+        text: content,
+        idempotencyKey: `${key}:initial`
+      });
       setInitialText("");
       navigate(result.session.id);
     });
@@ -286,8 +283,6 @@ export function useWorkspace({
     initialSession,
     search,
     setSearch,
-    title,
-    setTitle,
     initialText,
     setInitialText,
     sessionKind,

@@ -1,41 +1,70 @@
-import { Icon } from "../../../shared/ui/icons.js";
+import { useEffect } from "react";
+import { Icon, SynapseMark } from "../../../shared/ui/icons.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 
-/** 新建会话表单复用工作台的初始化与幂等提交动作 */
+/** 新对话直接输入首条消息，发送时复用工作台的自动命名与幂等创建动作 */
 export function NewSession({ workspace }: { workspace: WorkspaceController }) {
-  const { title, setTitle, initialText, setInitialText, busy, initialMessage, create } = workspace;
+  const { initialText, setInitialText, busy, initialMessage, create } = workspace;
+  useEffect(() => {
+    initialMessage.current?.focus();
+  }, [initialMessage]);
 
   return (
-    <div className="workspace-welcome">
-      <form id="create-session" className="new-session-form" onSubmit={create}>
-        <h2>开始新会话</h2>
-        <label>
-          名称
-          <input
-            aria-label="新会话名称"
-            placeholder="可选，留空使用首条消息摘要"
-            maxLength={120}
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
-        <label>
-          初始消息
+    <div className="workspace-new-session">
+      <header className="new-session-breadcrumb">
+        工作空间 <span>/</span> 新会话
+      </header>
+      <div className="workspace-welcome">
+        <div className="new-session-intro">
+          <div className="new-session-mark">
+            <SynapseMark />
+          </div>
+          <h2>开始新的会话</h2>
+          <p>输入消息，即可开始</p>
+        </div>
+        <form
+          id="create-session"
+          className="composer new-session-composer"
+          onSubmit={create}
+          aria-label="开始新会话"
+          aria-busy={busy}
+        >
           <textarea
             ref={initialMessage}
-            aria-label="初始消息"
-            placeholder="这次想完成什么？"
-            rows={4}
+            aria-label="发送给 Agent 的消息"
+            placeholder="向 Synapse 发送消息…"
+            rows={3}
             maxLength={32000}
             value={initialText}
+            disabled={busy}
             onChange={(event) => setInitialText(event.target.value)}
+            onKeyDown={(event) => {
+              if (!event.nativeEvent.isComposing && event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
-        </label>
-        <button className="primary" disabled={busy || (!title.trim() && !initialText.trim())}>
-          {busy ? "创建中…" : "开始会话"}
-          <Icon name="send" />
-        </button>
-      </form>
+          <div className="composer-footer">
+            <span className="new-session-agent">
+              <SynapseMark />
+              默认 Agent
+            </span>
+            <span className="new-session-shortcut">Enter 发送 · Shift + Enter 换行</span>
+            <button
+              className="primary send-button"
+              aria-label="发送消息"
+              title={busy ? "正在开始会话…" : "发送消息"}
+              disabled={busy || !initialText.trim()}
+            >
+              <Icon name="send" />
+            </button>
+          </div>
+        </form>
+        <p className="new-session-hint" role="status">
+          {busy ? "正在开始会话…" : "从一个问题或想法开始"}
+        </p>
+      </div>
     </div>
   );
 }
