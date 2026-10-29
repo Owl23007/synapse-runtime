@@ -2,11 +2,11 @@ import { NAV_ITEMS, PAGE_ITEMS, type AppRoute } from "./routes.js";
 import { useState, type ReactNode } from "react";
 import { type RunStreamState } from "@synapse/runtime-client";
 import { time } from "../shared/lib/runtime.js";
-import { MaterialProvider, MaterialSettings } from "../shared/ui/surface.js";
+import { MaterialProvider } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { type RuntimeConnection } from "./types.js";
 
-/** 应用壳提供核心工作导航，保留同一折叠按钮完成移位动画与焦点延续 */
+/** 应用壳提供核心导航与精简连接状态，认证或协议异常时保留重新连接入口 */
 export function AppShell({
   connection,
   route,
@@ -81,9 +81,11 @@ export function AppShell({
               <Icon name="settings" />
               <span className="sidebar-label">设置</span>
             </a>
-            <div className="sidebar-runtime">
-              <span role="status" className={`connection ${stream === "connected" ? "online" : ""}`}>
-                {stream !== "connected" && lastSync && <small>更新于 {time(lastSync)}</small>}
+            <div className="sidebar-runtime" title={connection.endpoint}>
+              <span
+                role="status"
+                className={`connection ${stream === "connected" ? "online" : ""} ${stream === "unauthorized" || stream === "incompatible" ? "connection-error" : ""}`}
+              >
                 <span className="dot" />
                 <span>
                   {
@@ -101,12 +103,9 @@ export function AppShell({
               <small className="sidebar-label" title={connection.endpoint}>
                 {new URL(connection.endpoint).host}
               </small>
-              <div className="sidebar-utilities">
-                <MaterialSettings />
-                <button className="icon-button" aria-label="断开连接" title="断开连接" onClick={onDisconnect}>
-                  <Icon name="run" />
-                </button>
-              </div>
+              {stream !== "connected" && lastSync && (
+                <small className="sidebar-label runtime-last-sync">更新于 {time(lastSync)}</small>
+              )}
             </div>
           </div>
         </aside>
@@ -123,8 +122,11 @@ export function AppShell({
           {(stream === "unauthorized" || stream === "incompatible") && (
             <div className="notice error" role="alert">
               {stream === "unauthorized"
-                ? "认证失败，请断开连接后重新输入凭据"
+                ? "认证失败，请重新连接并输入凭据"
                 : "服务协议版本不兼容，请更新 WebUI 与 Runtime 到同一版本"}
+              <button type="button" onClick={onDisconnect}>
+                重新连接
+              </button>
             </div>
           )}
           <main id="main-content" tabIndex={-1}>
