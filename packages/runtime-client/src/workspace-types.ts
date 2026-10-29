@@ -1,10 +1,16 @@
-/** 工作区会话元数据，频道会话可只读打开 */
+/** 工作区会话元数据，频道定位与展示名称独立于消息正文 */
 export interface WorkspaceSession {
   readonly id: string;
   readonly mainlineId: string;
   readonly status: string;
-  readonly locator?: { readonly platform: string };
-  readonly metadata?: { readonly title?: string };
+  readonly locator?: {
+    readonly platform: string;
+    readonly provider?: string;
+    readonly channelId?: string;
+    readonly conversationType?: string;
+    readonly conversationId?: string;
+  };
+  readonly metadata?: { readonly title?: string; readonly conversationTitle?: string };
 }
 
 /** 可选择的隔离会话分支 */
