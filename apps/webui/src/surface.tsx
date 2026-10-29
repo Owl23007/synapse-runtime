@@ -62,16 +62,28 @@ export function Surface({
   );
 }
 
-/** 原生 Popover 支持 Escape、外部点击及焦点返回，选择实体可关闭透明效果 */
+/** 原生 Popover 跟随入口定位并支持 Escape 与焦点返回，选择实体可关闭透明效果 */
 export function MaterialSettings() {
   const { mode, setMode } = useContext(MaterialContext);
   const id = useId();
+  const [position, setPosition] = useState({ top: 64, left: 24 });
   return (
     <>
-      <button popoverTarget={id} className="material-trigger" aria-label="外观设置">
+      <button
+        popoverTarget={id}
+        className="material-trigger"
+        aria-label="外观设置"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setPosition({
+            left: Math.max(8, Math.min(rect.left, innerWidth - 308)),
+            top: rect.bottom + 192 > innerHeight ? Math.max(8, rect.top - 184) : rect.bottom + 8
+          });
+        }}
+      >
         外观
       </button>
-      <div id={id} popover="auto" className="material-popover">
+      <div id={id} popover="auto" className="material-popover" style={{ inset: "auto", ...position }}>
         <Surface material="frosted">
           <h3>外观</h3>
           <label>
