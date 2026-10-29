@@ -1,4 +1,4 @@
-import { NAV_ITEMS, type AppRoute } from "./routes.js";
+import { NAV_ITEMS, PAGE_ITEMS, type AppRoute } from "./routes.js";
 import { useState, type ReactNode } from "react";
 import { type RunStreamState } from "@synapse/runtime-client";
 import { time } from "../shared/lib/runtime.js";
@@ -6,7 +6,7 @@ import { MaterialProvider, MaterialSettings } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { type RuntimeConnection } from "./types.js";
 
-/** 应用壳保留同一导航按钮完成收起前后的移位动画与焦点延续，业务页面通过内容槽挂载 */
+/** 应用壳提供核心工作导航，保留同一折叠按钮完成移位动画与焦点延续 */
 export function AppShell({
   connection,
   route,
@@ -41,7 +41,7 @@ export function AppShell({
         </a>
         <aside className="sidebar" id="app-navigation">
           <div className="sidebar-header">
-            <a className="brand" href="#/" aria-label="Synapse 首页">
+            <a className="brand" href="#/workspace" aria-label="Synapse 首页">
               <SynapseMark />
               <span className="sidebar-label">Synapse</span>
             </a>
@@ -66,7 +66,7 @@ export function AppShell({
                 href={`#${path}`}
               >
                 <Icon name={icon} />
-                <span className="sidebar-label">{key === "workspace" ? "工作空间" : label}</span>
+                <span className="sidebar-label">{label}</span>
               </a>
             ))}
           </nav>
@@ -115,7 +115,7 @@ export function AppShell({
             <header className="topbar">
               <span>
                 工作空间 <span className="separator">/</span>
-                {NAV_ITEMS.find((item) => item.section === section)?.label ??
+                {PAGE_ITEMS.find((item) => item.section === section)?.label ??
                   (section === "system" ? "系统状态" : "页面")}
               </span>
             </header>
