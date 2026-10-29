@@ -8,13 +8,16 @@ import { Icon } from "../../../shared/ui/icons.js";
 import { ScrollLoader } from "../../../shared/ui/scroll-loader.js";
 import { shortTime } from "../lib/activity.js";
 
-/** 滚动回溯会话提交，保留不可变节点与原有查询边界 */
+/** 可折叠地回溯会话提交，隐藏列表时保留分页结果与滚动位置 */
 export function ContextHistory({
   client,
   sessionId,
   graph,
   selected,
   branchTitle,
+  expanded,
+  onToggle,
+  listId,
   onSelect
 }: {
   client: ViewProps["client"];
@@ -22,6 +25,9 @@ export function ContextHistory({
   graph: SessionGraphView | undefined;
   selected: string | undefined;
   branchTitle: string;
+  expanded: boolean;
+  onToggle: () => void;
+  listId: string;
   onSelect: (id: string) => void;
 }) {
   const [pages, setPages] = useState<SessionGraphView[]>([]);
@@ -72,15 +78,33 @@ export function ContextHistory({
     }
   };
   return (
-    <section className="context-history" aria-label="上下文历史">
+    <section className="context-history" aria-label="上下文历史" data-collapsed={!expanded}>
       <div className="pane-heading">
-        <h2>上下文</h2>
+        <h2>
+          <button
+            className="pane-section-toggle"
+            aria-label={expanded ? "折叠上下文" : "展开上下文"}
+            aria-expanded={expanded}
+            aria-controls={listId}
+            onClick={onToggle}
+          >
+            <Icon name="chevron" style={{ transform: expanded ? "rotate(90deg)" : undefined }} />
+            上下文
+          </button>
+        </h2>
         <span className="history-branch" title={branchTitle}>
           <Icon name="branch" />
           {branchTitle}
         </span>
       </div>
-      <div className="context-history-list" data-scroll-root tabIndex={0} aria-label="提交历史">
+      <div
+        className="context-history-list"
+        id={listId}
+        hidden={!expanded}
+        data-scroll-root
+        tabIndex={0}
+        aria-label="提交历史"
+      >
         {nodes.map((node) => (
           <button
             className={`context-history-row ${selected === node.id ? "selected" : ""}`}

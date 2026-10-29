@@ -6,7 +6,7 @@ import { MaterialProvider, MaterialSettings } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { type RuntimeConnection } from "./types.js";
 
-/** 应用壳只负责导航与连接状态，业务页面通过内容槽挂载 */
+/** 应用壳管理可折叠导航与连接状态，业务页面通过内容槽挂载 */
 export function AppShell({
   connection,
   route,
@@ -39,23 +39,25 @@ export function AppShell({
         >
           跳到主要内容
         </a>
-        <aside className="sidebar">
+        <aside className="sidebar" id="app-navigation">
           <div className="sidebar-header">
-            <a className="brand" href="#/">
+            <a className="brand" href="#/" aria-label="Synapse 首页">
               <SynapseMark />
               <span className="sidebar-label">Synapse</span>
             </a>
+          </div>
+          <nav aria-label="主导航">
             <button
-              className="icon-button sidebar-collapse"
+              className="sidebar-collapse"
               aria-label={sidebarCollapsed ? "展开导航" : "收起导航"}
               title={sidebarCollapsed ? "展开导航" : "收起导航"}
               aria-expanded={!sidebarCollapsed}
+              aria-controls="app-navigation"
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             >
-              <Icon name="chevron" style={{ transform: sidebarCollapsed ? undefined : "rotate(180deg)" }} />
+              <Icon name="sidebar" />
+              <span className="sidebar-label">收起导航</span>
             </button>
-          </div>
-          <nav aria-label="主导航">
             {NAV_ITEMS.map(({ section: key, icon, label, path }) => (
               <a
                 key={key}
