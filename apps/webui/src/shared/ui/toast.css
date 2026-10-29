@@ -1,0 +1,114 @@
+/* 独立于页面布局与侧栏宽度定位，消息出现不会推动正文 */
+.toast-viewport {
+  position: fixed;
+  z-index: 100;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: fit-content;
+  max-width: 100%;
+  min-height: 52px;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-float);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+  pointer-events: auto;
+  animation: toast-enter 180ms ease-out both;
+}
+.toast-symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.toast-success .toast-symbol {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.toast-error .toast-symbol {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.toast-warning .toast-symbol {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.toast-text {
+  min-width: 0;
+  max-height: min(240px, 25dvh);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.toast-close {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+.toast-close .icon {
+  width: 15px;
+  height: 15px;
+}
+.toast-close:hover {
+  background: var(--surface-hover);
+}
+.toast-leaving {
+  animation: toast-leave 150ms ease-in both;
+}
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes toast-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+@supports (backdrop-filter: blur(1px)) {
+  .toast {
+    background: var(--glass-fill);
+    backdrop-filter: blur(var(--glass-blur));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .toast {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+@media (forced-colors: active) {
+  .toast {
+    outline: 1px solid CanvasText;
+  }
+}

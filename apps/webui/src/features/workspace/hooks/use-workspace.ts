@@ -4,6 +4,7 @@ import { navigate } from "../lib/navigation.js";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type FormEvent } from "react";
 import { type WorkspaceMessage } from "@synapse/runtime-client";
 import { message, record } from "../../../shared/lib/runtime.js";
+import { toast } from "../../../shared/lib/toast.js";
 import { useLoad } from "../../../shared/hooks/use-load.js";
 import { type ViewProps } from "../../../shared/types/runtime.js";
 import { sessionDay } from "../lib/activity.js";
@@ -14,7 +15,7 @@ import {
   workspaceSummary
 } from "../lib/session-presentation.js";
 
-/** 工作台统一管理分栏显隐、搜索恢复与 API 编排，视图组件不重建执行或幂等规则 */
+/** 工作台统一管理布局与 API 编排，操作结果经全局提醒呈现，读取错误保留页面重试 */
 export function useWorkspace({
   client,
   revision,
@@ -38,7 +39,6 @@ export function useWorkspace({
   const [moreHistory, setMoreHistory] = useState<boolean>();
   const [sessionPages, setSessionPages] = useState<Record<string, unknown>[]>([]);
   const [sessionCursor, setSessionCursor] = useState<number>();
-  const [notice, setNotice] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(() => matchMedia("(min-width: 1280px)").matches);
   const [sessionsOpen, setSessionsOpen] = useState(() => matchMedia("(min-width: 761px)").matches);
   const [sessionListExpanded, setSessionListExpanded] = useState(true);
@@ -174,7 +174,6 @@ export function useWorkspace({
     setMerging(false);
     setTab("chat");
     setError("");
-    setNotice("");
     requestKey.current = undefined;
   }, [initialSession, initialLine]);
   useEffect(() => {
@@ -200,12 +199,11 @@ export function useWorkspace({
     if (busy) return;
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       await operation();
       setNonce((value) => value + 1);
     } catch (cause) {
-      setError(message(cause));
+      toast.error(message(cause));
     } finally {
       setBusy(false);
     }
@@ -310,8 +308,7 @@ export function useWorkspace({
     moreHistory,
     setMoreHistory,
     sessionCursor,
-    notice,
-    setNotice,
+    setNotice: toast.success,
     inspectorOpen,
     setInspectorOpen,
     sessionsOpen,

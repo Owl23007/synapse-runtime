@@ -25,7 +25,6 @@ export function Workspace(props: WorkspaceProps) {
     nonce,
     setNonce,
     merging,
-    notice,
     inspectorOpen,
     setInspectorOpen,
     sessionsOpen,
@@ -46,11 +45,6 @@ export function Workspace(props: WorkspaceProps) {
         error={error || sessions.error || data.error || graph.error || runs.error}
         retry={() => setNonce((value) => value + 1)}
       />
-      {notice && (
-        <div role="status" className="notice success">
-          {notice}
-        </div>
-      )}
       <div className={`workbench ${sessionsOpen ? "" : "sessions-collapsed"}`}>
         <button
           className="icon-button session-pane-toggle"
