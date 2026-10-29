@@ -36,6 +36,7 @@
     "architecture:check": "node tools/check-boundaries.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/node": "^26.6.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
