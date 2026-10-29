@@ -56,7 +56,7 @@ function shortEventTime(value: string) {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/** 可收起的运行侧栏，工具回执与工件均来自当前会话的真实接口 */
+/** 会话内容中的运行辅助面板，窄屏以抽屉展示，工具回执与工件来自当前会话的真实接口 */
 export function WorkspaceInspector({
   run,
   events,

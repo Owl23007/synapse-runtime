@@ -13,13 +13,7 @@ export function App() {
   const events = useRuntimeEvents(connection);
   if (!connection) return <ConnectionScreen onConnect={(client, endpoint) => setConnection({ client, endpoint })} />;
   return (
-    <AppShell
-      connection={connection}
-      route={route}
-      stream={events.stream}
-      lastSync={events.lastSync}
-      onDisconnect={() => setConnection(undefined)}
-    >
+    <AppShell route={route} stream={events.stream} onDisconnect={() => setConnection(undefined)}>
       <AppRouter route={route} client={connection.client} revision={events.revision} />
     </AppShell>
   );
