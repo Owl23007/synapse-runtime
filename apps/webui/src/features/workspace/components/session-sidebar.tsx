@@ -129,7 +129,7 @@ export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceCon
                           onClick={() => navigate(String(item.id))}
                           title={`${presentation.title} · ${presentation.subtitle} · ${time(date)}`}
                         >
-                          <Icon name={presentation.native ? "chat" : "folder"} />
+                          <Icon name={presentation.native ? "chat" : "plug"} />
                           <span className="session-row-content">
                             <strong>{presentation.title}</strong>
                             <small>{presentation.subtitle}</small>

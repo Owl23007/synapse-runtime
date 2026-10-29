@@ -998,9 +998,17 @@
   overflow: auto;
 }
 .new-session-breadcrumb {
-  padding: var(--space-4) var(--space-6);
+  /* 与会话列表折叠按钮的中心线一致，收起列表后仍为按钮预留空间 */
+  display: flex;
+  align-items: center;
+  flex: 0 0 68px;
+  gap: var(--space-2);
+  padding-inline: var(--space-6);
   color: var(--muted);
   font-size: var(--text-control);
+}
+.sessions-collapsed .new-session-breadcrumb {
+  padding-left: var(--space-12);
 }
 .new-session-breadcrumb > span {
   padding-inline: var(--space-1);
@@ -1587,6 +1595,16 @@
   padding: 0;
   border-radius: 10px;
 }
+.new-session-composer .composer-add {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-hover);
+  color: var(--muted);
+}
 .execution-trace {
   margin: var(--space-3) 0 var(--space-3) var(--space-12);
   padding: var(--space-3);
@@ -1897,6 +1915,10 @@
   }
 }
 @media (max-width: 760px) {
+  .new-session-breadcrumb {
+    flex-basis: 60px;
+    padding-left: var(--space-12);
+  }
   .session-pane-toggle {
     top: 16px;
     left: 12px;

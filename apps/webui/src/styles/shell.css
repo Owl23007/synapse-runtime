@@ -339,21 +339,23 @@ nav a[aria-current="page"] {
   color: var(--text);
 }
 .sidebar-runtime {
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
   margin-top: var(--space-4);
-  padding: var(--space-4) var(--space-3) 0;
+  padding: var(--space-3);
+  min-width: 0;
 }
 .sidebar-runtime .connection {
-  flex-wrap: wrap;
   gap: var(--space-2);
   font-size: var(--text-small);
   font-weight: var(--weight-medium);
 }
-.sidebar-runtime .connection > small {
-  order: 2;
-  width: 100%;
-  color: var(--muted);
-  font-weight: var(--weight-normal);
+.sidebar-runtime .connection-error {
+  color: var(--danger);
+}
+.sidebar-runtime .dot {
+  flex-shrink: 0;
 }
 .sidebar-runtime > small {
   display: block;
@@ -362,15 +364,8 @@ nav a[aria-current="page"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sidebar-utilities {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-  align-items: center;
-}
-.sidebar-utilities button {
+.sidebar-runtime > .runtime-last-sync {
   font-size: var(--text-small);
-  color: var(--muted);
 }
 .sidebar-collapsed {
   --sidebar: 72px;
@@ -412,7 +407,7 @@ nav a[aria-current="page"] {
   gap: 0;
 }
 .sidebar-collapsed .sidebar-runtime {
-  padding-inline: 0;
+  padding: var(--space-3) 0;
 }
 .sidebar-collapsed .connection {
   justify-content: center;
@@ -421,9 +416,6 @@ nav a[aria-current="page"] {
 }
 .sidebar-collapsed .connection > span:last-child {
   display: none;
-}
-.sidebar-collapsed .sidebar-utilities {
-  flex-direction: column;
 }
 .shell-workspace .main-shell {
   height: 100dvh;
@@ -503,14 +495,14 @@ nav a[aria-current="page"] {
     padding: var(--space-2);
   }
   .settings-link .sidebar-label,
-  .sidebar-runtime > small,
-  .sidebar-utilities {
+  .sidebar-runtime > small {
     display: none;
   }
   .sidebar-runtime {
     margin: 0;
     padding: 0 var(--space-2);
     border: 0;
+    background: transparent;
   }
   .sidebar-runtime .connection > span:last-child {
     display: none;

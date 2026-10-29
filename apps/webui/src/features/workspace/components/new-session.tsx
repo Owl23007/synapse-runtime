@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Icon, SynapseMark } from "../../../shared/ui/icons.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 
-/** 新对话直接输入首条消息，发送时复用工作台的自动命名与幂等创建动作 */
+/** 新对话复用自动命名与幂等创建动作，加号仅预留后续扩展入口 */
 export function NewSession({ workspace }: { workspace: WorkspaceController }) {
   const { initialText, setInitialText, busy, initialMessage, create } = workspace;
   useEffect(() => {
@@ -45,6 +45,15 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
             }}
           />
           <div className="composer-footer">
+            <button
+              type="button"
+              className="icon-button composer-add"
+              aria-label="添加内容（即将支持）"
+              title="添加内容（即将支持）"
+              disabled
+            >
+              <Icon name="plus" />
+            </button>
             <span className="new-session-shortcut">Enter 发送 · Shift + Enter 换行</span>
             <button
               className="primary send-button"

@@ -8,6 +8,7 @@ const paths = {
   chat: "M4 4h16v12H8l-4 4V4Z M8 8h8 M8 12h5",
   run: "M9 7l8 5-8 5V7Z M21 12a9 9 0 1 1-9-9",
   folder: "M3 6h7l2 2h9v12H3V6Z",
+  plug: "M9 3v5 M15 3v5 M6 8h12 M7 8v4a5 5 0 0 0 10 0V8 M12 17v4",
   file: "M6 3h8l4 4v14H6V3Z M14 3v5h4 M9 12h6 M9 16h6",
   settings: "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   panel: "M3 4h18v16H3V4Z M15 4v16",
