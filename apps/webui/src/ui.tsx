@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type KeyboardEvent } from "react";
 import type { RuntimeAdminClient, RunStatus } from "@synapse/runtime-client";
 import { STATUS_LABELS } from "./model.js";
 
@@ -6,6 +6,27 @@ import { STATUS_LABELS } from "./model.js";
 export interface ViewProps {
   readonly client: RuntimeAdminClient;
   readonly revision: number;
+}
+
+/** 标签支持方向键与首尾跳转，操作按钮不参与标签循环 */
+export function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
+  if (!(event.target instanceof HTMLButtonElement) || event.target.role !== "tab") return;
+  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)')];
+  const index = tabs.indexOf(event.target);
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight"
+          ? (index + 1) % tabs.length
+          : event.key === "ArrowLeft"
+            ? (index - 1 + tabs.length) % tabs.length
+            : undefined;
+  if (next === undefined) return;
+  event.preventDefault();
+  tabs[next]?.focus();
+  tabs[next]?.click();
 }
 
 /** 丢弃页面切换与刷新前的旧响应，保留错误前的可用数据 */
@@ -52,22 +73,11 @@ export function Badge({ status }: { status: RunStatus }) {
     </span>
   );
 }
-/** 页面标题与主要操作 */
-export function PageTitle({
-  eyebrow,
-  title,
-  description,
-  action
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
+/** 页面标题只保留对象名称与主要操作，描述用于必要的对象标识 */
+export function PageTitle({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="page-title">
       <div>
-        <span className="eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
         {description && <p>{description}</p>}
       </div>
@@ -79,9 +89,9 @@ export function PageTitle({
 export function Empty({ title, text }: { title: string; text: string }) {
   return (
     <div className="empty">
-      <span>◇</span>
+      <span aria-hidden="true">◇</span>
       <h3>{title}</h3>
-      <p>{text}</p>
+      {text && <p>{text}</p>}
     </div>
   );
 }

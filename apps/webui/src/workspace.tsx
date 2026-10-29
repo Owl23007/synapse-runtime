@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { WorkspaceMessage } from "@synapse/runtime-client";
-import { Badge, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
+import {
+  navigateTabs,
+  Badge,
+  Empty,
+  ErrorNotice,
+  Json,
+  Loading,
+  PageTitle,
+  message,
+  useLoad,
+  type ViewProps
+} from "./ui.js";
 import { time, workspaceMessageText } from "./model.js";
 import { DagCanvas } from "./dag-canvas.js";
 import { COMMIT_LABELS, commitSummary } from "./graph-layout.js";
@@ -70,7 +81,10 @@ export function Workspace({
   );
   const tail = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    tail.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    tail.current?.scrollIntoView({
+      block: "nearest",
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"
+    });
   }, [messages.at(-1)?.id]);
   const act = async (operation: () => Promise<void>) => {
     if (busy) return;
@@ -115,7 +129,6 @@ export function Workspace({
   return (
     <>
       <PageTitle
-        eyebrow="AGENT WORKSPACE"
         title="会话工作台"
         description=""
         action={initialSession ? <button onClick={() => setNonce((value) => value + 1)}>刷新</button> : undefined}
@@ -160,6 +173,7 @@ export function Workspace({
               .filter((item) => `${item.id} ${item.title ?? ""}`.toLowerCase().includes(search.toLowerCase()))
               .map((item) => (
                 <button
+                  aria-pressed={initialSession === item.id}
                   key={String(item.id)}
                   className={`session-row ${initialSession === item.id ? "selected" : ""}`}
                   onClick={() => navigate(String(item.id))}
@@ -196,14 +210,8 @@ export function Workspace({
         <section className="workspace-content">
           {!initialSession ? (
             <div className="workspace-welcome">
-              <span className="welcome-mark">↗</span>
               <h2>开始新的工作</h2>
               <p>创建或选择一个会话</p>
-              <div className="welcome-capabilities">
-                <span>持久对话</span>
-                <span>工具执行</span>
-                <span>上下文分叉</span>
-              </div>
             </div>
           ) : !data.value ? (
             data.loading ? (
@@ -236,14 +244,20 @@ export function Workspace({
                   </select>
                 </label>
               </div>
-              <div className="workspace-tabs tabs" role="tablist" aria-label="会话视图">
+              <div className="workspace-tabs tabs" role="tablist" onKeyDown={navigateTabs} aria-label="会话视图">
                 {[
                   ["chat", "对话"],
                   ["graph", "上下文 DAG"],
                   ["runs", "运行"],
                   ["artifacts", "工件"]
                 ].map(([value, label]) => (
-                  <button key={value} role="tab" aria-selected={tab === value} onClick={() => setTab(value!)}>
+                  <button
+                    key={value}
+                    role="tab"
+                    tabIndex={tab === value ? 0 : -1}
+                    aria-selected={tab === value}
+                    onClick={() => setTab(value!)}
+                  >
                     {label}
                     {value === "runs" && <span className="count">{lineRuns.length}</span>}
                   </button>
@@ -395,7 +409,11 @@ export function Workspace({
                       maxLength={32000}
                       rows={3}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                        if (
+                          !event.nativeEvent.isComposing &&
+                          event.key === "Enter" &&
+                          (event.ctrlKey || event.metaKey)
+                        ) {
                           event.preventDefault();
                           event.currentTarget.form?.requestSubmit();
                         }
@@ -616,6 +634,11 @@ function WorkspaceArtifacts({ client, revision, sessionId }: ViewProps & { sessi
               {String(item.mimeType ?? "文件")} · {Math.ceil(Number(item.size ?? 0) / 1024)} KB
             </small>
           </div>
+          {typeof item.runId === "string" && (
+            <a className="button" href={`#/runs/${encodeURIComponent(item.runId)}`}>
+              关联运行 ↗
+            </a>
+          )}
           <button
             disabled={!!busy}
             onClick={() => {

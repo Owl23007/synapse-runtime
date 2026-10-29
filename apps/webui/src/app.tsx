@@ -11,6 +11,7 @@ import { RunDetail } from "./run-detail.js";
 import { Explorer } from "./explorer.js";
 import { Workspace } from "./workspace.js";
 import { System } from "./system.js";
+import { MaterialProvider, MaterialSettings } from "./surface.js";
 import { Badge, Empty, ErrorNotice, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
 
 /** Runtime 控制台入口，凭据只保存在当前页面内存 */
@@ -78,111 +79,126 @@ export function App() {
   const section = route.split("?")[0]!.split("/")[1] || "overview";
   const id = route.split("/")[2];
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <a className="brand" href="#/">
-          <span className="brand-icon">S</span>
-          <span>
-            synapse<small>RUNTIME CONSOLE</small>
-          </span>
+    <MaterialProvider>
+      <div className="shell">
+        <a
+          className="skip-link"
+          href="#main-content"
+          onClick={(event) => {
+            event.preventDefault();
+            document.getElementById("main-content")?.focus();
+          }}
+        >
+          跳到主要内容
         </a>
-        <div className="workspace">
-          <span className={`dot ${stream === "connected" ? "live" : ""}`} />
-          <span>
-            Runtime <small>{new URL(connection.endpoint).host}</small>
-          </span>
-        </div>
-        <span className="nav-label">工作空间</span>
-        <nav aria-label="主导航">
-          {[
-            ["workspace", "⌘", "会话工作台", "/workspace"],
-            ["overview", "◈", "总览", "/"],
-            ["runs", "↗", "运行记录", "/runs"],
-            ["explorer", "◇", "数据浏览", "/explorer"],
-            ["system", "≡", "系统状态", "/system"]
-          ].map(([key, icon, label, path]) => (
-            <a key={key} aria-current={section === key ? "page" : undefined} href={`#${path}`}>
-              <span aria-hidden="true">{icon}</span>
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <span className="version">v0.1 · 开发版</span>
-          <button className="text-button" onClick={() => setConnection(undefined)}>
-            断开连接 ↗
-          </button>
-        </div>
-      </aside>
-      <div className="main-shell">
-        <header className="topbar">
-          <span>
-            工作空间 <span className="separator">/</span>{" "}
-            {(
-              {
-                workspace: "会话工作台",
-                overview: "总览",
-                runs: "运行记录",
-                explorer: "数据浏览",
-                system: "系统状态"
-              } as Record<string, string>
-            )[section] ?? "页面"}
-          </span>
-          <span role="status" className={`connection ${stream === "connected" ? "online" : ""}`}>
-            {stream !== "connected" && lastSync && <small>更新于 {time(lastSync)}</small>}
-            <span className="dot" />
+        <aside className="sidebar">
+          <a className="brand" href="#/">
+            <span className="brand-icon">S</span>
             <span>
-              {
-                {
-                  connecting: "连接中",
-                  connected: "实时连接",
-                  reconnecting: "正在重连",
-                  unauthorized: "认证已失效",
-                  incompatible: "版本不兼容",
-                  stopped: "已断开"
-                }[stream]
-              }
+              Synapse<small>Runtime</small>
             </span>
-          </span>
-        </header>
-        {(stream === "unauthorized" || stream === "incompatible") && (
-          <div className="notice error" role="alert">
-            {stream === "unauthorized"
-              ? "认证失败，请断开连接后重新输入凭据"
-              : "服务协议版本不兼容，请更新 WebUI 与 Runtime 到同一版本"}
+          </a>
+          <div className="workspace">
+            <span className={`dot ${stream === "connected" ? "live" : ""}`} />
+            <span>
+              Runtime <small>{new URL(connection.endpoint).host}</small>
+            </span>
           </div>
-        )}
-        <main>
-          {section === "workspace" ? (
-            <Workspace
-              key={route}
-              client={connection.client}
-              revision={revision}
-              initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
-              initialLine={new URLSearchParams(route.split("?")[1]).get("line") ?? ""}
-            />
-          ) : section === "overview" ? (
-            <Overview client={connection.client} revision={revision} />
-          ) : section === "runs" ? (
-            id ? (
-              <RunDetail key={id} client={connection.client} id={id} revision={revision} />
-            ) : (
-              <Runs key={route} client={connection.client} revision={revision} />
-            )
-          ) : section === "explorer" ? (
-            <Explorer
-              key={route}
-              client={connection.client}
-              initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
-            />
-          ) : section === "system" ? (
-            <System client={connection.client} />
-          ) : (
-            <Empty title="页面不存在" text="从左侧导航选择一个页面" />
+          <span className="nav-label">工作空间</span>
+          <nav aria-label="主导航">
+            {[
+              ["workspace", "⌘", "会话工作台", "/workspace"],
+              ["overview", "◈", "总览", "/"],
+              ["runs", "↗", "运行记录", "/runs"],
+              ["explorer", "◇", "数据浏览", "/explorer"],
+              ["system", "≡", "系统状态", "/system"]
+            ].map(([key, icon, label, path]) => (
+              <a key={key} aria-current={section === key ? "page" : undefined} href={`#${path}`}>
+                <span aria-hidden="true">{icon}</span>
+                {label}
+              </a>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <span className="version">v0.1 · 开发版</span>
+            <button className="text-button" onClick={() => setConnection(undefined)}>
+              断开连接 ↗
+            </button>
+          </div>
+        </aside>
+        <div className="main-shell">
+          <header className="topbar">
+            <span>
+              工作空间 <span className="separator">/</span>{" "}
+              {(
+                {
+                  workspace: "会话工作台",
+                  overview: "总览",
+                  runs: "运行记录",
+                  explorer: "数据浏览",
+                  system: "系统状态"
+                } as Record<string, string>
+              )[section] ?? "页面"}
+            </span>
+            <div className="topbar-actions">
+              <MaterialSettings />
+              <span role="status" className={`connection ${stream === "connected" ? "online" : ""}`}>
+                {stream !== "connected" && lastSync && <small>更新于 {time(lastSync)}</small>}
+                <span className="dot" />
+                <span>
+                  {
+                    {
+                      connecting: "连接中",
+                      connected: "实时连接",
+                      reconnecting: "正在重连",
+                      unauthorized: "认证已失效",
+                      incompatible: "版本不兼容",
+                      stopped: "已断开"
+                    }[stream]
+                  }
+                </span>
+              </span>
+            </div>
+          </header>
+          {(stream === "unauthorized" || stream === "incompatible") && (
+            <div className="notice error" role="alert">
+              {stream === "unauthorized"
+                ? "认证失败，请断开连接后重新输入凭据"
+                : "服务协议版本不兼容，请更新 WebUI 与 Runtime 到同一版本"}
+            </div>
           )}
-        </main>
+          <main id="main-content" tabIndex={-1}>
+            {section === "workspace" ? (
+              <Workspace
+                key={route}
+                client={connection.client}
+                revision={revision}
+                initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
+                initialLine={new URLSearchParams(route.split("?")[1]).get("line") ?? ""}
+              />
+            ) : section === "overview" ? (
+              <Overview client={connection.client} revision={revision} />
+            ) : section === "runs" ? (
+              id ? (
+                <RunDetail key={id} client={connection.client} id={id} revision={revision} />
+              ) : (
+                <Runs key={route} client={connection.client} revision={revision} />
+              )
+            ) : section === "explorer" ? (
+              <Explorer
+                key={route}
+                client={connection.client}
+                initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
+              />
+            ) : section === "system" ? (
+              <System client={connection.client} />
+            ) : (
+              <Empty title="页面不存在" text="从左侧导航选择一个页面" />
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+    </MaterialProvider>
   );
 }
 
@@ -210,32 +226,14 @@ function Connect({ onConnect }: { onConnect: (client: RuntimeAdminClient, endpoi
   };
   return (
     <div className="connect-page">
-      <div className="connect-story">
-        <a href="#/" className="brand">
-          <span className="brand-icon">S</span>
-          <span>
-            synapse<small>RUNTIME CONSOLE</small>
-          </span>
-        </a>
-        <div>
-          <span className="eyebrow">SYNAPSE WORKSPACE</span>
-          <h1>
-            思考。执行。
-            <br />
-            探索新的分支。
-          </h1>
-          <div className="connect-graph" aria-hidden="true">
-            <span>输入</span>
-            <i />
-            <span>Agent</span>
-            <i />
-            <span>结果</span>
-          </div>
-        </div>
-        <small>Synapse Runtime / 0.1 开发版</small>
-      </div>
       <div className="connect-form">
         <form onSubmit={submit}>
+          <a href="#/" className="brand">
+            <span className="brand-icon">S</span>
+            <span>
+              Synapse<small>Runtime</small>
+            </span>
+          </a>
           <h2>连接 Runtime</h2>
           <label>
             服务地址
@@ -274,32 +272,14 @@ function Overview({ client, revision }: ViewProps) {
   const runs = data.value?.items ?? [];
   return (
     <>
-      <PageTitle
-        eyebrow="WORKSPACE OVERVIEW"
-        title="运行总览"
-        description=""
-        action={<button onClick={data.reload}>刷新</button>}
-      />
+      <PageTitle title="运行总览" description="" action={<button onClick={data.reload}>刷新</button>} />
       <ErrorNotice error={data.error} retry={data.reload} />
-      <div className="metrics">
-        {[
-          ["最近运行", runs.length],
-          ["执行中", runs.filter((r) => ["accepted", "running"].includes(r.status)).length],
-          ["已完成", runs.filter((r) => r.status === "succeeded").length],
-          ["需要关注", runs.filter((r) => ["failed", "blocked", "uncertain", "interrupted"].includes(r.status)).length]
-        ].map(([label, value]) => (
-          <div className="metric" key={label}>
-            <span>{label}</span>
-            <strong>{data.loading && !data.value ? "—" : value}</strong>
-          </div>
-        ))}
-      </div>
       <section className="panel">
         <div className="panel-heading">
           <div>
             <h2>最近运行</h2>
           </div>
-          <span className="subtle-label">LATEST ACTIVITY</span>
+          <a href="#/runs">全部运行 ↗</a>
         </div>
         {data.loading && !data.value ? <Loading /> : <RunTable runs={runs.slice(0, 8)} />}
       </section>
@@ -353,12 +333,7 @@ function Runs({ client, revision }: ViewProps) {
   };
   return (
     <>
-      <PageTitle
-        eyebrow="EXECUTION HISTORY"
-        title="运行记录"
-        description=""
-        action={<button onClick={data.reload}>刷新记录 ↻</button>}
-      />
+      <PageTitle title="运行记录" description="" action={<button onClick={data.reload}>刷新记录 ↻</button>} />
       <form
         className="filters"
         onSubmit={(e) => {
