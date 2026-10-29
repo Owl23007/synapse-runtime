@@ -1197,6 +1197,11 @@
   height: 1px;
   background: var(--border);
 }
+.session-context-divider {
+  flex: 0 0 1px;
+  margin: 3px var(--space-3) 4px;
+  background: var(--border);
+}
 .session-context-resizer > span {
   z-index: 1;
   width: 28px;
@@ -1441,6 +1446,7 @@
   overflow: hidden;
 }
 .workspace-body {
+  --inspector-reserve: 0px;
   position: relative;
   display: flex;
   flex: 1;
@@ -1454,8 +1460,17 @@
   /* 仅为浮动卡片留出安全区域，卡片自身按内容定高，不再拉伸成整列 */
   padding-right: calc(var(--workspace-inspector) + var(--space-6));
 }
+.workspace-body.with-inspector[data-view="chat"] {
+  /* 滚动容器延伸到页面右缘，仅在正文内预留卡片空间，避免滚动条夹在两栏之间 */
+  --inspector-reserve: calc(var(--workspace-inspector) + var(--space-6));
+  padding-right: 0;
+}
 .workspace-view {
   --conversation-gutter: clamp(24px, 3vw, 48px);
+  --conversation-inset: max(
+    var(--conversation-gutter),
+    calc((100% - var(--inspector-reserve) - var(--workspace-conversation)) / 2)
+  );
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1549,8 +1564,8 @@
   display: none;
 }
 .shell-workspace .conversation {
-  padding: var(--space-4) max(var(--conversation-gutter), calc((100% - var(--workspace-conversation)) / 2))
-    var(--space-6);
+  padding: var(--space-4) calc(var(--inspector-reserve) + var(--conversation-inset)) var(--space-6)
+    var(--conversation-inset);
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -1640,8 +1655,9 @@
   box-shadow: var(--shadow-panel);
 }
 .shell-workspace .workspace-view > .composer {
-  width: min(var(--workspace-conversation), calc(100% - 2 * var(--conversation-gutter)));
-  margin-inline: auto;
+  width: min(var(--workspace-conversation), calc(100% - var(--inspector-reserve) - 2 * var(--conversation-gutter)));
+  margin-left: var(--conversation-inset);
+  margin-right: auto;
 }
 .shell-workspace .composer textarea {
   min-height: 64px;
@@ -2010,6 +2026,9 @@
   .workspace-body.with-inspector {
     padding-right: 0;
   }
+  .workspace-body.with-inspector[data-view="chat"] {
+    --inspector-reserve: 0px;
+  }
 }
 @media (max-width: 1279px) and (min-width: 761px) {
   .shell-workspace .workspace-inspector {
@@ -2068,7 +2087,8 @@
     min-height: 60px;
   }
   .context-history,
-  .session-context-resizer {
+  .session-context-resizer,
+  .session-context-divider {
     display: none;
   }
   .shell-workspace .workspace-content {
