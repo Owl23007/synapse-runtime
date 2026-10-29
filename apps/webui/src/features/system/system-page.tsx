@@ -5,6 +5,7 @@ import { Empty, ErrorNotice, Loading } from "../../shared/ui/feedback.js";
 import { Json, PageTitle } from "../../shared/ui/content.js";
 import { message, record, time } from "../../shared/lib/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
+import { toast } from "../../shared/lib/toast.js";
 
 /** 频道与任务入口复用系统管理接口，所有操作后读取服务端真实状态 */
 export function System({
@@ -16,9 +17,7 @@ export function System({
 }) {
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
   const [confirmReload, setConfirmReload] = useState(false);
-  const [notice, setNotice] = useState("");
   const load = useCallback(async () => {
     const [status, tasks] = await Promise.all([client.status(), client.tasks()]);
     return { status: record(status), tasks: record(tasks) };
@@ -31,14 +30,12 @@ export function System({
   const tasks = Array.isArray(data.value?.tasks.tasks) ? data.value.tasks.tasks.map(record) : [];
   const act = async (id: string, operation: () => Promise<unknown>, success: string) => {
     setBusy(id);
-    setError("");
-    setNotice("");
     try {
       await operation();
-      setNotice(success);
+      toast.success(success);
       setRevision((value) => value + 1);
     } catch (cause) {
-      setError(message(cause));
+      toast.error(message(cause));
     } finally {
       setBusy("");
     }
@@ -50,12 +47,7 @@ export function System({
         description=""
         action={<button onClick={() => setRevision((value) => value + 1)}>刷新</button>}
       />
-      <ErrorNotice error={error || data.error} retry={data.reload} />
-      {notice && (
-        <div role="status" className="notice success">
-          {notice}
-        </div>
-      )}
+      <ErrorNotice error={data.error} retry={data.reload} />
       {data.loading && !data.value ? (
         <Loading />
       ) : (

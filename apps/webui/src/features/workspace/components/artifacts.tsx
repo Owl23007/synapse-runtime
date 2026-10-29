@@ -3,6 +3,7 @@ import { Empty, ErrorNotice, Loading } from "../../../shared/ui/feedback.js";
 import { message } from "../../../shared/lib/runtime.js";
 import { useLoad } from "../../../shared/hooks/use-load.js";
 import { type ViewProps } from "../../../shared/types/runtime.js";
+import { toast } from "../../../shared/lib/toast.js";
 
 /** 在会话作用域内分页与下载已登记工件 */
 export function WorkspaceArtifacts({ client, revision, sessionId }: ViewProps & { sessionId: string }) {
@@ -10,14 +11,13 @@ export function WorkspaceArtifacts({ client, revision, sessionId }: ViewProps & 
   const [older, setOlder] = useState<Record<string, unknown>[]>([]);
   const load = useCallback(() => client.artifacts(sessionId, cursor), [client, sessionId, cursor]);
   const data = useLoad(load, revision);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const artifacts = [
     ...new Map([...older, ...(data.value?.items ?? [])].map((item) => [String(item.id), item])).values()
   ];
   return (
     <div className="artifact-list">
-      <ErrorNotice error={error || data.error} retry={data.reload} />
+      <ErrorNotice error={data.error} retry={data.reload} />
       {artifacts.map((item) => (
         <div className="artifact-row" key={String(item.id)}>
           <span className="file-icon">▤</span>
@@ -36,7 +36,6 @@ export function WorkspaceArtifacts({ client, revision, sessionId }: ViewProps & 
             disabled={!!busy}
             onClick={() => {
               setBusy(String(item.id));
-              setError("");
               void client
                 .downloadArtifact(sessionId, String(item.id))
                 .then((blob) => {
@@ -46,9 +45,10 @@ export function WorkspaceArtifacts({ client, revision, sessionId }: ViewProps & 
                   link.download = String(item.name);
                   link.click();
                   setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  toast.success("已开始下载工件");
                   return undefined;
                 })
-                .catch((cause) => setError(message(cause)))
+                .catch((cause) => toast.error(message(cause)))
                 .finally(() => setBusy(""));
             }}
           >

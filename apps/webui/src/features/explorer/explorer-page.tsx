@@ -5,6 +5,7 @@ import { Empty, ErrorNotice, Loading } from "../../shared/ui/feedback.js";
 import { Json, PageTitle } from "../../shared/ui/content.js";
 import { message, record, time } from "../../shared/lib/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
+import { toast } from "../../shared/lib/toast.js";
 
 /** 分页浏览会话、消息、引用、提交与工件，所有读取保持会话作用域 */
 export function Explorer({ client, initialSession }: { client: RuntimeAdminClient; initialSession: string }) {
@@ -72,8 +73,9 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
       link.download = String(selected.name ?? selected.id);
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success("已开始下载工件");
     } catch (cause) {
-      setError(message(cause));
+      toast.error(message(cause));
     } finally {
       setDownloading(false);
     }
