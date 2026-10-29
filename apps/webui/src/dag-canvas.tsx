@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionGraphView } from "@synapse/runtime-client";
 import { COMMIT_LABELS, commitSummary, layoutGraph } from "./graph-layout.js";
 import { Empty } from "./ui.js";
+import { Surface } from "./surface.js";
 
 /** 可缩放、平移与键盘选择的上下文画布，节点保持不可变历史语义 */
 export function DagCanvas({
@@ -30,12 +31,12 @@ export function DagCanvas({
     viewport.current.scrollTo({
       left: Math.max(0, node.x * zoom - viewport.current.clientWidth / 2 + 110),
       top: Math.max(0, node.y * zoom - 100),
-      behavior: "smooth"
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"
     });
   }, [selected, layout, zoom]);
   return (
     <div className="dag-container">
-      <div className="canvas-toolbar">
+      <Surface material="liquid" className="canvas-toolbar" role="toolbar" aria-label="画布操作">
         <span>
           <span className="dot live" /> {graph.nodes.length} 个节点 · {graph.edges.length} 条连接
         </span>
@@ -49,12 +50,27 @@ export function DagCanvas({
           </button>
           <button onClick={fit}>适应画布</button>
         </div>
-      </div>
+      </Surface>
       {graph.nodes.length ? (
         <div
           className="dag-viewport"
           ref={viewport}
           aria-label="上下文 DAG 画布"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const offsets: Record<string, [number, number]> = {
+              ArrowLeft: [-80, 0],
+              ArrowRight: [80, 0],
+              ArrowUp: [0, -80],
+              ArrowDown: [0, 80]
+            };
+            const offset = offsets[event.key];
+            if (offset) {
+              event.preventDefault();
+              event.currentTarget.scrollBy({ left: offset[0], top: offset[1] });
+            }
+          }}
           onPointerDown={(event) => {
             if ((event.target as Element).closest("button")) return;
             const element = event.currentTarget;
@@ -140,9 +156,9 @@ export function DagCanvas({
         <Empty title="尚无上下文节点" text="发起一次运行后查看执行历史" />
       )}
       <div className="canvas-footer">
-        <span>拖动平移 · 点击节点查看详情</span>
+        <span>拖动或方向键平移 · Tab 选择节点</span>
         <span>
-          INPUT <i /> RESULT <i /> MERGE
+          输入 <i /> 结果 <i /> 合并
         </span>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InspectionPage, RuntimeAdminClient } from "@synapse/runtime-client";
-import { Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad } from "./ui.js";
+import { navigateTabs, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad } from "./ui.js";
 import { record, time } from "./model.js";
 
 /** 分页浏览会话、消息、引用、提交与工件，所有读取保持会话作用域 */
@@ -77,7 +77,7 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
   };
   return (
     <>
-      <PageTitle eyebrow="DATA EXPLORER" title="数据浏览" description="从会话走向上下文，检查每一份输入与产物。" />
+      <PageTitle title="数据浏览" description="从会话走向上下文，检查每一份输入与产物。" />
       <form
         className="session-search"
         onSubmit={(e) => {
@@ -93,14 +93,20 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
         </label>
         <button>打开会话 →</button>
       </form>
-      <div className="tabs" role="tablist" aria-label="数据类型">
+      <div className="tabs" role="tablist" onKeyDown={navigateTabs} aria-label="数据类型">
         {[
           ["sessions", "会话"],
           ["transcript", "消息"],
           ["refs", "引用与提交"],
           ["artifacts", "工件"]
         ].map(([value, label]) => (
-          <button key={value} role="tab" aria-selected={tab === value} onClick={() => setTab(value!)}>
+          <button
+            key={value}
+            role="tab"
+            tabIndex={tab === value ? 0 : -1}
+            aria-selected={tab === value}
+            onClick={() => setTab(value!)}
+          >
             {label}
           </button>
         ))}
@@ -158,7 +164,6 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
           <div className="event-detail">
             {selected ? (
               <>
-                <span className="eyebrow">{commitId ? "IMMUTABLE COMMIT" : "RECORD DETAILS"}</span>
                 <h2>{commitId ? "提交详情" : "记录详情"}</h2>
                 {tab === "artifacts" && (
                   <p className="hint">
@@ -166,6 +171,16 @@ export function Explorer({ client, initialSession }: { client: RuntimeAdminClien
                   </p>
                 )}
                 <div className="record-actions">
+                  {typeof selected.runId === "string" && (
+                    <a className="button" href={`#/runs/${encodeURIComponent(selected.runId)}`}>
+                      关联运行 ↗
+                    </a>
+                  )}
+                  {tab === "sessions" && (
+                    <a className="button" href={`#/workspace?session=${encodeURIComponent(String(selected.id))}`}>
+                      打开工作台 ↗
+                    </a>
+                  )}
                   {tab === "sessions" && (
                     <button
                       className="primary"

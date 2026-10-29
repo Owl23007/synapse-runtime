@@ -37,7 +37,6 @@ export function System({ client }: { client: RuntimeAdminClient }) {
   return (
     <>
       <PageTitle
-        eyebrow="SYSTEM"
         title="系统状态"
         description=""
         action={<button onClick={() => setRevision((value) => value + 1)}>刷新</button>}
@@ -113,6 +112,14 @@ export function System({ client }: { client: RuntimeAdminClient }) {
                       {String(task.status)} · {String(task.id)}
                     </small>
                   </div>
+                  {typeof task.sessionId === "string" && (
+                    <a
+                      className="button"
+                      href={`#/workspace?session=${encodeURIComponent(task.sessionId)}&line=${encodeURIComponent(String(task.branchId ?? ""))}`}
+                    >
+                      打开分支 ↗
+                    </a>
+                  )}
                   <button
                     disabled={!!busy}
                     onClick={() =>

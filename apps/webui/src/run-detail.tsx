@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RunEvent } from "@synapse/runtime-client";
-import { Badge, Empty, ErrorNotice, Json, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
+import {
+  navigateTabs,
+  Badge,
+  Empty,
+  ErrorNotice,
+  Json,
+  Loading,
+  PageTitle,
+  message,
+  useLoad,
+  type ViewProps
+} from "./ui.js";
 import { eventLabel, mergeEvents, record, time } from "./model.js";
 
 /** 运行详情只呈现持久状态与执行时快照，不提供不安全的重放操作 */
@@ -58,12 +69,7 @@ export function RunDetail({ client, id, revision }: ViewProps & { readonly id: s
       <a className="back-link" href="#/runs">
         ← 运行记录
       </a>
-      <PageTitle
-        eyebrow="RUN INSPECTOR"
-        title={run.summary || "运行详情"}
-        description={run.id}
-        action={<Badge status={run.status} />}
-      />
+      <PageTitle title={run.summary || "运行详情"} description={run.id} action={<Badge status={run.status} />} />
       <ErrorNotice
         error={data.error || error}
         retry={() => {
@@ -100,13 +106,19 @@ export function RunDetail({ client, id, revision }: ViewProps & { readonly id: s
           <span>{run.error.message}</span>
         </div>
       )}
-      <div className="tabs" role="tablist" aria-label="运行详情">
+      <div className="tabs" role="tablist" onKeyDown={navigateTabs} aria-label="运行详情">
         {[
           ["timeline", "执行时间线"],
           ["context", "上下文快照"],
           ["delivery", "交付记录"]
         ].map(([value, label]) => (
-          <button role="tab" aria-selected={tab === value} key={value} onClick={() => setTab(value!)}>
+          <button
+            role="tab"
+            tabIndex={tab === value ? 0 : -1}
+            aria-selected={tab === value}
+            key={value}
+            onClick={() => setTab(value!)}
+          >
             {label}
           </button>
         ))}
@@ -151,7 +163,6 @@ export function RunDetail({ client, id, revision }: ViewProps & { readonly id: s
           <div className="event-detail">
             {event ? (
               <>
-                <span className="eyebrow">EVENT {event.seq}</span>
                 <h2>{eventLabel(event.type)}</h2>
                 <dl className="detail-facts">
                   <dt>事件类型</dt>
