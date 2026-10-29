@@ -10,7 +10,7 @@ import { type WorkspaceController } from "../hooks/use-workspace.js";
 import { ContextHistory } from "./context-history.js";
 import { useSessionSplit } from "../hooks/use-session-split.js";
 
-/** 会话与上下文独立折叠并共享可拖动分隔条，切换会话时保留左栏布局和列表状态 */
+/** 会话与上下文共享可拖动分隔条，来源筛选滑块跟随列表状态并在切换会话时保留 */
 export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceController }) {
   const {
     client,
@@ -101,7 +101,7 @@ export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceCon
             />
             <kbd>⌘ K</kbd>
           </label>
-          <div className="session-kind-filter" aria-label="会话来源">
+          <div className="session-kind-filter" data-kind={sessionKind} aria-label="会话来源">
             {[
               ["all", "全部"],
               ["native", "原生"],
