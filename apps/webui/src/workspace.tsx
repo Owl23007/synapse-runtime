@@ -1,22 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { WorkspaceMessage } from "@synapse/runtime-client";
-import {
-  navigateTabs,
-  Badge,
-  Empty,
-  ErrorNotice,
-  Json,
-  Loading,
-  PageTitle,
-  message,
-  useLoad,
-  type ViewProps
-} from "./ui.js";
-import { time, workspaceMessageText } from "./model.js";
+import { useCallback, useEffect, useMemo, useRef, useState, useId, type FormEvent } from "react";
+import type { WorkspaceMessage, SessionGraphView } from "@synapse/runtime-client";
+import { navigateTabs, Badge, Empty, ErrorNotice, Json, Loading, message, useLoad, type ViewProps } from "./ui.js";
+import { time, workspaceMessageText, record } from "./model.js";
 import { DagCanvas } from "./dag-canvas.js";
 import { COMMIT_LABELS, commitSummary } from "./graph-layout.js";
+import { Icon, SynapseMark } from "./icons.js";
+import { ScrollLoader } from "./scroll-loader.js";
+import { sessionDay, shortTime, phaseLabel } from "./workspace-model.js";
+import { RunTimeline, WorkspaceInspector, useRunActivity } from "./workspace-activity.js";
+import { Surface } from "./surface.js";
 
-/** 会话、原生执行与历史图共用一个工作区，跨页面只传持久对象标识 */
+/** 会话列表、对话与运行面板共用真实工作区，切换会话线时隔离草稿与分页响应 */
 export function Workspace({
   client,
   revision,
@@ -40,6 +34,18 @@ export function Workspace({
   const [sessionPages, setSessionPages] = useState<Record<string, unknown>[]>([]);
   const [sessionCursor, setSessionCursor] = useState<number>();
   const [notice, setNotice] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(() => matchMedia("(min-width: 1280px)").matches);
+  const [sessionsOpen, setSessionsOpen] = useState(() => matchMedia("(min-width: 761px)").matches);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const sessionLoadingRef = useRef(false);
+  const sessionSearch = useRef<HTMLInputElement>(null);
+  const sessionTitle = useRef<HTMLInputElement>(null);
+  const menuId = useId();
+  const [menuPosition, setMenuPosition] = useState({ top: 64, left: 24 });
+  const scope = `${initialSession}:${initialLine}`;
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   // 结果未知时保留原键；再次提交相同内容不会重复执行或创建会话
   const requestKey = useRef<{ payload: string; key: string } | undefined>(undefined);
   const actionKey = (payload: string) => {
@@ -72,6 +78,27 @@ export function Workspace({
   const runs = useLoad(runsLoad, revision + nonce);
   const lineRuns = runs.value?.items.filter((run) => run.lineId === lineId) ?? [];
   const activeRun = lineRuns.find((run) => ["accepted", "running"].includes(run.status));
+  const latestRun = activeRun ?? lineRuns[0];
+  const activity = useRunActivity(
+    client,
+    inspectorOpen || tab === "chat" ? latestRun?.id : undefined,
+    revision + nonce
+  );
+  const tasksLoad = useCallback(
+    () => (lineId && tab === "runs" ? client.tasks(lineId) : Promise.resolve(undefined)),
+    [client, lineId, tab]
+  );
+  const tasks = useLoad(tasksLoad, revision + nonce);
+  const taskItems = Array.isArray(record(tasks.value).tasks)
+    ? (record(tasks.value).tasks as unknown[])
+        .map(record)
+        .filter((task) => task.sessionId === initialSession && task.branchId === lineId)
+    : [];
+  const artifactsLoad = useCallback(
+    () => (initialSession && inspectorOpen ? client.artifacts(initialSession) : Promise.resolve(undefined)),
+    [client, initialSession, inspectorOpen]
+  );
+  const inspectorArtifacts = useLoad(artifactsLoad, revision + nonce);
   const messages = useMemo(
     () =>
       [...new Map([...older, ...(data.value?.messages ?? [])].map((item) => [item.id, item])).values()].toSorted(
@@ -80,6 +107,48 @@ export function Workspace({
     [older, data.value]
   );
   const tail = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const narrow = matchMedia("(max-width: 1279px)");
+    const mobile = matchMedia("(max-width: 760px)");
+    const collapseInspector = () => {
+      if (narrow.matches) setInspectorOpen(false);
+    };
+    const collapseSessions = () => {
+      if (mobile.matches) setSessionsOpen(false);
+    };
+    narrow.addEventListener("change", collapseInspector);
+    mobile.addEventListener("change", collapseSessions);
+    return () => {
+      narrow.removeEventListener("change", collapseInspector);
+      mobile.removeEventListener("change", collapseSessions);
+    };
+  }, []);
+  useEffect(() => {
+    setOlder([]);
+    setOlderCursor(undefined);
+    setMoreHistory(undefined);
+    setSelected(undefined);
+    setHead("");
+    setText("");
+    setForkTitle("");
+    setMerging(false);
+    setTab("chat");
+    setError("");
+    setNotice("");
+    requestKey.current = undefined;
+  }, [initialSession, initialLine]);
+  useEffect(() => {
+    const searchShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSessionsOpen(true);
+        requestAnimationFrame(() => sessionSearch.current?.focus());
+      }
+      if (event.key === "Escape" && inspectorOpen) setInspectorOpen(false);
+    };
+    addEventListener("keydown", searchShortcut);
+    return () => removeEventListener("keydown", searchShortcut);
+  }, [inspectorOpen]);
   useEffect(() => {
     tail.current?.scrollIntoView({
       block: "nearest",
@@ -104,6 +173,7 @@ export function Workspace({
     event.preventDefault();
     void act(async () => {
       const result = await client.createSession(title.trim(), actionKey(`create:${title.trim()}`));
+      setTitle("");
       navigate(result.session.id);
     });
   };
@@ -118,7 +188,7 @@ export function Workspace({
         idempotencyKey: actionKey(`send:${initialSession}:${lineId}:${text.trim()}`)
       });
       requestKey.current = undefined;
-      setText("");
+      if (scopeRef.current === scope) setText("");
     });
   };
   const commit = graph.value?.nodes.find((node) => node.id === selected);
@@ -126,13 +196,35 @@ export function Workspace({
   const branchRef = graph.value?.refs.find((ref) => ref.name === `line:${lineId}`);
   const branchResult = graph.value?.nodes.find((node) => node.id === branchRef?.commitId);
   const mainResult = graph.value?.nodes.find((node) => node.id === mainRef?.commitId);
+  const moreSessions = useCallback(async () => {
+    const cursor = sessionCursor ?? sessions.value?.nextCursor;
+    if (typeof cursor !== "number" || cursor === 0 || sessionLoadingRef.current) return;
+    sessionLoadingRef.current = true;
+    setSessionLoading(true);
+    setSessionError("");
+    try {
+      const page = await client.sessions(cursor);
+      if (page.nextCursor === cursor) throw new Error("会话游标未推进，请重试");
+      setSessionPages((current) => [...current, ...page.items]);
+      setSessionCursor(typeof page.nextCursor === "number" ? page.nextCursor : 0);
+    } catch (cause) {
+      setSessionError(message(cause));
+    } finally {
+      sessionLoadingRef.current = false;
+      setSessionLoading(false);
+    }
+  }, [client, sessionCursor, sessions.value?.nextCursor]);
+  const sessionGroups = ["今天", "昨天", "更早"].map((label) => ({
+    label,
+    items: sessionItems.filter(
+      (item) =>
+        sessionDay(item.updatedAt ?? item.createdAt) === label &&
+        `${item.id} ${item.title ?? ""}`.toLowerCase().includes(search.toLowerCase())
+    )
+  }));
   return (
     <>
-      <PageTitle
-        title="会话工作台"
-        description=""
-        action={initialSession ? <button onClick={() => setNonce((value) => value + 1)}>刷新</button> : undefined}
-      />
+      <h1 className="sr-only">会话工作台</h1>
       <ErrorNotice
         error={error || sessions.error || data.error || graph.error || runs.error}
         retry={() => setNonce((value) => value + 1)}
@@ -142,14 +234,44 @@ export function Workspace({
           {notice}
         </div>
       )}
-      <div className="workbench">
-        <aside className="session-pane">
+      <div
+        className={`workbench ${inspectorOpen && initialSession ? "with-inspector" : ""} ${sessionsOpen ? "" : "sessions-collapsed"}`}
+      >
+        <aside className="session-pane" id="workspace-sessions" aria-label="会话与上下文">
           <div className="pane-heading">
             <h2>会话</h2>
-            <span className="count">{sessionItems.length}</span>
+            <button
+              className="primary"
+              type="submit"
+              form="create-session"
+              disabled={busy}
+              onClick={(event) => {
+                if (!title.trim()) {
+                  event.preventDefault();
+                  sessionTitle.current?.focus();
+                }
+              }}
+              aria-label="创建会话"
+            >
+              <Icon name="plus" />
+              新建
+            </button>
           </div>
-          <form className="create-session" onSubmit={create}>
+          <label className="session-search-field">
+            <Icon name="search" />
             <input
+              ref={sessionSearch}
+              className="session-filter"
+              aria-label="搜索会话"
+              placeholder="搜索会话…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <kbd>⌘ K</kbd>
+          </label>
+          <form className="create-session" id="create-session" onSubmit={create}>
+            <input
+              ref={sessionTitle}
               aria-label="新会话名称"
               placeholder="新会话名称"
               maxLength={120}
@@ -157,57 +279,73 @@ export function Workspace({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
             />
-            <button className="primary" aria-label="创建会话" disabled={busy || !title.trim()}>
-              ＋
-            </button>
           </form>
-          <input
-            className="session-filter"
-            aria-label="搜索会话"
-            placeholder="搜索会话…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <div className="session-list">
-            {sessionItems
-              .filter((item) => `${item.id} ${item.title ?? ""}`.toLowerCase().includes(search.toLowerCase()))
-              .map((item) => (
-                <button
-                  aria-pressed={initialSession === item.id}
-                  key={String(item.id)}
-                  className={`session-row ${initialSession === item.id ? "selected" : ""}`}
-                  onClick={() => navigate(String(item.id))}
-                >
-                  <span className="session-avatar">{item.channelId === "native" ? "↗" : "◇"}</span>
-                  <span>
-                    <strong>{String(item.title ?? item.id)}</strong>
-                    <small>
-                      {item.channelId === "native" ? "本地会话" : String(item.channelId ?? "会话")} ·{" "}
-                      {time(item.createdAt)}
-                    </small>
-                  </span>
-                </button>
-              ))}
+          <div className="session-list" data-scroll-root tabIndex={0} aria-label="会话列表">
+            {sessionGroups.map(
+              (group) =>
+                group.items.length > 0 && (
+                  <section className="session-group" key={group.label}>
+                    <h3>{group.label}</h3>
+                    {group.items.map((item) => (
+                      <button
+                        aria-pressed={initialSession === item.id}
+                        key={String(item.id)}
+                        className={`session-row ${initialSession === item.id ? "selected" : ""}`}
+                        onClick={() => navigate(String(item.id))}
+                        title={`${String(item.title ?? item.id)} · ${time(item.createdAt)}`}
+                      >
+                        <Icon name="chat" />
+                        <strong>{String(item.title ?? item.id)}</strong>
+                        <time>{shortTime(item.updatedAt ?? item.createdAt)}</time>
+                      </button>
+                    ))}
+                  </section>
+                )
+            )}
             {sessions.loading && !sessions.value && <Loading />}
             {!sessionItems.length && !sessions.loading && <Empty title="还没有会话" text="输入名称创建会话" />}
-            {(sessionCursor ?? sessions.value?.nextCursor) != null && sessionCursor !== 0 && (
-              <button
-                className="session-more"
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    const page = await client.sessions(sessionCursor ?? Number(sessions.value?.nextCursor));
-                    setSessionPages((current) => [...current, ...page.items]);
-                    setSessionCursor(typeof page.nextCursor === "number" ? page.nextCursor : 0);
-                  })
-                }
-              >
-                加载更多会话
-              </button>
-            )}
+            {search && sessionGroups.every((group) => !group.items.length) && <Empty title="没有匹配会话" text="" />}
+            <ErrorNotice error={sessionError} retry={() => void moreSessions()} />
+            <ScrollLoader
+              enabled={
+                typeof (sessionCursor ?? sessions.value?.nextCursor) === "number" &&
+                (sessionCursor ?? sessions.value?.nextCursor) !== 0 &&
+                !sessionError
+              }
+              loading={sessionLoading}
+              onLoad={() => void moreSessions()}
+            />
           </div>
+          {initialSession && (
+            <ContextHistory
+              key={initialSession}
+              client={client}
+              sessionId={initialSession}
+              graph={graph.value}
+              branchTitle={branch?.title ?? "主线"}
+              selected={selected}
+              onSelect={(id) => {
+                setSelected(id);
+                setTab("graph");
+                if (!graph.value?.nodes.some((node) => node.id === id)) setHead(id);
+              }}
+            />
+          )}
         </aside>
         <section className="workspace-content">
+          {!initialSession && (
+            <div className="workspace-empty-toolbar">
+              <button
+                className="icon-button"
+                aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
+                aria-expanded={sessionsOpen}
+                aria-controls="workspace-sessions"
+                onClick={() => setSessionsOpen(!sessionsOpen)}
+              >
+                <Icon name="sidebar" />
+              </button>
+            </div>
+          )}
           {!initialSession ? (
             <div className="workspace-welcome">
               <h2>开始新的工作</h2>
@@ -222,13 +360,22 @@ export function Workspace({
           ) : (
             <>
               <div className="workspace-header">
+                <button
+                  className="icon-button"
+                  aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
+                  aria-expanded={sessionsOpen}
+                  aria-controls="workspace-sessions"
+                  onClick={() => setSessionsOpen(!sessionsOpen)}
+                >
+                  <Icon name="sidebar" />
+                </button>
                 <div>
-                  <h2>{session?.metadata?.title ?? initialSession}</h2>
-                  <small>
-                    {native ? "Native" : "频道会话"} <span className="separator">/</span> {branch?.title ?? "主线"}
-                  </small>
+                  <h2 title={session?.metadata?.title ?? initialSession}>
+                    {session?.metadata?.title ?? initialSession}
+                  </h2>
                 </div>
                 <label className="line-select">
+                  <Icon name="branch" />
                   <span className="sr-only">当前分支</span>
                   <select
                     aria-label="当前分支"
@@ -243,12 +390,48 @@ export function Workspace({
                     ))}
                   </select>
                 </label>
+                <div className="workspace-header-actions">
+                  <button
+                    className="icon-button"
+                    aria-label="更多会话操作"
+                    title="更多会话操作"
+                    popoverTarget={menuId}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setMenuPosition({ top: rect.bottom + 8, left: Math.max(8, rect.right - 196) });
+                    }}
+                  >
+                    <Icon name="more" />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label={inspectorOpen ? "收起运行面板" : "展开运行面板"}
+                    title="运行面板"
+                    aria-expanded={inspectorOpen}
+                    aria-controls="workspace-inspector"
+                    onClick={() => setInspectorOpen(!inspectorOpen)}
+                  >
+                    <Icon name="panel" />
+                  </button>
+                </div>
+                <div id={menuId} popover="auto" className="workspace-menu" style={{ inset: "auto", ...menuPosition }}>
+                  <Surface material="frosted">
+                    <button onClick={() => setNonce((value) => value + 1)}>
+                      <Icon name="refresh" />
+                      刷新会话
+                    </button>
+                    <a className="button" href={`#/runs?sessionId=${encodeURIComponent(initialSession)}`}>
+                      <Icon name="run" />
+                      全部运行
+                    </a>
+                  </Surface>
+                </div>
               </div>
               <div className="workspace-tabs tabs" role="tablist" onKeyDown={navigateTabs} aria-label="会话视图">
                 {[
                   ["chat", "对话"],
                   ["graph", "上下文 DAG"],
-                  ["runs", "运行"],
+                  ["runs", "任务"],
                   ["artifacts", "工件"]
                 ].map(([value, label]) => (
                   <button
@@ -259,7 +442,6 @@ export function Workspace({
                     onClick={() => setTab(value!)}
                   >
                     {label}
-                    {value === "runs" && <span className="count">{lineRuns.length}</span>}
                   </button>
                 ))}
                 {native && branch && (
@@ -334,6 +516,7 @@ export function Workspace({
                               lineId,
                               olderCursor ?? data.value!.nextCursor
                             );
+                            if (scopeRef.current !== scope) return;
                             setOlder((current) => [...page.messages, ...current]);
                             setOlderCursor(page.nextCursor);
                             setMoreHistory(page.hasMore);
@@ -362,7 +545,7 @@ export function Workspace({
                         key={item.id}
                         className={`chat-message ${item.type === "user_message" ? "user" : "assistant"}`}
                       >
-                        <div className="message-avatar">{item.type === "user_message" ? "你" : "S"}</div>
+                        <div className="message-avatar">{item.type === "user_message" ? "你" : <SynapseMark />}</div>
                         <div className="message-body">
                           <div className="message-meta">
                             <strong>
@@ -372,22 +555,40 @@ export function Workspace({
                                   ? "分支结果已合并"
                                   : "Synapse"}
                             </strong>
-                            <time>{time(item.createdAt)}</time>
+                            <time title={time(item.createdAt)}>{shortTime(item.createdAt)}</time>
+                            {item.type !== "user_message" && (
+                              <button
+                                className="icon-button copy-message"
+                                aria-label="复制消息"
+                                title="复制消息"
+                                onClick={() =>
+                                  void navigator.clipboard
+                                    .writeText(workspaceMessageText(item.payload))
+                                    .then(() => setNotice("已复制消息"))
+                                    .catch((cause) => setError(message(cause)))
+                                }
+                              >
+                                <Icon name="copy" />
+                              </button>
+                            )}
                           </div>
                           <div className="message-text">{workspaceMessageText(item.payload)}</div>
                         </div>
                       </article>
                     ))}
+                    {latestRun && activity.events.length > 0 && (
+                      <RunTimeline run={latestRun} events={activity.events} />
+                    )}
                     {!messages.length && !activeRun && (
                       <Empty
                         title={branch ? "在分支上继续探索" : "准备就绪"}
                         text={native ? "输入目标，交给 Agent 执行" : "此会话尚无消息"}
                       />
                     )}
-                    {activeRun && (
+                    {activeRun && !inspectorOpen && !activity.events.length && (
                       <div className="running-strip">
                         <Badge status={activeRun.status} />
-                        <span>{activeRun.phase}</span>
+                        <span>{phaseLabel(activeRun.phase)}</span>
                         <a href={`#/runs/${encodeURIComponent(activeRun.id)}`}>检查运行 ↗</a>
                       </div>
                     )}
@@ -420,9 +621,34 @@ export function Workspace({
                       }}
                     />
                     <div className="composer-footer">
-                      <span>{native ? "Ctrl / ⌘ + Enter 发送" : "只读会话"}</span>
-                      <button className="primary" disabled={busy || !!activeRun || !native || !text.trim()}>
-                        {busy ? "提交中…" : activeRun ? "执行中…" : "发送消息 ↑"}
+                      <div className="composer-tools">
+                        <button
+                          type="button"
+                          className="icon-button"
+                          title="查看上下文"
+                          aria-label="查看上下文"
+                          onClick={() => setTab("graph")}
+                        >
+                          <Icon name="branch" />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          title="查看工件"
+                          aria-label="查看工件"
+                          onClick={() => setTab("artifacts")}
+                        >
+                          <Icon name="file" />
+                        </button>
+                      </div>
+                      <span>{native ? "Ctrl / ⌘ + Enter" : "只读会话"}</span>
+                      <button
+                        className="primary send-button"
+                        aria-label="发送消息"
+                        title={busy ? "提交中" : activeRun ? "执行中" : "发送消息"}
+                        disabled={busy || !!activeRun || !native || !text.trim()}
+                      >
+                        <Icon name="send" />
                       </button>
                     </div>
                   </form>
@@ -587,12 +813,57 @@ export function Workspace({
                 </>
               ) : tab === "runs" ? (
                 <div className="workspace-runs">
+                  <div className="pane-heading">
+                    <h3>分支任务</h3>
+                    <span className="count">{taskItems.length}</span>
+                  </div>
+                  <ErrorNotice error={tasks.error} retry={tasks.reload} />
+                  {tasks.loading && !tasks.value && <Loading />}
+                  {taskItems.map((task) => (
+                    <details className="workspace-task" key={String(task.id)}>
+                      <summary>
+                        <Icon name="task" />
+                        <strong>{String(task.executor ?? task.id)}</strong>
+                        <span className="task-state">
+                          {(
+                            {
+                              pending: "等待执行",
+                              running: "执行中",
+                              completed: "已完成",
+                              failed: "失败",
+                              blocked: "受阻",
+                              cancelled: "已取消"
+                            } as Record<string, string>
+                          )[String(task.status)] ?? String(task.status)}
+                        </span>
+                      </summary>
+                      <Json value={task} />
+                      {["pending", "running", "blocked"].includes(String(task.status)) && (
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void act(async () => {
+                              await client.cancelTask(String(task.id));
+                              setNotice("已请求取消任务");
+                            })
+                          }
+                        >
+                          取消任务
+                        </button>
+                      )}
+                    </details>
+                  ))}
+                  {!taskItems.length && !tasks.loading && <Empty title="暂无分支任务" text="" />}
+                  <div className="pane-heading">
+                    <h3>关联运行</h3>
+                    <span className="count">{lineRuns.length}</span>
+                  </div>
                   {lineRuns.map((run) => (
                     <a className="workspace-run" key={run.id} href={`#/runs/${encodeURIComponent(run.id)}`}>
                       <div>
                         <strong>{run.summary}</strong>
                         <small>
-                          {time(run.startedAt)} · {run.phase}
+                          {time(run.startedAt)} · {phaseLabel(run.phase)}
                         </small>
                       </div>
                       <Badge status={run.status} />
@@ -602,13 +873,129 @@ export function Workspace({
                   {!lineRuns.length && <Empty title="暂无运行" text="发送消息开始运行" />}
                 </div>
               ) : (
-                <WorkspaceArtifacts client={client} revision={revision + nonce} sessionId={initialSession} />
+                <WorkspaceArtifacts
+                  key={initialSession}
+                  client={client}
+                  revision={revision + nonce}
+                  sessionId={initialSession}
+                />
               )}
             </>
           )}
         </section>
+        {inspectorOpen && initialSession && (
+          <WorkspaceInspector
+            run={latestRun}
+            events={activity.events}
+            error={activity.error}
+            retry={activity.reload}
+            loading={activity.loading || runs.loading}
+            artifacts={inspectorArtifacts.value?.items ?? []}
+            artifactsLoading={inspectorArtifacts.loading}
+            artifactsError={inspectorArtifacts.error}
+            retryArtifacts={inspectorArtifacts.reload}
+            onArtifacts={() => {
+              setTab("artifacts");
+              if (matchMedia("(max-width: 1279px)").matches) setInspectorOpen(false);
+            }}
+            onClose={() => setInspectorOpen(false)}
+          />
+        )}
       </div>
     </>
+  );
+}
+
+function ContextHistory({
+  client,
+  sessionId,
+  graph,
+  selected,
+  branchTitle,
+  onSelect
+}: {
+  client: ViewProps["client"];
+  sessionId: string;
+  graph: SessionGraphView | undefined;
+  selected: string | undefined;
+  branchTitle: string;
+  onSelect: (id: string) => void;
+}) {
+  const [pages, setPages] = useState<SessionGraphView[]>([]);
+  const [history, setHistory] = useState<SessionGraphView>();
+  const [visited, setVisited] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const pending = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    if (!graph) return;
+    // 节点不可变，切换 DAG 查询头时仍保留左栏已读历史，避免滚动位置与最新提交一起消失
+    setHistory((current) => ({
+      ...graph,
+      nodes: [...new Map([...(current?.nodes ?? []), ...graph.nodes].map((node) => [node.id, node])).values()],
+      boundary: [...new Set([...(current?.boundary ?? []), ...graph.boundary])]
+    }));
+  }, [graph]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const nodes = [
+    ...new Map(
+      [...(history?.nodes ?? graph?.nodes ?? []), ...pages.flatMap((page) => page.nodes)].map((node) => [node.id, node])
+    ).values()
+  ].toSorted((a, b) => b.createdAt - a.createdAt);
+  const boundary = [...(history?.boundary ?? graph?.boundary ?? []), ...pages.flatMap((page) => page.boundary)].find(
+    (id) => !visited.includes(id) && !nodes.some((node) => node.id === id)
+  );
+  const more = async () => {
+    if (!boundary || pending.current) return;
+    pending.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      const page = await client.sessionGraph(sessionId, boundary);
+      if (!mounted.current) return;
+      setPages((current) => [...current, page]);
+      setVisited((current) => [...current, boundary]);
+    } catch (cause) {
+      if (mounted.current) setError(message(cause));
+    } finally {
+      pending.current = false;
+      if (mounted.current) setLoading(false);
+    }
+  };
+  return (
+    <section className="context-history" aria-label="上下文历史">
+      <div className="pane-heading">
+        <h2>上下文</h2>
+        <span className="history-branch" title={branchTitle}>
+          <Icon name="branch" />
+          {branchTitle}
+        </span>
+      </div>
+      <div className="context-history-list" data-scroll-root tabIndex={0} aria-label="提交历史">
+        {nodes.map((node) => (
+          <button
+            className={`context-history-row ${selected === node.id ? "selected" : ""}`}
+            key={node.id}
+            title={commitSummary(node)}
+            onClick={() => onSelect(node.id)}
+          >
+            <span className="history-dot" />
+            <code>{node.id.slice(-6)}</code>
+            <span>{commitSummary(node)}</span>
+            <time>{shortTime(new Date(node.createdAt).toISOString())}</time>
+          </button>
+        ))}
+        {!nodes.length && <p className="context-history-empty">暂无上下文提交</p>}
+        <ErrorNotice error={error} retry={() => void more()} />
+        <ScrollLoader enabled={!!boundary && !error} loading={loading} onLoad={() => void more()} />
+      </div>
+    </section>
   );
 }
 
