@@ -1114,14 +1114,8 @@
   position: relative;
   transition: grid-template-columns 220ms ease;
 }
-.shell-workspace .workbench.with-inspector {
-  grid-template-columns: var(--workspace-sessions) minmax(0, 1fr) var(--workspace-inspector);
-}
 .shell-workspace .workbench.sessions-collapsed {
   grid-template-columns: 0 minmax(0, 1fr);
-}
-.shell-workspace .workbench.sessions-collapsed.with-inspector {
-  grid-template-columns: 0 minmax(0, 1fr) var(--workspace-inspector);
 }
 .shell-workspace .sessions-collapsed .session-pane {
   visibility: hidden;
@@ -1446,6 +1440,29 @@
   min-height: 0;
   overflow: hidden;
 }
+.workspace-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-self: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-body[data-view="chat"] {
+  /* 消息与辅助面板共同居中，宽屏不会把正文和运行信息推向视口两端 */
+  max-width: calc(var(--workspace-conversation) + var(--workspace-inspector) + 2 * var(--space-16));
+}
+.workspace-view {
+  --conversation-gutter: clamp(24px, 3vw, 48px);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 .shell-workspace .workspace-header {
   /* 与左侧折叠按钮共用 34px 中心线，标题和分支选择器保持同一水平轴 */
   padding: var(--space-4) var(--space-6);
@@ -1525,7 +1542,8 @@
   display: none;
 }
 .shell-workspace .conversation {
-  padding: var(--space-4) var(--space-6) var(--space-6);
+  padding: var(--space-4) max(var(--conversation-gutter), calc((100% - var(--workspace-conversation)) / 2))
+    var(--space-6);
   flex: 1;
   min-height: 0;
   max-height: none;
@@ -1550,6 +1568,14 @@
   padding: var(--space-4);
   background: var(--surface-secondary);
   border-radius: var(--radius);
+}
+.shell-workspace .chat-message.assistant .message-body {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.shell-workspace .chat-message.assistant .message-meta {
+  min-height: 32px;
 }
 .shell-workspace .message-meta {
   gap: var(--space-3);
@@ -1602,6 +1628,10 @@
   flex-shrink: 0;
   background: var(--surface);
   box-shadow: var(--shadow-panel);
+}
+.shell-workspace .workspace-view > .composer {
+  width: min(var(--workspace-conversation), calc(100% - 2 * var(--conversation-gutter)));
+  margin-inline: auto;
 }
 .shell-workspace .composer textarea {
   min-height: 64px;
@@ -1689,16 +1719,18 @@
   font-size: var(--text-small);
 }
 .shell-workspace .workspace-inspector {
+  flex: 0 0 var(--workspace-inspector);
+  width: var(--workspace-inspector);
   overflow: auto;
   min-height: 0;
   min-width: 0;
-  padding: 0 var(--space-4) var(--space-4);
-  border-left: 1px solid var(--border);
-  background: var(--surface-secondary);
+  padding: var(--space-4) var(--space-6) var(--space-4) 0;
+  border: 0;
+  background: transparent;
   scrollbar-width: thin;
 }
 .workspace-inspector > .pane-heading {
-  padding: var(--space-6) 0 var(--space-3);
+  padding: 0 0 var(--space-3);
 }
 .workspace-inspector .pane-heading h2 {
   font-size: var(--text-section);
@@ -1936,16 +1968,12 @@
   }
 }
 @media (max-width: 1279px) and (min-width: 761px) {
-  .shell-workspace .workbench.with-inspector {
-    grid-template-columns: var(--workspace-sessions) minmax(0, 1fr);
-  }
-  .shell-workspace .workbench.sessions-collapsed.with-inspector {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
   .shell-workspace .workspace-inspector {
     position: absolute;
     inset: 0 0 0 auto;
     width: min(340px, 100%);
+    padding: var(--space-4);
+    background: var(--surface);
     z-index: 4;
     box-shadow: var(--shadow-float);
   }
@@ -1968,8 +1996,7 @@
   .shell-workspace .sessions-collapsed .workspace-header {
     padding-left: 48px;
   }
-  .shell-workspace .workbench,
-  .shell-workspace .workbench.with-inspector {
+  .shell-workspace .workbench {
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -2036,6 +2063,9 @@
   .shell-workspace .conversation {
     padding: var(--space-3);
   }
+  .workspace-view {
+    --conversation-gutter: var(--space-3);
+  }
   .shell-workspace .chat-message {
     gap: var(--space-2);
   }
@@ -2079,6 +2109,7 @@
     position: absolute;
     inset: 0;
     width: 100%;
+    padding: var(--space-3);
     z-index: 4;
     border-left: 0;
     background: var(--surface);

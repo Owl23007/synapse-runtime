@@ -82,15 +82,6 @@ nav a[aria-current="page"] {
   color: var(--muted);
   margin: 0 var(--space-2);
 }
-.connection {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--warning);
-}
-.connection.online {
-  color: var(--success);
-}
 @media (max-width: 1150px) {
   .sidebar {
     padding-inline: var(--space-3);
@@ -136,9 +127,6 @@ nav a[aria-current="page"] {
   .topbar {
     height: var(--topbar);
     font-size: var(--text-small);
-  }
-  .connection > small {
-    display: none;
   }
 }
 .sidebar {
@@ -239,10 +227,6 @@ nav a[aria-current="page"] {
   .topbar .separator {
     margin: 0 var(--space-1);
   }
-  .connection {
-    font-size: var(--text-small);
-    white-space: nowrap;
-  }
 }
 .sidebar {
   padding: var(--space-8) var(--space-4) var(--space-4);
@@ -267,7 +251,9 @@ nav a[aria-current="page"] {
   gap: var(--space-2);
 }
 .sidebar nav {
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
   gap: var(--space-2);
   transition: margin-top 220ms ease;
 }
@@ -338,35 +324,6 @@ nav a[aria-current="page"] {
   text-decoration: none;
   color: var(--text);
 }
-.sidebar-runtime {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  min-width: 0;
-}
-.sidebar-runtime .connection {
-  gap: var(--space-2);
-  font-size: var(--text-small);
-  font-weight: var(--weight-medium);
-}
-.sidebar-runtime .connection-error {
-  color: var(--danger);
-}
-.sidebar-runtime .dot {
-  flex-shrink: 0;
-}
-.sidebar-runtime > small {
-  display: block;
-  color: var(--muted);
-  margin-top: var(--space-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sidebar-runtime > .runtime-last-sync {
-  font-size: var(--text-small);
-}
 .sidebar-collapsed {
   --sidebar: 72px;
 }
@@ -396,26 +353,12 @@ nav a[aria-current="page"] {
     opacity var(--motion-fast) ease,
     visibility 0s var(--motion-fast);
 }
-.sidebar-collapsed .sidebar-runtime > small {
-  display: none;
-}
 .sidebar-collapsed .sidebar nav a,
 .sidebar-collapsed .settings-link,
 .sidebar-collapsed .brand {
   justify-content: center;
   padding-inline: var(--space-3);
   gap: 0;
-}
-.sidebar-collapsed .sidebar-runtime {
-  padding: var(--space-3) 0;
-}
-.sidebar-collapsed .connection {
-  justify-content: center;
-  font-size: 0;
-  gap: 0;
-}
-.sidebar-collapsed .connection > span:last-child {
-  display: none;
 }
 .shell-workspace .main-shell {
   height: 100dvh;
@@ -472,6 +415,8 @@ nav a[aria-current="page"] {
     grid-column: 1 / -1;
     grid-row: 2;
     margin: 0;
+    border-top: 0;
+    padding-top: 0;
     gap: var(--space-1);
   }
   .sidebar nav a {
@@ -494,17 +439,7 @@ nav a[aria-current="page"] {
     min-height: 36px;
     padding: var(--space-2);
   }
-  .settings-link .sidebar-label,
-  .sidebar-runtime > small {
-    display: none;
-  }
-  .sidebar-runtime {
-    margin: 0;
-    padding: 0 var(--space-2);
-    border: 0;
-    background: transparent;
-  }
-  .sidebar-runtime .connection > span:last-child {
+  .settings-link .sidebar-label {
     display: none;
   }
   .shell-workspace .main-shell {

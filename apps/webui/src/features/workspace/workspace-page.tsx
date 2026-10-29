@@ -12,7 +12,7 @@ import { WorkspaceGraph } from "./components/context-dag.js";
 import { WorkspaceTasks } from "./components/tasks.js";
 import "./workspace.css";
 
-/** 会话页面只装配功能视图，跨会话列表状态由同一个功能实例持有 */
+/** 会话内容内嵌运行辅助面板，标题与标签共享主区域，列表状态由同一个功能实例持有 */
 export function Workspace(props: WorkspaceProps) {
   const workspace = useWorkspace(props);
   const {
@@ -51,9 +51,7 @@ export function Workspace(props: WorkspaceProps) {
           {notice}
         </div>
       )}
-      <div
-        className={`workbench ${inspectorOpen && initialSession ? "with-inspector" : ""} ${sessionsOpen ? "" : "sessions-collapsed"}`}
-      >
+      <div className={`workbench ${sessionsOpen ? "" : "sessions-collapsed"}`}>
         <button
           className="icon-button session-pane-toggle"
           aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
@@ -78,41 +76,45 @@ export function Workspace(props: WorkspaceProps) {
             <>
               <WorkspaceHeader workspace={workspace} />
               {merging && branch && <MergePreview workspace={workspace} />}
-              {tab === "chat" ? (
-                <WorkspaceConversation workspace={workspace} />
-              ) : tab === "graph" ? (
-                <WorkspaceGraph workspace={workspace} />
-              ) : tab === "runs" ? (
-                <WorkspaceTasks workspace={workspace} />
-              ) : (
-                <WorkspaceArtifacts
-                  key={initialSession}
-                  client={client}
-                  revision={revision + nonce}
-                  sessionId={initialSession}
-                />
-              )}
+              <div className="workspace-body" data-view={tab}>
+                <div className="workspace-view">
+                  {tab === "chat" ? (
+                    <WorkspaceConversation workspace={workspace} />
+                  ) : tab === "graph" ? (
+                    <WorkspaceGraph workspace={workspace} />
+                  ) : tab === "runs" ? (
+                    <WorkspaceTasks workspace={workspace} />
+                  ) : (
+                    <WorkspaceArtifacts
+                      key={initialSession}
+                      client={client}
+                      revision={revision + nonce}
+                      sessionId={initialSession}
+                    />
+                  )}
+                </div>
+                {inspectorOpen && (
+                  <WorkspaceInspector
+                    run={latestRun}
+                    events={activity.events}
+                    error={activity.error}
+                    retry={activity.reload}
+                    loading={activity.loading || runs.loading}
+                    artifacts={inspectorArtifacts.value?.items ?? []}
+                    artifactsLoading={inspectorArtifacts.loading}
+                    artifactsError={inspectorArtifacts.error}
+                    retryArtifacts={inspectorArtifacts.reload}
+                    onArtifacts={() => {
+                      setTab("artifacts");
+                      if (matchMedia("(max-width: 1279px)").matches) setInspectorOpen(false);
+                    }}
+                    onClose={() => setInspectorOpen(false)}
+                  />
+                )}
+              </div>
             </>
           )}
         </section>
-        {inspectorOpen && initialSession && (
-          <WorkspaceInspector
-            run={latestRun}
-            events={activity.events}
-            error={activity.error}
-            retry={activity.reload}
-            loading={activity.loading || runs.loading}
-            artifacts={inspectorArtifacts.value?.items ?? []}
-            artifactsLoading={inspectorArtifacts.loading}
-            artifactsError={inspectorArtifacts.error}
-            retryArtifacts={inspectorArtifacts.reload}
-            onArtifacts={() => {
-              setTab("artifacts");
-              if (matchMedia("(max-width: 1279px)").matches) setInspectorOpen(false);
-            }}
-            onClose={() => setInspectorOpen(false)}
-          />
-        )}
       </div>
     </>
   );

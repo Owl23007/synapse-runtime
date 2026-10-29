@@ -1,24 +1,18 @@
 import { NAV_ITEMS, PAGE_ITEMS, type AppRoute } from "./routes.js";
 import { useState, type ReactNode } from "react";
 import { type RunStreamState } from "@synapse/runtime-client";
-import { time } from "../shared/lib/runtime.js";
 import { MaterialProvider } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
-import { type RuntimeConnection } from "./types.js";
 
-/** 应用壳提供核心导航与精简连接状态，认证或协议异常时保留重新连接入口 */
+/** 应用壳使用分隔线区分品牌与导航，认证或协议异常时保留重新连接入口 */
 export function AppShell({
-  connection,
   route,
   stream,
-  lastSync,
   onDisconnect,
   children
 }: {
-  connection: RuntimeConnection;
   route: AppRoute;
   stream: RunStreamState;
-  lastSync: string | undefined;
   onDisconnect: () => void;
   children: ReactNode;
 }) {
@@ -81,32 +75,6 @@ export function AppShell({
               <Icon name="settings" />
               <span className="sidebar-label">设置</span>
             </a>
-            <div className="sidebar-runtime" title={connection.endpoint}>
-              <span
-                role="status"
-                className={`connection ${stream === "connected" ? "online" : ""} ${stream === "unauthorized" || stream === "incompatible" ? "connection-error" : ""}`}
-              >
-                <span className="dot" />
-                <span>
-                  {
-                    {
-                      connecting: "连接中",
-                      connected: "实时连接",
-                      reconnecting: "正在重连",
-                      unauthorized: "认证已失效",
-                      incompatible: "版本不兼容",
-                      stopped: "已断开"
-                    }[stream]
-                  }
-                </span>
-              </span>
-              <small className="sidebar-label" title={connection.endpoint}>
-                {new URL(connection.endpoint).host}
-              </small>
-              {stream !== "connected" && lastSync && (
-                <small className="sidebar-label runtime-last-sync">更新于 {time(lastSync)}</small>
-              )}
-            </div>
           </div>
         </aside>
         <div className="main-shell">
