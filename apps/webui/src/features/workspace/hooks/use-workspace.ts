@@ -122,9 +122,11 @@ export function useWorkspace({
     inspectorOpen || tab === "chat" ? latestRun?.id : undefined,
     revision + nonce
   );
+  // 主线仅展示关联运行，任务属于分支，不能将主线标识传入分支任务接口
+  const taskBranchId = branch?.id;
   const tasksLoad = useCallback(
-    () => (lineId && tab === "runs" ? client.tasks(lineId) : Promise.resolve(undefined)),
-    [client, lineId, tab]
+    () => (taskBranchId && tab === "runs" ? client.tasks(taskBranchId) : Promise.resolve(undefined)),
+    [client, taskBranchId, tab]
   );
   const tasks = useLoad(tasksLoad, revision + nonce);
   const taskItems = Array.isArray(record(tasks.value).tasks)

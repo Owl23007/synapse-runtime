@@ -173,9 +173,19 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
   deps.app.get(
     "/admin/tasks",
     asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
+      const branchId = request.query.get("branchId") ?? undefined;
+      // 主线也是会话线，但不拥有分支任务，先校验资源以免领域约束被误报为内部错误
+      if (branchId !== undefined && (!branchId.trim() || (await deps.getBranch(branchId)) === undefined)) {
+        sendJson(response, 404, {
+          ok: false,
+          error: "branch_not_found",
+          message: deps.localize("admin.branch_not_found")
+        });
+        return;
+      }
       sendJson(response, 200, {
         ok: true,
-        tasks: await deps.listTasks(request.query.get("branchId") ?? undefined)
+        tasks: await deps.listTasks(branchId)
       });
     })
   );
