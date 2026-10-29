@@ -10,7 +10,7 @@ import { type WorkspaceController } from "../hooks/use-workspace.js";
 import { ContextHistory } from "./context-history.js";
 import { useSessionSplit } from "../hooks/use-session-split.js";
 
-/** 会话与上下文共享可拖动分隔条，来源筛选滑块跟随列表状态并在切换会话时保留 */
+/** 会话与上下文展开时允许调整分区，折叠时保留静态分隔线及原有比例 */
 export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceController }) {
   const {
     client,
@@ -171,6 +171,9 @@ export function WorkspaceSessionSidebar({ workspace }: { workspace: WorkspaceCon
         >
           <span />
         </div>
+      )}
+      {initialSession && (!sessionListExpanded || !contextExpanded) && (
+        <div className="session-context-divider" role="separator" aria-orientation="horizontal" />
       )}
       {initialSession && (
         <ContextHistory
