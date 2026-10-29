@@ -2,6 +2,9 @@
 :root {
   color-scheme: light;
   --surface: #ffffff;
+  /* 大面积栏位由深到浅区分导航、会话与内容，避免仅靠分隔线辨认层级 */
+  --surface-navigation: #f2f4f9;
+  --surface-pane: #f9fafe;
   --canvas: #ffffff;
   --surface-secondary: #fafbfc;
   --surface-hover: #f6f7f9;
