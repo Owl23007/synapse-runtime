@@ -6,7 +6,14 @@ import { DagCanvas } from "./dag-canvas.js";
 import { COMMIT_LABELS, commitSummary } from "./graph-layout.js";
 import { Icon, SynapseMark } from "./icons.js";
 import { ScrollLoader } from "./scroll-loader.js";
-import { sessionDay, shortTime, phaseLabel } from "./workspace-model.js";
+import { sessionDay, shortTime, messageTime, phaseLabel } from "./workspace-model.js";
+import {
+  initialSessionTitle,
+  presentSession,
+  sessionMessageTime,
+  useLegacySessionSummaries,
+  workspaceSummary
+} from "./session-presentation.js";
 import { RunTimeline, WorkspaceInspector, useRunActivity } from "./workspace-activity.js";
 import { Surface } from "./surface.js";
 
@@ -19,6 +26,8 @@ export function Workspace({
 }: ViewProps & { initialSession: string; initialLine: string }) {
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
+  const [initialText, setInitialText] = useState("");
+  const [sessionKind, setSessionKind] = useState("all");
   const [tab, setTab] = useState("chat");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,7 +49,7 @@ export function Workspace({
   const [sessionError, setSessionError] = useState("");
   const sessionLoadingRef = useRef(false);
   const sessionSearch = useRef<HTMLInputElement>(null);
-  const sessionTitle = useRef<HTMLInputElement>(null);
+  const initialMessage = useRef<HTMLTextAreaElement>(null);
   const menuId = useId();
   const [menuPosition, setMenuPosition] = useState({ top: 64, left: 24 });
   const scope = `${initialSession}:${initialLine}`;
@@ -54,15 +63,47 @@ export function Workspace({
   };
   const sessionsLoad = useCallback(() => client.sessions(), [client]);
   const sessions = useLoad(sessionsLoad, revision + nonce);
-  const sessionItems = [
+  const rawSessionItems = [
     ...new Map([...(sessions.value?.items ?? []), ...sessionPages].map((item) => [String(item.id), item])).values()
   ];
+  const needsLegacy = rawSessionItems.some((item) => !("lastMessageAt" in item));
+  const recentLoad = useCallback(
+    () => (needsLegacy ? client.runs({ limit: 200 }) : Promise.resolve(undefined)),
+    [client, needsLegacy]
+  );
+  const recent = useLoad(recentLoad, revision + nonce);
+  const legacySummaries = useLegacySessionSummaries(client, rawSessionItems, recent.value?.items ?? [], nonce);
   const load = useCallback(
     () => (initialSession ? client.workspace(initialSession, initialLine || undefined) : Promise.resolve(undefined)),
     [client, initialSession, initialLine]
   );
   const data = useLoad(load, revision + nonce);
   const session = data.value?.session;
+  const sessionItems = rawSessionItems
+    .map((item) => {
+      const value = Object.assign(
+        Object.create(null) as Record<string, unknown>,
+        item,
+        legacySummaries.get(String(item.id))
+      );
+      if (item.id !== initialSession || !data.value) return value;
+      const current = workspaceSummary(data.value);
+      const lastMessageAt =
+        [value.lastMessageAt, current.lastMessageAt]
+          .filter((entry): entry is string => typeof entry === "string" && Number.isFinite(Date.parse(entry)))
+          .toSorted((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+      return Object.assign(value, current, { lastMessageAt });
+    })
+    .toSorted(
+      (a, b) =>
+        (Date.parse(sessionMessageTime(b) ?? "") || 0) - (Date.parse(sessionMessageTime(a) ?? "") || 0) ||
+        String(a.id).localeCompare(String(b.id))
+    );
+  const currentPresentation = presentSession({
+    ...sessionItems.find((item) => item.id === initialSession),
+    ...session,
+    id: initialSession
+  });
   const native = session?.locator?.platform === "native";
   const lineId = data.value?.line.id ?? "";
   const branch = data.value?.branches.find((item) => item.id === lineId);
@@ -171,9 +212,21 @@ export function Workspace({
   };
   const create = (event: FormEvent) => {
     event.preventDefault();
+    if (!title.trim() && !initialText.trim()) return;
+    const content = initialText.trim();
+    const name = title.trim() || initialSessionTitle(content);
+    const key = actionKey(`create:${name}:${content}`);
     void act(async () => {
-      const result = await client.createSession(title.trim(), actionKey(`create:${title.trim()}`));
+      const result = await client.createSession(name, key);
+      if (content)
+        await client.submitRun({
+          sessionId: result.session.id,
+          lineId: result.session.mainlineId,
+          text: content,
+          idempotencyKey: `${key}:initial`
+        });
       setTitle("");
+      setInitialText("");
       navigate(result.session.id);
     });
   };
@@ -218,8 +271,11 @@ export function Workspace({
     label,
     items: sessionItems.filter(
       (item) =>
-        sessionDay(item.updatedAt ?? item.createdAt) === label &&
-        `${item.id} ${item.title ?? ""}`.toLowerCase().includes(search.toLowerCase())
+        sessionDay(sessionMessageTime(item)) === label &&
+        (sessionKind === "all" || presentSession(item).native === (sessionKind === "native")) &&
+        `${item.id} ${presentSession(item).title} ${presentSession(item).subtitle}`
+          .toLowerCase()
+          .includes(search.toLowerCase())
     )
   }));
   return (
@@ -237,18 +293,32 @@ export function Workspace({
       <div
         className={`workbench ${inspectorOpen && initialSession ? "with-inspector" : ""} ${sessionsOpen ? "" : "sessions-collapsed"}`}
       >
+        <button
+          className="icon-button session-pane-toggle"
+          aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
+          title={sessionsOpen ? "收起会话列表" : "展开会话列表"}
+          aria-expanded={sessionsOpen}
+          aria-controls="workspace-sessions"
+          onClick={() => setSessionsOpen(!sessionsOpen)}
+        >
+          <Icon name="chevron" style={{ transform: sessionsOpen ? "rotate(180deg)" : undefined }} />
+        </button>
         <aside className="session-pane" id="workspace-sessions" aria-label="会话与上下文">
           <div className="pane-heading">
             <h2>会话</h2>
             <button
               className="primary"
-              type="submit"
-              form="create-session"
+              type={initialSession ? "button" : "submit"}
+              form={initialSession ? undefined : "create-session"}
               disabled={busy}
               onClick={(event) => {
-                if (!title.trim()) {
+                if (initialSession) {
+                  setTitle("");
+                  setInitialText("");
+                  navigate("");
+                } else if (!title.trim() && !initialText.trim()) {
                   event.preventDefault();
-                  sessionTitle.current?.focus();
+                  initialMessage.current?.focus();
                 }
               }}
               aria-label="创建会话"
@@ -269,42 +339,54 @@ export function Workspace({
             />
             <kbd>⌘ K</kbd>
           </label>
-          <form className="create-session" id="create-session" onSubmit={create}>
-            <input
-              ref={sessionTitle}
-              aria-label="新会话名称"
-              placeholder="新会话名称"
-              maxLength={120}
-              required
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </form>
+          <div className="session-kind-filter" aria-label="会话来源">
+            {[
+              ["all", "全部"],
+              ["native", "原生"],
+              ["channel", "频道"]
+            ].map(([value, label]) => (
+              <button key={value} aria-pressed={sessionKind === value} onClick={() => setSessionKind(value!)}>
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="session-list" data-scroll-root tabIndex={0} aria-label="会话列表">
             {sessionGroups.map(
               (group) =>
                 group.items.length > 0 && (
                   <section className="session-group" key={group.label}>
                     <h3>{group.label}</h3>
-                    {group.items.map((item) => (
-                      <button
-                        aria-pressed={initialSession === item.id}
-                        key={String(item.id)}
-                        className={`session-row ${initialSession === item.id ? "selected" : ""}`}
-                        onClick={() => navigate(String(item.id))}
-                        title={`${String(item.title ?? item.id)} · ${time(item.createdAt)}`}
-                      >
-                        <Icon name="chat" />
-                        <strong>{String(item.title ?? item.id)}</strong>
-                        <time>{shortTime(item.updatedAt ?? item.createdAt)}</time>
-                      </button>
-                    ))}
+                    {group.items.map((item) => {
+                      const presentation = presentSession(item);
+                      const date = sessionMessageTime(item);
+                      return (
+                        <button
+                          aria-pressed={initialSession === item.id}
+                          key={String(item.id)}
+                          className={`session-row ${initialSession === item.id ? "selected" : ""}`}
+                          onClick={() => navigate(String(item.id))}
+                          title={`${presentation.title} · ${presentation.subtitle} · ${time(date)}`}
+                        >
+                          <Icon name={presentation.native ? "chat" : "folder"} />
+                          <span className="session-row-content">
+                            <strong>{presentation.title}</strong>
+                            <small>{presentation.subtitle}</small>
+                          </span>
+                          <time dateTime={date} title={time(date)}>
+                            {date ? shortTime(date) : "—"}
+                          </time>
+                        </button>
+                      );
+                    })}
                   </section>
                 )
             )}
             {sessions.loading && !sessions.value && <Loading />}
-            {!sessionItems.length && !sessions.loading && <Empty title="还没有会话" text="输入名称创建会话" />}
+            {!sessionItems.length && !sessions.loading && <Empty title="还没有会话" text="点击新建开始" />}
             {search && sessionGroups.every((group) => !group.items.length) && <Empty title="没有匹配会话" text="" />}
+            {!search && sessionItems.length > 0 && sessionGroups.every((group) => !group.items.length) && (
+              <Empty title={sessionKind === "native" ? "暂无原生会话" : "暂无频道会话"} text="" />
+            )}
             <ErrorNotice error={sessionError} retry={() => void moreSessions()} />
             <ScrollLoader
               enabled={
@@ -333,23 +415,37 @@ export function Workspace({
           )}
         </aside>
         <section className="workspace-content">
-          {!initialSession && (
-            <div className="workspace-empty-toolbar">
-              <button
-                className="icon-button"
-                aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
-                aria-expanded={sessionsOpen}
-                aria-controls="workspace-sessions"
-                onClick={() => setSessionsOpen(!sessionsOpen)}
-              >
-                <Icon name="sidebar" />
-              </button>
-            </div>
-          )}
           {!initialSession ? (
             <div className="workspace-welcome">
-              <h2>开始新的工作</h2>
-              <p>创建或选择一个会话</p>
+              <form id="create-session" className="new-session-form" onSubmit={create}>
+                <h2>开始新会话</h2>
+                <label>
+                  名称
+                  <input
+                    aria-label="新会话名称"
+                    placeholder="可选，留空使用首条消息摘要"
+                    maxLength={120}
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                  />
+                </label>
+                <label>
+                  初始消息
+                  <textarea
+                    ref={initialMessage}
+                    aria-label="初始消息"
+                    placeholder="这次想完成什么？"
+                    rows={4}
+                    maxLength={32000}
+                    value={initialText}
+                    onChange={(event) => setInitialText(event.target.value)}
+                  />
+                </label>
+                <button className="primary" disabled={busy || (!title.trim() && !initialText.trim())}>
+                  {busy ? "创建中…" : "开始会话"}
+                  <Icon name="send" />
+                </button>
+              </form>
             </div>
           ) : !data.value ? (
             data.loading ? (
@@ -360,18 +456,9 @@ export function Workspace({
           ) : (
             <>
               <div className="workspace-header">
-                <button
-                  className="icon-button"
-                  aria-label={sessionsOpen ? "收起会话列表" : "展开会话列表"}
-                  aria-expanded={sessionsOpen}
-                  aria-controls="workspace-sessions"
-                  onClick={() => setSessionsOpen(!sessionsOpen)}
-                >
-                  <Icon name="sidebar" />
-                </button>
                 <div>
-                  <h2 title={session?.metadata?.title ?? initialSession}>
-                    {session?.metadata?.title ?? initialSession}
+                  <h2 title={`${currentPresentation.title} · ${currentPresentation.subtitle}`}>
+                    {currentPresentation.title}
                   </h2>
                 </div>
                 <label className="line-select">
@@ -403,16 +490,18 @@ export function Workspace({
                   >
                     <Icon name="more" />
                   </button>
-                  <button
-                    className="icon-button"
-                    aria-label={inspectorOpen ? "收起运行面板" : "展开运行面板"}
-                    title="运行面板"
-                    aria-expanded={inspectorOpen}
-                    aria-controls="workspace-inspector"
-                    onClick={() => setInspectorOpen(!inspectorOpen)}
-                  >
-                    <Icon name="panel" />
-                  </button>
+                  {!inspectorOpen && (
+                    <button
+                      className="icon-button"
+                      aria-label={inspectorOpen ? "收起运行面板" : "展开运行面板"}
+                      title="运行面板"
+                      aria-expanded={inspectorOpen}
+                      aria-controls="workspace-inspector"
+                      onClick={() => setInspectorOpen(!inspectorOpen)}
+                    >
+                      <Icon name="panel" />
+                    </button>
+                  )}
                 </div>
                 <div id={menuId} popover="auto" className="workspace-menu" style={{ inset: "auto", ...menuPosition }}>
                   <Surface material="frosted">
@@ -555,7 +644,9 @@ export function Workspace({
                                   ? "分支结果已合并"
                                   : "Synapse"}
                             </strong>
-                            <time title={time(item.createdAt)}>{shortTime(item.createdAt)}</time>
+                            <time dateTime={item.createdAt} title={time(item.createdAt)}>
+                              {messageTime(item.createdAt)}
+                            </time>
                             {item.type !== "user_message" && (
                               <button
                                 className="icon-button copy-message"

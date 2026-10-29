@@ -96,10 +96,21 @@ export function App() {
           跳到主要内容
         </a>
         <aside className="sidebar">
-          <a className="brand" href="#/">
-            <SynapseMark />
-            <span className="sidebar-label">Synapse</span>
-          </a>
+          <div className="sidebar-header">
+            <a className="brand" href="#/">
+              <SynapseMark />
+              <span className="sidebar-label">Synapse</span>
+            </a>
+            <button
+              className="icon-button sidebar-collapse"
+              aria-label={sidebarCollapsed ? "展开导航" : "收起导航"}
+              title={sidebarCollapsed ? "展开导航" : "收起导航"}
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            >
+              <Icon name="chevron" style={{ transform: sidebarCollapsed ? undefined : "rotate(180deg)" }} />
+            </button>
+          </div>
           <nav aria-label="主导航">
             {(
               [
@@ -163,14 +174,6 @@ export function App() {
                   onClick={() => setConnection(undefined)}
                 >
                   <Icon name="run" />
-                </button>
-                <button
-                  className="icon-button sidebar-collapse"
-                  aria-label={sidebarCollapsed ? "展开导航" : "收起导航"}
-                  title={sidebarCollapsed ? "展开导航" : "收起导航"}
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                >
-                  <Icon name="sidebar" />
                 </button>
               </div>
             </div>

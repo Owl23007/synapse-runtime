@@ -128,9 +128,17 @@ export function WorkspaceInspector({
   useEffect(() => {
     if (!drawer) return;
     const previous = document.activeElement;
-    panel.current?.querySelector<HTMLButtonElement>(".inspector-close")?.focus();
+    panel.current?.querySelector<HTMLButtonElement>(".inspector-toggle")?.focus();
     return () => {
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      // 开关移到面板后，原入口在展开时会卸载，待关闭入口重新挂载再返回焦点
+      requestAnimationFrame(() => {
+        const target =
+          document.querySelector<HTMLButtonElement>('.workspace-header-actions [aria-label="展开运行面板"]') ??
+          (previous instanceof HTMLElement && previous.isConnected && previous !== document.body
+            ? previous
+            : undefined);
+        target?.focus();
+      });
     };
   }, [drawer]);
   const calls = toolActivities(events, run?.status ?? "interrupted");
@@ -167,10 +175,17 @@ export function WorkspaceInspector({
       }}
     >
       <div className="pane-heading">
-        <h2>{run && ["accepted", "running"].includes(run.status) ? "当前运行" : "最近运行"}</h2>
-        <button className="icon-button inspector-close" aria-label="关闭运行面板" onClick={onClose}>
-          <Icon name="close" />
+        <button
+          className="icon-button inspector-toggle"
+          aria-label={drawer ? "关闭运行面板" : "收起运行面板"}
+          title="收起运行面板"
+          aria-expanded="true"
+          aria-controls="workspace-inspector"
+          onClick={onClose}
+        >
+          <Icon name="panel" />
         </button>
+        <h2>{run && ["accepted", "running"].includes(run.status) ? "当前运行" : "最近运行"}</h2>
       </div>
       <ErrorNotice error={error} retry={retry} />
       {run ? (
