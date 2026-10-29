@@ -137,7 +137,7 @@ nav a[aria-current="page"] {
   }
 }
 .sidebar {
-  background: var(--surface);
+  background: var(--surface-navigation);
   color: var(--text);
   border-right: 1px solid var(--border);
 }
