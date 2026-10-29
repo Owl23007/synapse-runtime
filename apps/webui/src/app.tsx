@@ -12,15 +12,17 @@ import { Explorer } from "./explorer.js";
 import { Workspace } from "./workspace.js";
 import { System } from "./system.js";
 import { MaterialProvider, MaterialSettings } from "./surface.js";
+import { Icon, SynapseMark } from "./icons.js";
 import { Badge, Empty, ErrorNotice, Loading, PageTitle, message, useLoad, type ViewProps } from "./ui.js";
 
-/** Runtime 控制台入口，凭据只保存在当前页面内存 */
+/** 统一导航与实时连接状态，工作台跨会话保留列表状态且凭据仅在内存中保存 */
 export function App() {
   const [connection, setConnection] = useState<{ client: RuntimeAdminClient; endpoint: string }>();
   const [route, setRoute] = useState(location.hash.slice(1) || "/");
   const [stream, setStream] = useState<RunStreamState>("connecting");
   const [revision, setRevision] = useState(0);
   const [lastSync, setLastSync] = useState<string>();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
     const update = () => setRoute(location.hash.slice(1) || "/");
     addEventListener("hashchange", update);
@@ -80,7 +82,9 @@ export function App() {
   const id = route.split("/")[2];
   return (
     <MaterialProvider>
-      <div className="shell">
+      <div
+        className={`shell ${section === "workspace" ? "shell-workspace" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+      >
         <a
           className="skip-link"
           href="#main-content"
@@ -93,55 +97,44 @@ export function App() {
         </a>
         <aside className="sidebar">
           <a className="brand" href="#/">
-            <span className="brand-icon">S</span>
-            <span>
-              Synapse<small>Runtime</small>
-            </span>
+            <SynapseMark />
+            <span className="sidebar-label">Synapse</span>
           </a>
-          <div className="workspace">
-            <span className={`dot ${stream === "connected" ? "live" : ""}`} />
-            <span>
-              Runtime <small>{new URL(connection.endpoint).host}</small>
-            </span>
-          </div>
-          <span className="nav-label">工作空间</span>
           <nav aria-label="主导航">
-            {[
-              ["workspace", "⌘", "会话工作台", "/workspace"],
-              ["overview", "◈", "总览", "/"],
-              ["runs", "↗", "运行记录", "/runs"],
-              ["explorer", "◇", "数据浏览", "/explorer"],
-              ["system", "≡", "系统状态", "/system"]
-            ].map(([key, icon, label, path]) => (
-              <a key={key} aria-current={section === key ? "page" : undefined} href={`#${path}`}>
-                <span aria-hidden="true">{icon}</span>
-                {label}
+            {(
+              [
+                ["workspace", "chat", "会话工作台", "/workspace"],
+                ["overview", "folder", "总览", "/"],
+                ["runs", "run", "运行记录", "/runs"],
+                ["explorer", "file", "数据浏览", "/explorer"],
+                ["channels", "folder", "频道", "/channels"],
+                ["tasks", "task", "任务", "/tasks"]
+              ] as const
+            ).map(([key, icon, label, path]) => (
+              <a
+                key={key}
+                title={label}
+                aria-label={label}
+                aria-current={section === key ? "page" : undefined}
+                href={`#${path}`}
+              >
+                <Icon name={icon} />
+                <span className="sidebar-label">{key === "workspace" ? "工作空间" : label}</span>
               </a>
             ))}
           </nav>
           <div className="sidebar-footer">
-            <span className="version">v0.1 · 开发版</span>
-            <button className="text-button" onClick={() => setConnection(undefined)}>
-              断开连接 ↗
-            </button>
-          </div>
-        </aside>
-        <div className="main-shell">
-          <header className="topbar">
-            <span>
-              工作空间 <span className="separator">/</span>{" "}
-              {(
-                {
-                  workspace: "会话工作台",
-                  overview: "总览",
-                  runs: "运行记录",
-                  explorer: "数据浏览",
-                  system: "系统状态"
-                } as Record<string, string>
-              )[section] ?? "页面"}
-            </span>
-            <div className="topbar-actions">
-              <MaterialSettings />
+            <a
+              className="settings-link"
+              href="#/system"
+              aria-label="系统状态"
+              title="系统状态"
+              aria-current={section === "system" ? "page" : undefined}
+            >
+              <Icon name="settings" />
+              <span className="sidebar-label">设置</span>
+            </a>
+            <div className="sidebar-runtime">
               <span role="status" className={`connection ${stream === "connected" ? "online" : ""}`}>
                 {stream !== "connected" && lastSync && <small>更新于 {time(lastSync)}</small>}
                 <span className="dot" />
@@ -158,8 +151,49 @@ export function App() {
                   }
                 </span>
               </span>
+              <small className="sidebar-label" title={connection.endpoint}>
+                {new URL(connection.endpoint).host}
+              </small>
+              <div className="sidebar-utilities">
+                <MaterialSettings />
+                <button
+                  className="icon-button"
+                  aria-label="断开连接"
+                  title="断开连接"
+                  onClick={() => setConnection(undefined)}
+                >
+                  <Icon name="run" />
+                </button>
+                <button
+                  className="icon-button sidebar-collapse"
+                  aria-label={sidebarCollapsed ? "展开导航" : "收起导航"}
+                  title={sidebarCollapsed ? "展开导航" : "收起导航"}
+                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                >
+                  <Icon name="sidebar" />
+                </button>
+              </div>
             </div>
-          </header>
+          </div>
+        </aside>
+        <div className="main-shell">
+          {section !== "workspace" && (
+            <header className="topbar">
+              <span>
+                工作空间 <span className="separator">/</span>
+                {(
+                  {
+                    overview: "总览",
+                    runs: "运行记录",
+                    explorer: "数据浏览",
+                    channels: "频道",
+                    tasks: "任务",
+                    system: "系统状态"
+                  } as Record<string, string>
+                )[section] ?? "页面"}
+              </span>
+            </header>
+          )}
           {(stream === "unauthorized" || stream === "incompatible") && (
             <div className="notice error" role="alert">
               {stream === "unauthorized"
@@ -170,7 +204,6 @@ export function App() {
           <main id="main-content" tabIndex={-1}>
             {section === "workspace" ? (
               <Workspace
-                key={route}
                 client={connection.client}
                 revision={revision}
                 initialSession={new URLSearchParams(route.split("?")[1]).get("session") ?? ""}
@@ -192,6 +225,8 @@ export function App() {
               />
             ) : section === "system" ? (
               <System client={connection.client} />
+            ) : section === "channels" || section === "tasks" ? (
+              <System key={section} client={connection.client} view={section} />
             ) : (
               <Empty title="页面不存在" text="从左侧导航选择一个页面" />
             )}
