@@ -234,7 +234,9 @@ nav a[aria-current="page"] {
 .sidebar .brand {
   padding: 0 var(--space-2);
   gap: var(--space-3);
-  font-size: var(--text-page);
+  font-size: var(--text-brand);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-control);
 }
 .sidebar-header {
   display: flex;

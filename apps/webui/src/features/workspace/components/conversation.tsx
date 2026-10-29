@@ -5,7 +5,7 @@ import { messageTime, phaseLabel } from "../lib/activity.js";
 import { RunTimeline } from "./run-inspector.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 
-/** 对话正文与输入区共享工作台执行状态，保持原生发送与频道只读边界 */
+/** 回复操作放在正文底部，输入区共享执行状态并保持原生发送与频道只读边界 */
 export function WorkspaceConversation({ workspace }: { workspace: WorkspaceController }) {
   const {
     client,
@@ -83,7 +83,10 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
                 <time dateTime={item.createdAt} title={time(item.createdAt)}>
                   {messageTime(item.createdAt)}
                 </time>
-                {item.type !== "user_message" && (
+              </div>
+              <div className="message-text">{workspaceMessageText(item.payload)}</div>
+              {item.type !== "user_message" && (
+                <div className="message-actions">
                   <button
                     className="icon-button copy-message"
                     aria-label="复制消息"
@@ -97,9 +100,8 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
                   >
                     <Icon name="copy" />
                   </button>
-                )}
-              </div>
-              <div className="message-text">{workspaceMessageText(item.payload)}</div>
+                </div>
+              )}
             </div>
           </article>
         ))}
