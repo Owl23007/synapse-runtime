@@ -18,11 +18,29 @@ const Explorer = lazy(() =>
   import("../features/explorer/explorer-page.js").then((module) => ({ default: module.Explorer }))
 );
 const System = lazy(() => import("../features/system/system-page.js").then((module) => ({ default: module.System })));
+const Files = lazy(() => import("../features/files/files-page.js").then((module) => ({ default: module.Files })));
+const Capabilities = lazy(() =>
+  import("../features/capabilities/capabilities-page.js").then((module) => ({ default: module.Capabilities }))
+);
 
 /** 页面按功能懒加载，同一工作台的查询参数变化保留会话列表与折叠偏好 */
 export function AppRouter({ route, client, revision }: ViewProps & { route: AppRoute }) {
   let page;
   switch (route.section) {
+    case "capabilities":
+      page = <Capabilities client={client} revision={revision} />;
+      break;
+    case "files":
+      page = (
+        <Files
+          key={route.key}
+          client={client}
+          revision={revision}
+          initialWorkspace={route.query.get("workspace") ?? ""}
+          sessionId={route.query.get("session") ?? ""}
+        />
+      );
+      break;
     case "workspace":
       page = (
         <Workspace

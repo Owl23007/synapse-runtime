@@ -45,10 +45,12 @@
     "@synapse/runtime-resources": "workspace:*",
     "@synapse/runtime-tool-container": "workspace:*",
     "@synapse/runtime-tool-execution": "workspace:*",
+    "@synapse/runtime-tool-mcp": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
     "nova-http": "^0.2.1",
+    "pdfjs-dist": "^6.4.299",
     "zod": "^4.6.7"
   }
 }

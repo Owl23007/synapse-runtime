@@ -12,7 +12,7 @@ export type AdminFetch = (url: string, init?: AdminFetchInit) => Promise<AdminFe
 export interface AdminFetchInit {
   readonly method?: string;
   readonly headers?: Readonly<Record<string, string>>;
-  readonly body?: string;
+  readonly body?: string | ArrayBuffer;
   readonly signal?: AbortSignal;
 }
 

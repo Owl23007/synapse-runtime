@@ -1,5 +1,16 @@
 export { RuntimeAdminClient } from "./admin-client.js";
 export type {
+  ResourceWorkspace,
+  AssetInfo,
+  AssetVersionInfo,
+  AssetDetail,
+  AssetAttachmentInfo,
+  CapabilityInfo,
+  CapabilityBinding,
+  CatalogItem,
+  McpConnectionInfo
+} from "./resource-types.js";
+export type {
   WorkspaceSession,
   WorkspaceBranch,
   WorkspaceMessage,

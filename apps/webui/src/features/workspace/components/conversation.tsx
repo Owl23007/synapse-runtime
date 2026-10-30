@@ -4,6 +4,7 @@ import { Icon, SynapseMark } from "../../../shared/ui/icons.js";
 import { messageTime, phaseLabel } from "../lib/activity.js";
 import { RunTimeline } from "./run-inspector.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
+import { ChatFiles } from "./chat-files.js";
 
 /** 回复操作放在正文底部，输入区共享执行状态并保持原生发送与频道只读边界 */
 export function WorkspaceConversation({ workspace }: { workspace: WorkspaceController }) {
@@ -128,6 +129,15 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
         <div ref={tail} />
       </div>
       <form className="composer" onSubmit={send}>
+        {native && (
+          <ChatFiles
+            client={client}
+            sessionId={initialSession}
+            attachments={workspace.attachments}
+            onChange={workspace.setAttachments}
+            disabled={busy || !!activeRun}
+          />
+        )}
         <textarea
           aria-label="发送给 Agent 的消息"
           placeholder={native ? `向${branch?.title ?? "主线"}发送消息…` : "频道会话请从原频道发送消息"}

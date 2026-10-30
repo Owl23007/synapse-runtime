@@ -139,6 +139,10 @@ export interface ConversationTrigger {
 }
 
 export interface AgentRequest {
+  /** 宿主分配的逻辑运行身份，用于固定资源和能力快照 */
+  readonly runId?: string;
+  /** 从会话归属解析的工作区，模型不能覆盖 */
+  readonly workspaceId?: string;
   readonly sessionId: string;
   readonly lineId?: string;
   readonly branchId?: string;

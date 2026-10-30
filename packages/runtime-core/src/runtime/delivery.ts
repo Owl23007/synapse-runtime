@@ -49,6 +49,7 @@ interface DeliveryOptions {
   readonly traces: RuntimeTrace[];
   readonly materializeMessage: RuntimeCoreOptions["materializeMessage"];
   readonly selectMessage: RuntimeCoreOptions["selectMessage"];
+  readonly publishArtifacts: RuntimeCoreOptions["publishArtifacts"];
   readonly prepareDelivery: RuntimeCoreOptions["prepareDelivery"];
 }
 
@@ -118,6 +119,13 @@ export class RuntimeDelivery {
     });
     const channel = this.options.channels.get(input.event.channelId);
     const selectedOutput = this.options.selectMessage?.(input.conversation.session.id, input.output) ?? input.output;
+    if (input.workspace)
+      await this.options.publishArtifacts?.({
+        sessionId: input.conversation.session.id,
+        runId: input.runId,
+        workspaceId: input.workspace.id,
+        message: selectedOutput
+      });
     const presented = this.applyResponsePolicy(selectedOutput, input.outputPolicy, input.event.id, input.runId);
     // 仅支持文本的既有频道保留文本回退，媒体频道不能静默丢弃已确认附件
     const output: SynapseMessage =

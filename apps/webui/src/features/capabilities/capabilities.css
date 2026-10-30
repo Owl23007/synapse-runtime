@@ -1,0 +1,93 @@
+.capability-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.2fr);
+  gap: 20px;
+  align-items: start;
+}
+.capability-list {
+  padding: 8px;
+}
+.capability-kind {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  flex: none;
+}
+.capability-panel {
+  padding: 24px;
+  min-width: 0;
+}
+.capability-panel h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.capability-panel > label {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0;
+  font-size: 13px;
+}
+.capability-panel > p {
+  line-height: 1.7;
+}
+.capability-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 480px;
+  overflow: auto;
+  padding: 16px;
+  background: var(--surface-secondary);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.capability-facts {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 12px;
+  margin: 20px 0;
+}
+.capability-facts dt {
+  color: var(--muted);
+}
+.capability-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.capability-facts code {
+  font-size: 10px;
+}
+.capability-update {
+  padding: 20px 0;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+.capability-update small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.capability-update button {
+  justify-self: start;
+}
+.connection-grid {
+  display: grid;
+  gap: 20px;
+}
+.connection-grid details {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+@media (max-width: 900px) {
+  .capability-layout {
+    grid-template-columns: 1fr;
+  }
+  .capability-panel {
+    padding: 16px;
+  }
+}

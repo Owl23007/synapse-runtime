@@ -1,6 +1,33 @@
 import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod-config";
 
+/** 能力目录与安装源白名单，自动检查不会自动切换工作区版本 */
+export const CapabilitiesSettingsSchema = z.object({
+  skillsDirectory: z.string().min(1).default("./data/skills"),
+  autoCheckUpdates: z.boolean().default(true),
+  checkIntervalMs: z.number().int().min(60000).default(3600_000),
+  allowedSources: z.array(z.enum(["clawhub", "github", "mcp-official"])).default(["clawhub", "github", "mcp-official"]),
+  catalogs: z
+    .array(
+      z.object({
+        id: z.enum(["clawhub", "mcp-official"]),
+        type: z.enum(["clawhub", "mcp-registry"]),
+        enabled: z.boolean().default(true)
+      })
+    )
+    .default([
+      { id: "clawhub", type: "clawhub", enabled: true },
+      { id: "mcp-official", type: "mcp-registry", enabled: true }
+    ])
+});
+
+/** 能力管理配置令牌 */
+export const capabilitiesConfig = defineConfig({
+  id: "capabilities",
+  defaults: CapabilitiesSettingsSchema.parse({}),
+  parse: (value: unknown) => CapabilitiesSettingsSchema.parse(value)
+});
+
 /** 提示词注册表开关与外部目录配置模式 */
 export const PromptBundleSettingsSchema = z
   .object({

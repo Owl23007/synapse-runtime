@@ -57,7 +57,10 @@ export class RuntimeServer {
     this.#awaitDispatch = options.awaitDispatch ?? false;
     this.#fetch = options.fetch;
     this.#app = createApp({ maxBodySize: MAX_JSON_BODY_BYTES });
-    this.#adminApp = createApp({ maxBodySize: MAX_JSON_BODY_BYTES, requestTimeout: 0 });
+    this.#adminApp = createApp({
+      maxBodySize: Math.max(MAX_JSON_BODY_BYTES, this.#config.files.maxNativeUploadBytes),
+      requestTimeout: 60_000
+    });
     this.#webhookRegistry = new QqOfficialWebhookRegistry({
       app: this.#app,
       awaitDispatch: this.#awaitDispatch,
@@ -120,6 +123,7 @@ export class RuntimeServer {
           }))
       });
       this.#channelManager.attachEnabledChannels(this.#config);
+      await this.#assembly.fileResources?.assets.blobs.cleanStaging();
       await this.#channelManager.connectAll();
       const recovery = await this.#assembly.taskRunner.recover();
       if (recovery.resumedTaskIds.length > 0 || recovery.failedTaskIds.length > 0) {
@@ -176,6 +180,26 @@ export class RuntimeServer {
     this.#adminApp.use(bodyParser({ maxSize: MAX_JSON_BODY_BYTES, types: ["json"] }));
     registerAdminRoutes({
       getWorkspace: () => (this.#assembly.closed ? undefined : this.#assembly.workspace),
+      resources: {
+        getAssets: () => (this.#assembly.closed ? undefined : this.#assembly.fileResources?.assets),
+        getMounts: () => (this.#assembly.closed ? undefined : this.#assembly.fileResources?.mounts),
+        listWorkspaces: () => this.#assembly.contextStore.listWorkspaces(),
+        sessionWorkspace: (id) => this.#assembly.contextStore.sessionWorkspace(id),
+        syncFiles: async (channelId, groupId, folderId) => {
+          if (!this.#assembly.fileResources) throw new Error("files_disabled");
+          return this.#assembly.fileResources.syncFiles(channelId, groupId, folderId);
+        }
+      },
+      capabilities: {
+        getCapabilities: () => (this.#assembly.closed ? undefined : this.#assembly.capabilityResources?.service),
+        connections: () => this.#assembly.capabilityResources?.connections() ?? [],
+        connect: async (id, refresh) => {
+          const resources = this.#assembly.capabilityResources;
+          if (!resources) throw new Error("runtime_unavailable");
+          return refresh ? resources.refresh(id) : resources.connect(id);
+        },
+        dependencies: (id) => this.#assembly.contextStore.capabilities.snapshot(id) ?? null
+      },
       getExecutionStatus: () => this.#assembly.runtime.executionStatus,
       getListening: () => this.#listening,
       app: this.#adminApp,

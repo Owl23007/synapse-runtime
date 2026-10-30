@@ -17,6 +17,9 @@ import type { RuntimeFetch, RuntimeServerLogger } from "../types.js";
 import { compilePromptBundleFileSync, type PromptBundleCompiler } from "@synapse/runtime-resources";
 import { ArtifactStore, type DockerCommandRunner } from "@synapse/runtime-tool-container";
 import { registerContainerTools } from "./container-tools.js";
+import { createFileResources } from "./file-resources.js";
+import { createAssetTools } from "./asset-tools.js";
+import { CapabilityResources } from "./capability-resources.js";
 import { canUploadGroupFile } from "./channel-delivery.js";
 import { collectTraceSecrets } from "../secrets.js";
 import { ArtifactDeliveryStore } from "../infrastructure/artifact-delivery.js";
@@ -54,7 +57,9 @@ export class RuntimeAssembly {
     readonly tools: ToolRuntime,
     readonly localeResolver: LocaleResolver,
     readonly artifacts: ArtifactStore,
-    readonly taskRunner: TaskRunner
+    readonly taskRunner: TaskRunner,
+    readonly fileResources?: ReturnType<typeof createFileResources>,
+    readonly capabilityResources?: CapabilityResources
   ) {
     this.inspection = new RuntimeInspection(contextStore, artifacts);
     this.workspace = new RuntimeWorkspace(runtime, contextStore);
@@ -78,6 +83,8 @@ export class RuntimeAssembly {
   dispose(): Promise<void> {
     this.#disposePromise ??= (async () => {
       await this.quiesce();
+      await this.fileResources?.assets.drain();
+      await this.capabilityResources?.close();
       this.contextStore.close();
       this.#closed = true;
     })();
@@ -95,14 +102,19 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
   const conversation = new ConversationRouter(options.config.conversation);
   const tools = new ToolRuntime(new StaticPermissionEngine(options.config.permissions));
   registerBuiltInTools(tools, options.config);
-  const compileInvocation = createInvocationCompiler(options.config, tools, options.channels);
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite"),
     exclusiveOwner: true,
     traceSecrets: collectTraceSecrets(options.config)
   });
 
+  let capabilityResources: CapabilityResources | undefined;
   try {
+    const fileResources = options.config.files.enabled
+      ? createFileResources(options.config, contextStore, options.channels)
+      : undefined;
+    if (fileResources)
+      for (const tool of createAssetTools(fileResources.assets, fileResources.mounts)) tools.register(tool);
     const artifacts = new ArtifactStore(join(options.config.runtime.dataDir, "artifacts"), options.config.container);
     const deliveries = new ArtifactDeliveryStore(join(options.config.runtime.dataDir, "artifact-deliveries"));
     if (options.config.tools.docker.enabled)
@@ -117,10 +129,41 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
       channels: options.channels,
       ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
     });
+    capabilityResources = new CapabilityResources(options.config, contextStore, tools);
+    const compileInvocation = createInvocationCompiler(options.config, tools, options.channels, capabilityResources);
     const taskRunner = new TaskRunner({ store: contextStore, executors: {} });
     const runtime = new RuntimeCore({
+      sessionWorkspace: (id) => contextStore.sessionWorkspace(id),
+      ...(fileResources ? { resources: { assets: fileResources.assets, ingress: fileResources.ingress } } : {}),
       materializeMessage: (sessionId, message) => materializeArtifactMessage(artifacts, sessionId, message),
       selectMessage: (sessionId, message) => selectArtifactMessage(artifacts, sessionId, message),
+      ...(fileResources
+        ? {
+            publishArtifacts: async (input: {
+              sessionId: string;
+              runId: string;
+              workspaceId: string;
+              message: import("@synapse/runtime-protocol").SynapseMessage;
+            }) => {
+              const selection = artifacts.selection(input.sessionId, input.runId);
+              for (const segment of input.message.segments) {
+                if ((segment.type !== "file" && segment.type !== "image") || !segment.url?.startsWith("artifact://"))
+                  continue;
+                const id = segment.url.slice("artifact://".length);
+                const manifest = artifacts.describe(input.sessionId, id);
+                if (manifest.runId !== input.runId || !selection.selectedIds.includes(id)) continue;
+                const content = artifacts.read(input.sessionId, id);
+                await fileResources.assets.publishArtifact({
+                  workspaceId: input.workspaceId,
+                  artifactId: id,
+                  runId: input.runId,
+                  name: manifest.name,
+                  bytes: content.data
+                });
+              }
+            }
+          }
+        : {}),
       prepareDelivery: createArtifactDelivery(artifacts, deliveries, options.channels),
       ...(options.config.runtime.limits === undefined ? {} : { limits: options.config.runtime.limits }),
       runs: contextStore.runs,
@@ -152,12 +195,24 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
         channelMaxMessages: options.config.context.channelMaxMessages,
         providerByChannelId: providerByChannelId(options.config.channels),
         conversationStore: contextStore,
+        workspaceStore: contextStore,
+        identityStore: contextStore,
         eventProcessStore: contextStore,
         ...(options.config.context.enabled ? { transcriptStore: contextStore } : {})
       }
     });
-    return new RuntimeAssembly(runtime, contextStore, tools, localeResolver, artifacts, taskRunner);
+    return new RuntimeAssembly(
+      runtime,
+      contextStore,
+      tools,
+      localeResolver,
+      artifacts,
+      taskRunner,
+      fileResources,
+      capabilityResources
+    );
   } catch (error) {
+    void capabilityResources?.close();
     contextStore.close();
     throw error;
   }
@@ -166,14 +221,19 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
 function createInvocationCompiler(
   config: RuntimeConfig,
   tools: ToolRuntime,
-  channels: ChannelRegistry
-): ((request: AgentRequest) => Promise<ModelInvocationEnvelope>) | undefined {
+  channels: ChannelRegistry,
+  capabilities: CapabilityResources
+): (request: AgentRequest) => Promise<ModelInvocationEnvelope | undefined> {
   if (
     !config.prompts.enabled ||
     config.prompts.defaultPurpose === undefined ||
     config.prompts.catalogPath === undefined
   ) {
-    return undefined;
+    return async (request) => {
+      await capabilities.prepare(request);
+      capabilities.pin(request);
+      return undefined;
+    };
   }
   const compiler = compilePromptBundleFileSync(config.prompts.catalogPath, {
     locale: config.locale.default,
@@ -184,30 +244,40 @@ function createInvocationCompiler(
     throw new Error(`Prompt Bundle does not define the default purpose "${config.prompts.defaultPurpose}".`);
   }
   return async (request) => {
+    await capabilities.prepare(request);
     const visibleTools = (
       await Promise.all(
-        tools.list().map(async (tool) => {
-          // 原生会话直接下载本地工件，外部频道仍需具备真实的群文件交付能力
-          if (
-            ((tool.name === "container.run" && request.source.platform !== "native") ||
-              tool.name === "artifact.upload") &&
-            (request.source.conversationKind !== "group" || !canUploadGroupFile(channels.get(request.source.channelId)))
-          )
-            return undefined;
-          // 动态权限依赖模型生成的参数，只能在实际调用时最终判断
-          if (typeof tool.permission === "function") return tool;
-          const decision = await tools.decidePermission({
-            action: tool.permission.action,
-            resource: tool.permission.resource,
-            subject: request.userId
-          });
-          return decision.decision === "allow" ? tool : undefined;
-        })
+        tools
+          .listForContext({
+            sessionId: request.sessionId,
+            userId: request.userId,
+            runId: request.runId ?? "",
+            ...(request.workspaceId ? { workspaceId: request.workspaceId } : {})
+          })
+          .map(async (tool) => {
+            // 原生会话直接下载本地工件，外部频道仍需具备真实的群文件交付能力
+            if (
+              ((tool.name === "container.run" && request.source.platform !== "native") ||
+                tool.name === "artifact.upload") &&
+              (request.source.conversationKind !== "group" ||
+                !canUploadGroupFile(channels.get(request.source.channelId)))
+            )
+              return undefined;
+            // 动态权限依赖模型生成的参数，只能在实际调用时最终判断
+            if (typeof tool.permission === "function") return tool;
+            const decision = await tools.decidePermission({
+              action: tool.permission.action,
+              resource: tool.permission.resource,
+              subject: request.userId
+            });
+            return decision.decision === "allow" ? tool : undefined;
+          })
       )
     ).filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
     const toolSet = describeToolSet(visibleTools);
     const purpose = resolvePurpose(compiler, config.prompts.defaultPurpose!, request);
-    return compiler.compile({
+    const invocation = compiler.compile({
+      directorySkills: capabilities.directorySkills(request, toolSet.toolIds),
       purpose,
       dimensions: {
         conversationKind: normalizeConversationKind(request.source.conversationKind),
@@ -219,6 +289,8 @@ function createInvocationCompiler(
       toolSetDigest: toolSet.digest,
       ...(request.requestedSkillIds === undefined ? {} : { requestedSkillIds: request.requestedSkillIds })
     });
+    capabilities.pin(request, invocation);
+    return invocation;
   };
 }
 

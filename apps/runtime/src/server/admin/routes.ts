@@ -15,12 +15,17 @@ import { streamLogEvents } from "./logs-sse.js";
 import { ReloadRequiresRestartError } from "../reload-policy.js";
 import { registerRunRoutes } from "./run-routes.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
+import { registerAssetRoutes, type AssetRouteDeps } from "./asset-routes.js";
+import { registerCapabilityRoutes, type CapabilityRouteDeps } from "./capability-routes.js";
+import { registerMountRoutes } from "./mount-routes.js";
 import type { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import type { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly resources?: Omit<AssetRouteDeps, "app">;
+  readonly capabilities?: Omit<CapabilityRouteDeps, "app">;
   readonly getWorkspace?: () => RuntimeWorkspace | undefined;
   readonly getExecutionStatus?: () => unknown;
   readonly getInspection?: () => RuntimeInspection | undefined;
@@ -75,6 +80,15 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     shutdownSignal: deps.shutdownSignal
   });
   registerWorkspaceRoutes(deps.app, deps.getWorkspace ?? (() => undefined));
+  if (deps.resources) registerAssetRoutes({ app: deps.app, ...deps.resources });
+  if (deps.resources)
+    registerMountRoutes(
+      deps.app,
+      deps.resources.getMounts,
+      deps.getConfig().files.mounts.map((mount) => mount.urlPrefix),
+      (request, response) => authorizeAdminRequest(deps.getConfig().admin, request, response)
+    );
+  if (deps.capabilities) registerCapabilityRoutes({ app: deps.app, ...deps.capabilities });
   deps.app.get("/admin/health", (_request: NovaRequest, response: NovaResponse) => {
     sendJson(response, 200, { ok: true });
   });

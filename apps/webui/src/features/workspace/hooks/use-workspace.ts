@@ -2,7 +2,7 @@ import { useRunActivity } from "./use-run-activity.js";
 import { useLegacySessionSummaries } from "./use-session-summaries.js";
 import { navigate } from "../lib/navigation.js";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type FormEvent } from "react";
-import { type WorkspaceMessage } from "@synapse/runtime-client";
+import { type WorkspaceMessage, type AssetAttachmentInfo } from "@synapse/runtime-client";
 import { message, record } from "../../../shared/lib/runtime.js";
 import { toast } from "../../../shared/lib/toast.js";
 import { useLoad } from "../../../shared/hooks/use-load.js";
@@ -27,6 +27,7 @@ export function useWorkspace({
   const [sessionKind, setSessionKind] = useState("all");
   const [tab, setTab] = useState("chat");
   const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<readonly AssetAttachmentInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [nonce, setNonce] = useState(0);
@@ -170,6 +171,7 @@ export function useWorkspace({
     setSelected(undefined);
     setHead("");
     setText("");
+    setAttachments([]);
     setForkTitle("");
     setMerging(false);
     setTab("chat");
@@ -234,10 +236,14 @@ export function useWorkspace({
         sessionId: initialSession,
         lineId,
         text: text.trim(),
-        idempotencyKey: actionKey(`send:${initialSession}:${lineId}:${text.trim()}`)
+        attachments: attachments.map(({ assetId, versionId }) => ({ assetId, versionId })),
+        idempotencyKey: actionKey(`send:${initialSession}:${lineId}:${text.trim()}:${JSON.stringify(attachments)}`)
       });
       requestKey.current = undefined;
-      if (scopeRef.current === scope) setText("");
+      if (scopeRef.current === scope) {
+        setText("");
+        setAttachments([]);
+      }
     });
   };
   const commit = graph.value?.nodes.find((node) => node.id === selected);
@@ -289,6 +295,8 @@ export function useWorkspace({
     setTab,
     text,
     setText,
+    attachments,
+    setAttachments,
     busy,
     error,
     setError,

@@ -10,10 +10,11 @@ import type {
   SynapseChannelEvent,
   SynapseMessage
 } from "@synapse/runtime-protocol";
+import type { ChannelFileNotice } from "@synapse/runtime-protocol";
 import { OneBot11Api, ONEBOT11_MESSAGE_SEGMENT_TYPES } from "./api.js";
 import { OneBot11HttpTransport } from "./http-transport.js";
 import { NapCatApi } from "./napcat.js";
-import { normalizeOneBot11Event } from "./normalize.js";
+import { normalizeOneBot11Event, normalizeOneBot11FileNotice } from "./normalize.js";
 import type { OneBot11Connection } from "./transport.js";
 import type { OneBot11ChannelAdapterOptions } from "./types.js";
 import { isRecord } from "./utils.js";
@@ -28,6 +29,7 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
   readonly #api: OneBot11Api;
   readonly #napcat: NapCatApi | undefined;
   readonly #handlers = new Set<ChannelEventHandler>();
+  readonly #fileHandlers = new Set<(notice: ChannelFileNotice) => void | Promise<void>>();
 
   constructor(options: OneBot11ChannelAdapterOptions) {
     this.id = options.id;
@@ -89,7 +91,21 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
           implementation: "onebot11:get_msg",
           constraints: { targetTypes: ["private", "group"] }
         },
-        "file.upload": this.#napcat?.getFileCapability() ?? { status: "unsupported" }
+        "file.upload": this.#napcat?.getFileCapability() ?? { status: "unsupported" },
+        "file.get": this.#napcat
+          ? {
+              status: "partially-supported",
+              implementation: "napcat:get_group_file_url",
+              constraints: { targetTypes: ["group"] }
+            }
+          : { status: "unsupported" },
+        "file.list": this.#napcat
+          ? {
+              status: "supported",
+              implementation: "napcat:get_group_root_files",
+              constraints: { targetTypes: ["group"] }
+            }
+          : { status: "unsupported" }
       }
     });
   }
@@ -107,6 +123,12 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
         return (
           this.#napcat?.uploadFile(action.target, action.file) ??
           Promise.resolve({ status: "unsupported", error: "File upload requires NapCat." })
+        );
+      case "file.get":
+      case "file.list":
+        return (
+          this.#napcat?.readFiles(action) ??
+          Promise.resolve({ status: "unsupported", error: "File reading requires NapCat" })
         );
       default:
         return Promise.resolve({
@@ -137,10 +159,20 @@ export class OneBot11ChannelAdapter implements ChannelAdapter {
 
   /** 将宿主或传输交付的平台事件归一化后分发 */
   async handlePayload(payload: unknown): Promise<readonly SynapseChannelEvent[]> {
+    const notice = normalizeOneBot11FileNotice(this.id, this.provider, payload);
+    if (notice) {
+      await Promise.all([...this.#fileHandlers].map((handler) => handler(notice)));
+      return [];
+    }
     if (!isRecord(payload)) return [];
     const event = normalizeOneBot11Event(this.id, payload);
     if (event === undefined) return [];
     await Promise.all([...this.#handlers].map((handler) => handler(event)));
     return [event];
+  }
+
+  /** 文件入口不经过对话触发判断 */
+  onFileNotice(handler: (notice: ChannelFileNotice) => void | Promise<void>): void {
+    this.#fileHandlers.add(handler);
   }
 }

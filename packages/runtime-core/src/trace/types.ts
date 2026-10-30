@@ -3,6 +3,9 @@ export type RunStatus = "accepted" | "running" | "succeeded" | "failed" | "block
 
 /** 运行事件类型，日志不参与该持久协议 */
 export type RunEventType =
+  | "asset_materialized"
+  | "skill_activated"
+  | "dependencies_resolved"
   | "run_accepted"
   | "run_started"
   | "run_resumed"

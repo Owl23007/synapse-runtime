@@ -1,0 +1,33 @@
+{
+  "name": "@synapse/runtime-tool-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@synapse/runtime-config": "workspace:*",
+    "@synapse/runtime-tool-runtime": "workspace:*",
+    "@synapse/runtime-tool-web": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

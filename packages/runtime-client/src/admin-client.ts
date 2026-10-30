@@ -14,6 +14,16 @@ import type {
 } from "./run-types.js";
 import { subscribeRuns } from "./run-stream.js";
 import type { WorkspaceView, WorkspaceSession, WorkspaceBranch, SessionGraphView } from "./workspace-types.js";
+import type {
+  ResourceWorkspace,
+  AssetInfo,
+  AssetDetail,
+  AssetVersionInfo,
+  CapabilityInfo,
+  CapabilityBinding,
+  CatalogItem,
+  McpConnectionInfo
+} from "./resource-types.js";
 
 export type {
   AdminFetch,
@@ -83,8 +93,219 @@ export class RuntimeAdminClient {
     lineId: string;
     text: string;
     idempotencyKey: string;
+    attachments?: readonly { assetId: string; versionId: string }[];
   }): Promise<{ run: RunTrace }> {
     return this.#request("/admin/runs", { method: "POST", body: JSON.stringify(input) }) as Promise<{ run: RunTrace }>;
+  }
+
+  /** 列出持久资源工作区，供文件和能力页面共用 */
+  resourceWorkspaces(): Promise<{ items: readonly ResourceWorkspace[] }> {
+    return this.#get("/admin/workspaces") as Promise<{ items: readonly ResourceWorkspace[] }>;
+  }
+
+  /** 从可信会话映射获取资源工作区 */
+  sessionResourceWorkspace(id: string): Promise<{ workspaceId: string }> {
+    return this.#get(`/admin/sessions/${encodeURIComponent(id)}/resource-workspace`) as Promise<{
+      workspaceId: string;
+    }>;
+  }
+
+  /** 搜索元数据不会物化远端文件 */
+  assets(
+    workspaceId: string,
+    query: { q?: string; source?: string; cursor?: string } = {}
+  ): Promise<{ items: readonly AssetInfo[]; nextCursor?: string }> {
+    return this.#get(`/admin/workspaces/${encodeURIComponent(workspaceId)}/assets${queryString(query)}`) as Promise<{
+      items: readonly AssetInfo[];
+      nextCursor?: string;
+    }>;
+  }
+
+  /** 查询文件的来源、版本及运行关系 */
+  asset(id: string): Promise<AssetDetail> {
+    return this.#get(`/admin/assets/${encodeURIComponent(id)}`) as Promise<AssetDetail>;
+  }
+
+  /** 明确预览或 Agent 使用时才下载远端文件 */
+  materializeAsset(id: string): Promise<{ version: AssetVersionInfo }> {
+    return this.#request(`/admin/assets/${encodeURIComponent(id)}/materialize`, { method: "POST" }) as Promise<{
+      version: AssetVersionInfo;
+    }>;
+  }
+
+  /** 两阶段原始二进制上传，重试必须沿用调用方保留的幂等键 */
+  async uploadAsset(
+    workspaceId: string,
+    file: File,
+    idempotencyKey: string,
+    assetId?: string
+  ): Promise<{ asset: AssetInfo; version: AssetVersionInfo }> {
+    const path = assetId
+      ? `/admin/assets/${encodeURIComponent(assetId)}/versions`
+      : `/admin/workspaces/${encodeURIComponent(workspaceId)}/assets/uploads`;
+    const init = (await this.#request(path, {
+      method: "POST",
+      body: JSON.stringify({
+        name: file.name,
+        size: file.size,
+        mime: file.type || "application/octet-stream",
+        idempotencyKey
+      })
+    })) as { uploadId: string };
+    return this.#request(`/admin/assets/uploads/${encodeURIComponent(init.uploadId)}/content`, {
+      method: "PUT",
+      headers: { "content-type": "application/octet-stream" },
+      body: await file.arrayBuffer()
+    }) as Promise<{ asset: AssetInfo; version: AssetVersionInfo }>;
+  }
+
+  /** 文件内容通过认证头读取，凭据不会进入 URL */
+  async downloadAsset(id: string, versionId?: string): Promise<Blob> {
+    const response = await this.#fetch(
+      `${this.#endpoint}/admin/assets/${encodeURIComponent(id)}/content${queryString({ versionId })}`,
+      { method: "GET", headers: { ...(this.#token ? { authorization: `Bearer ${this.#token}` } : {}) } }
+    );
+    if (!response.ok || !response.body) throw new Error(`文件下载失败：HTTP ${response.status}`);
+    return new Response(response.body).blob();
+  }
+
+  /** 修改逻辑展示名，不改远端平台文件 */
+  renameAsset(id: string, name: string): Promise<unknown> {
+    return this.#request(`/admin/assets/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name })
+    });
+  }
+
+  /** 软删除保留历史版本与运行引用 */
+  deleteAsset(id: string): Promise<unknown> {
+    return this.#request(`/admin/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
+  /** 手动同步真实群文件列表，不产生 Run */
+  syncFiles(channelId: string, groupId: string, folderId?: string): Promise<unknown> {
+    return this.#request("/admin/files/sync", {
+      method: "POST",
+      body: JSON.stringify({ channelId, groupId, ...(folderId ? { folderId } : {}) })
+    });
+  }
+
+  /** 只读挂载清单不会批量导入资源 */
+  mounts(workspaceId: string): Promise<{ items: readonly { id: string; access: string; urlPrefix: string }[] }> {
+    return this.#get(`/admin/workspaces/${encodeURIComponent(workspaceId)}/mounts`) as Promise<{
+      items: readonly { id: string; access: string; urlPrefix: string }[];
+    }>;
+  }
+
+  /** 只读浏览目录的相对路径 */
+  mountEntries(
+    id: string,
+    path = ""
+  ): Promise<{ items: readonly { name: string; directory: boolean }[]; truncated: boolean }> {
+    return this.#get(`/admin/mounts/${encodeURIComponent(id)}/entries${queryString({ path })}`) as Promise<{
+      items: readonly { name: string; directory: boolean }[];
+      truncated: boolean;
+    }>;
+  }
+
+  /** 明确选择挂载文件时固定内容副本 */
+  materializeMount(
+    workspaceId: string,
+    mountId: string,
+    path: string
+  ): Promise<{ asset: AssetInfo; version: AssetVersionInfo }> {
+    return this.#request(
+      `/admin/workspaces/${encodeURIComponent(workspaceId)}/mounts/${encodeURIComponent(mountId)}/materialize`,
+      { method: "POST", body: JSON.stringify({ path }) }
+    ) as Promise<{ asset: AssetInfo; version: AssetVersionInfo }>;
+  }
+
+  /** Runtime 已安装版本列表 */
+  capabilities(): Promise<{ items: readonly CapabilityInfo[] }> {
+    return this.#get("/admin/capabilities") as Promise<{ items: readonly CapabilityInfo[] }>;
+  }
+
+  /** 浏览公开目录只读取元数据 */
+  searchCatalog(
+    provider: string,
+    q: string,
+    cursor?: string
+  ): Promise<{ items: readonly CatalogItem[]; nextCursor?: string }> {
+    return this.#get(`/admin/catalogs/${encodeURIComponent(provider)}/search${queryString({ q, cursor })}`) as Promise<{
+      items: readonly CatalogItem[];
+      nextCursor?: string;
+    }>;
+  }
+
+  /** 查询来源精确发布版本，安装阶段不得使用 latest */
+  catalogVersions(
+    provider: string,
+    packageId: string
+  ): Promise<{ items: readonly { version: string; changelog?: string }[] }> {
+    return this.#get(
+      `/admin/catalogs/${encodeURIComponent(provider)}/items/${encodeURIComponent(packageId)}/versions`
+    ) as Promise<{ items: readonly { version: string; changelog?: string }[] }>;
+  }
+
+  /** 安装后仍需单独启用工作区，浏览器不能提交启动命令 */
+  installCapability(input: unknown): Promise<{ installation: CapabilityInfo }> {
+    return this.#request("/admin/capabilities/install", { method: "POST", body: JSON.stringify(input) }) as Promise<{
+      installation: CapabilityInfo;
+    }>;
+  }
+
+  /** 渐进读取已安装 Skill 的内容用于人工审阅 */
+  capabilityResource(
+    id: string,
+    path: string
+  ): Promise<{ resource: { text?: string; binary?: boolean; hasMore?: boolean } }> {
+    return this.#get(`/admin/capabilities/${encodeURIComponent(id)}/resource${queryString({ path })}`) as Promise<{
+      resource: { text?: string; binary?: boolean; hasMore?: boolean };
+    }>;
+  }
+
+  /** 查询工作区能力绑定 */
+  workspaceCapabilities(id: string): Promise<{ items: readonly CapabilityBinding[] }> {
+    return this.#get(`/admin/workspaces/${encodeURIComponent(id)}/capabilities`) as Promise<{
+      items: readonly CapabilityBinding[];
+    }>;
+  }
+
+  /** 原子启用、停用或回滚到已安装版本 */
+  bindCapability(
+    workspaceId: string,
+    packageKey: string,
+    input: { installId: string; enabled: boolean; settings?: Readonly<Record<string, unknown>> }
+  ): Promise<unknown> {
+    return this.#request(
+      `/admin/workspaces/${encodeURIComponent(workspaceId)}/capabilities/${encodeURIComponent(packageKey)}`,
+      { method: "PUT", body: JSON.stringify(input) }
+    );
+  }
+
+  /** 查询更新只读来源，不切换已启用版本 */
+  checkCapabilityUpdates(id: string): Promise<unknown> {
+    return this.#request(`/admin/capabilities/${encodeURIComponent(id)}/check-updates`, { method: "POST" });
+  }
+
+  /** 读取最近更新检查结果 */
+  capabilityUpdates(): Promise<{ items: readonly Record<string, unknown>[] }> {
+    return this.#get("/admin/capabilities/updates") as Promise<{ items: readonly Record<string, unknown>[] }>;
+  }
+
+  /** 查询实际 MCP 协商与工具发现状态 */
+  mcpConnections(): Promise<{ items: readonly McpConnectionInfo[] }> {
+    return this.#get("/admin/mcp/connections") as Promise<{ items: readonly McpConnectionInfo[] }>;
+  }
+
+  /** 人工确认重新发现工具 Schema，不重放任何工具调用 */
+  reconnectMcp(id: string): Promise<unknown> {
+    return this.#request(`/admin/mcp/connections/${encodeURIComponent(id)}/connect`, { method: "POST" });
+  }
+
+  /** 检查 Run 固定的文件和能力版本 */
+  runDependencies(id: string): Promise<unknown> {
+    return this.#get(`/admin/runs/${encodeURIComponent(id)}/dependencies`);
   }
 
   /** 按会话线读取消息与可操作分支 */

@@ -39,9 +39,20 @@ export class ToolRuntime implements ToolRuntimeView {
     this.#tools.set(tool.name, tool);
   }
 
-  /** 列出已注册工具 */
+  /** 显式重新发现协议工具后更新描述，保持稳定工具身份 */
+  replace(tool: Tool): void {
+    if (!this.#tools.has(tool.name)) throw new Error(`Tool "${tool.name}" is not registered`);
+    this.#tools.set(tool.name, tool);
+  }
+
+  /** 未绑定作用域时只列出全局能力，工作区工具必须通过可信上下文查询 */
   list(): readonly Tool[] {
-    return [...this.#tools.values()];
+    return this.listForContext({ runId: "", sessionId: "", userId: "" });
+  }
+
+  /** 按可信作用域过滤能力，调用阶段仍需再次校验 */
+  listForContext(context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">): readonly Tool[] {
+    return [...this.#tools.values()].filter((tool) => tool.available?.(context) ?? true);
   }
 
   /** 有界等待受控工具清理，返回仍未结束的处理器数量以便宿主告警 */
@@ -84,7 +95,7 @@ export class ToolRuntime implements ToolRuntimeView {
     let haltedReason: string | undefined;
     let pendingCall: Promise<void> = Promise.resolve();
     return {
-      list: () => this.list(),
+      list: () => this.listForContext({ ...bound, runId: bound.runId ?? "" }),
       decidePermission: (request) => this.decidePermission(request),
       call: async <TOutput = unknown>(name: string, input: unknown, context: ScopedToolCallContext) => {
         callSequence += 1;
@@ -151,6 +162,18 @@ export class ToolRuntime implements ToolRuntimeView {
       ...context,
       callId: context.callId ?? `tool-call-${randomUUID()}`
     };
+    if (this.#tools.get(name)?.available?.(callContext) === false) {
+      const reason = "Workspace capability is disabled or not authorized";
+      await this.#notify({
+        type: "tool_call_blocked",
+        name,
+        input,
+        context: callContext,
+        occurredAt: new Date().toISOString(),
+        reason
+      });
+      return { status: "blocked", reason };
+    }
     if (replayCall !== undefined) {
       const replay = await replayCall({ name, input, context: callContext });
       switch (replay.status) {

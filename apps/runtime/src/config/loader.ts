@@ -84,7 +84,8 @@ function normalizeSourcePaths(value: Record<string, unknown>, baseDir: string): 
     ["runtime", "dataDir"],
     ["locale", "catalogPath"],
     ["prompts", "catalogPath"],
-    ["presentation", "profilePath"]
+    ["presentation", "profilePath"],
+    ["capabilities", "skillsDirectory"]
   ] as const) {
     const candidate = result[section];
     if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
@@ -185,6 +186,14 @@ function normalizeConfigPaths(config: RuntimeConfig, options: LoadConfigOptions)
       ...(config.presentation.profilePath === undefined
         ? {}
         : { profilePath: normalizeConfigPath(config.presentation.profilePath, options.baseDir) })
+    },
+    capabilities: {
+      ...config.capabilities,
+      skillsDirectory: normalizeConfigPath(config.capabilities.skillsDirectory, options.baseDir)
+    },
+    files: {
+      ...config.files,
+      mounts: config.files.mounts.map((mount) => ({ ...mount, root: normalizeConfigPath(mount.root, options.baseDir) }))
     }
   };
 }

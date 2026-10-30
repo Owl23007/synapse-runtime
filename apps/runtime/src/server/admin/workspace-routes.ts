@@ -1,5 +1,6 @@
 import type { Nova, NovaRequest, NovaResponse } from "nova-http";
 import { WorkspaceOperationError, type RuntimeWorkspace } from "@synapse/runtime-core/workspace";
+import { ResourceOperationError } from "@synapse/runtime-core/assets";
 import { readJsonBody, sendJson } from "../http.js";
 
 /** 注册认证后的工作台传输接口，业务操作由当前运行组合提供 */
@@ -19,10 +20,14 @@ export function registerWorkspaceRoutes(app: Nova, getWorkspace: () => RuntimeWo
       try {
         sendJson(response, 200, { ok: true, ...((await handler(workspace, request)) as object) });
       } catch (error) {
-        sendJson(response, error instanceof WorkspaceOperationError ? error.status : 409, {
-          ok: false,
-          error: error instanceof Error ? error.message : "操作失败"
-        });
+        sendJson(
+          response,
+          error instanceof WorkspaceOperationError || error instanceof ResourceOperationError ? error.status : 409,
+          {
+            ok: false,
+            error: error instanceof Error ? error.message : "操作失败"
+          }
+        );
       }
     });
   };

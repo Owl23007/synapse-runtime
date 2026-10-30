@@ -3,6 +3,7 @@ test-results/
 dist/
 coverage/
 .synapse/
+.local/
 .research/
 .pnpm*/
 docs/.vitepress/.temp/

@@ -1,5 +1,50 @@
 import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod";
+
+/** 文件限额与只读目录由管理员定义，不接受模型提供宿主路径 */
+export const FilesSettingsSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxNativeUploadBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(50 * 1024 * 1024)
+    .default(20 * 1024 * 1024),
+  maxRemoteFetchBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(100 * 1024 * 1024)
+    .default(50 * 1024 * 1024),
+  maxConcurrentFetches: z.number().int().positive().max(16).default(2),
+  cacheMaxBytes: z
+    .number()
+    .int()
+    .positive()
+    .default(1024 * 1024 * 1024),
+  remoteAllowedHosts: z.array(z.string().min(1)).default([]),
+  mounts: z
+    .array(
+      z
+        .object({
+          id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+          root: z.string().min(1),
+          urlPrefix: z.string().regex(/^\/files\/[a-z][a-z0-9-]*$/),
+          access: z.enum(["private", "authenticated", "public"]).default("authenticated"),
+          allowPublic: z.boolean().default(false),
+          readOnly: z.literal(true).default(true)
+        })
+        .refine((value) => value.access !== "public" || value.allowPublic, "Public mounts require allowPublic")
+    )
+    .default([])
+});
+
+/** 文件领域配置令牌 */
+export const filesConfig = defineConfig({
+  id: "files",
+  defaults: FilesSettingsSchema.parse({}),
+  parse: (value: unknown) => FilesSettingsSchema.parse(value)
+});
 /** 运行时上下文存储与合成配置模式 */
 export const RuntimeContextSettingsSchema = z
   .object({

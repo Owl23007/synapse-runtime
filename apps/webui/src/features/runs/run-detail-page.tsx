@@ -58,6 +58,10 @@ export function RunDetail({
     };
   }, [client, id, nextSeq, revision, refresh]);
   const contextLoad = useCallback(() => client.runContext(id), [client, id]);
+  const dependenciesLoad = useCallback(async () => {
+    const result = record(await client.runDependencies(id));
+    return { available: result.snapshot !== null, snapshot: result.snapshot };
+  }, [client, id]);
   const run = data.value?.run;
   const filteredEvents = events.filter((item) => tab !== "delivery" || /artifact|response/.test(item.type));
   const event = filteredEvents.find((item) => item.seq === selected) ?? filteredEvents.at(-1);
@@ -173,6 +177,7 @@ export function RunDetail({
         {[
           ["timeline", "执行时间线"],
           ["context", "上下文快照"],
+          ["dependencies", "资源与能力"],
           ["tools", "工具调用"],
           ["delivery", "交付记录"]
         ].map(([value, label]) => (
@@ -191,8 +196,8 @@ export function RunDetail({
       </div>
       <div role="tabpanel" id={`run-${id}-panel`} aria-labelledby={`run-${id}-${tab}-tab`}>
         {tab === "timeline" && <ExecutionChart run={run} events={events} now={now} hasMore={hasMore} />}
-        {tab === "context" ? (
-          <Context load={contextLoad} revision={revision} />
+        {tab === "context" || tab === "dependencies" ? (
+          <Context load={tab === "context" ? contextLoad : dependenciesLoad} revision={revision} />
         ) : tab === "tools" ? (
           <section className="panel padded">
             <ToolCalls events={events} />
