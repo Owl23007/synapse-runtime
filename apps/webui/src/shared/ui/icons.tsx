@@ -21,6 +21,14 @@ const paths = {
   chevron: "m9 6 6 6-6 6",
   refresh: "M20 8a8 8 0 1 0 0 8 M20 3v6h-6",
   more: "M5 12h.01 M12 12h.01 M19 12h.01",
+  link: "m10 13 4-4 M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0",
+  lock: "M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5Z M12 14v3",
+  eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  eyeOff:
+    "m3 3 18 18 M10 5c1-.2 2-.2 2-.2 6 0 10 7.2 10 7.2a22 22 0 0 1-4 4 M6 6a24 24 0 0 0-4 6s4 7 10 7a12 12 0 0 0 5-1 M10 10a3 3 0 0 0 4 4",
+  arrowRight: "M4 12h16 m-6-6 6 6-6 6",
+  monitor: "M3 4h18v13H3Z M12 17v4 M8 21h8",
+  server: "M3 3h18v7H3Z M3 14h18v7H3Z M7 6.5h.01 M7 17.5h.01 M11 6.5h6 M11 17.5h6",
   send: "m3 11 18-8-8 18-2-8-8-2Z M11 13 21 3",
   copy: "M8 8h12v13H8V8Z M16 8V3H3v13h5",
   check: "m5 12 4 4L19 6",
@@ -47,7 +55,7 @@ export function Icon({ name, style }: { name: keyof typeof paths; style?: CSSPro
   );
 }
 
-/** 使用矢量标记保持侧栏与对话头像在缩放时清晰 */
+/** 复用品牌矢量标记，保持登录页、侧栏与对话头像在缩放时清晰 */
 export function SynapseMark() {
   return (
     <svg className="synapse-mark" viewBox="0 0 32 32" aria-hidden="true">

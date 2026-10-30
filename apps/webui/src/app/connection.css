@@ -1,51 +1,366 @@
-/* 连接入口布局，不包含任何凭据持久化行为 */
+/* 连接页独立于工作台布局，服务书签与认证输入在视觉上分区 */
 .connect-page {
-  background: var(--canvas);
-}
-.connect-form {
-  display: grid;
-  place-items: center;
-}
-.connect-form form {
-  width: 100%;
-  max-width: 360px;
-}
-.connect-form .hint {
-  margin: var(--space-4) 0 var(--space-6);
-}
-@media (max-width: 760px) {
-  .connect-page {
-    grid-template-columns: 1fr;
-  }
-  .connect-form {
-    padding: var(--space-8) 28px;
-  }
-  .connect-form form {
-    max-width: none;
-  }
-}
-.connect-page {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   min-height: 100dvh;
-  padding: var(--space-6);
+  padding: 0 var(--space-6);
+  background: var(--surface-pane);
 }
 .connect-form {
-  width: min(100%, 420px);
-  padding: var(--space-6);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-panel);
+  width: min(100%, 440px);
+  margin-block: auto;
+  padding-block: var(--space-10);
 }
-.connect-form h2 {
-  font-size: var(--text-page);
-  margin-bottom: var(--space-6);
+.connect-heading {
+  margin-bottom: var(--space-8);
+  text-align: center;
+}
+.connect-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.6px;
+}
+.connect-brand:hover {
+  text-decoration: none;
+}
+.connect-brand-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--focus);
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.connect-brand-icon .synapse-mark {
+  width: 28px;
+  height: 28px;
+}
+.connect-form h1 {
+  margin: 0 0 var(--space-2);
+  font-size: 24px;
+  font-weight: var(--weight-heading);
+  letter-spacing: -0.6px;
+}
+.connect-heading p {
+  margin: 0;
+  font-size: var(--text-control);
+}
+.connect-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .connect-form label {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+.connect-form label .muted {
+  font-weight: var(--weight-normal);
+}
+.connection-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  margin-bottom: var(--space-5);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.connection-input:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus);
+}
+.connection-input > .icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+.connection-input input {
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-body);
+}
+.connection-input input:focus {
+  outline: none;
+}
+.connection-input .connection-icon-button {
+  margin-right: -8px;
+}
+.connection-icon-button {
+  flex-shrink: 0;
+  width: 36px;
+  min-height: 36px;
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.connect-submit {
+  min-height: 44px;
+  font-size: var(--text-body);
+  gap: var(--space-3);
+  border-radius: 9px;
+}
+.connection-remote-hint {
+  margin: -12px 0 var(--space-4);
+  font-size: var(--text-small);
+}
+.recent-connections {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border);
+}
+.recent-connections-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.recent-connections-heading h2 {
+  margin: 0;
+  font-size: var(--text-section);
+}
+.recent-connections-list,
+.connection-manager-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.recent-connections-list {
+  display: grid;
+  /* 长名称不能撑大网格轨道，否则窄屏下会将快捷操作挤出视口 */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.recent-connections-list li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.saved-connection {
+  flex: 1;
+  justify-content: start;
+  min-width: 0;
+  /* 点击区域高于服务图标，悬停背景也留出内边距 */
+  min-height: 48px;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  text-align: left;
+  gap: var(--space-3);
+}
+.recent-connections-list li > .connection-icon-button {
+  width: 40px;
+  min-height: 48px;
+}
+.saved-connection > .icon {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+}
+.saved-connection .connection-copy {
+  gap: 0;
+  line-height: 18px;
+}
+.connection-actions-menu {
+  width: 144px;
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+}
+.connection-actions-menu button {
+  display: flex;
+  justify-content: start;
+  width: 100%;
+  border: 0;
+}
+.connection-service-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.connection-service-icon.remote {
+  background: var(--surface-navigation);
+  color: var(--accent);
+}
+.connection-service-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+.connection-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--space-1);
+}
+.connection-copy strong,
+.connection-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connection-copy strong {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+.connection-copy > span {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.recent-connections-empty {
+  padding: var(--space-5) 0;
+  margin: 0;
+  font-size: 14px;
+}
+.connection-security {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  width: 100%;
+  margin: 0;
+  padding-bottom: max(var(--space-5), env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: var(--text-small);
+}
+.connection-security .icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.connection-storage-warning {
+  margin: var(--space-3) 0 0;
+  color: var(--warning);
+  font-size: var(--text-small);
+}
+.connection-manager {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-float);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+}
+.connection-manager::backdrop {
+  background: #20263850;
+}
+.connection-manager-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.connection-manager-heading h2 {
+  margin: 0;
+  font-size: var(--text-panel);
+}
+.connection-manager-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.connection-manager-list .connection-copy strong {
+  font-size: 14px;
+}
+.connection-manager-list .connection-copy > span {
+  font-size: 12px;
+}
+.connection-manager-actions,
+.connection-editor-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
   margin-top: var(--space-5);
 }
-@media (max-width: 760px) {
-  .connect-form {
-    padding: var(--space-5);
+.connection-editor-actions {
+  justify-content: end;
+}
+.connection-delete,
+.connection-delete:hover {
+  color: var(--danger);
+}
+.connection-editor {
+  display: grid;
+  gap: var(--space-4);
+}
+.connection-editor label {
+  color: var(--text);
+}
+.connection-editor .notice {
+  margin: 0;
+}
+.connection-manager-empty {
+  padding: var(--space-5) 0;
+  text-align: center;
+}
+.connection-clear-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--danger-soft);
+}
+.connection-clear-confirm span {
+  flex: 1;
+  font-size: var(--text-small);
+}
+@media (max-width: 600px) {
+  .connect-page {
+    padding-inline: var(--space-4);
+  }
+  .connection-copy strong {
+    font-size: 14px;
+  }
+  .connection-copy > span {
+    font-size: 12px;
+  }
+  .connection-manager {
+    padding: var(--space-4);
   }
 }

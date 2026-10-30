@@ -3,16 +3,19 @@ import { useState, type ReactNode } from "react";
 import { type RunStreamState } from "@synapse/runtime-client";
 import { MaterialProvider } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
+import { ConnectionCard } from "./connection-card.js";
 
-/** 应用壳使用分隔线区分品牌与导航，认证或协议异常时保留重新连接入口 */
+/** 应用壳装配导航与底部连接卡片，认证或协议异常时保留重新连接入口 */
 export function AppShell({
   route,
   stream,
+  endpoint,
   onDisconnect,
   children
 }: {
   route: AppRoute;
   stream: RunStreamState;
+  endpoint: string;
   onDisconnect: () => void;
   children: ReactNode;
 }) {
@@ -75,6 +78,7 @@ export function AppShell({
               <Icon name="settings" />
               <span className="sidebar-label">设置</span>
             </a>
+            <ConnectionCard endpoint={endpoint} stream={stream} onDisconnect={onDisconnect} />
           </div>
         </aside>
         <div className="main-shell">

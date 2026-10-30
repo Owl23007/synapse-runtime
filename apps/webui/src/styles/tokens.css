@@ -39,7 +39,8 @@
   --text-small: 12px;
   --weight-normal: 400;
   --weight-medium: 500;
-  --weight-heading: 600;
+  /* 标题与强调文字统一使用中等字重，避免中文回退字体显得过重 */
+  --weight-heading: 500;
   --leading-body: 1.55;
   --leading-control: 1.4;
   --space-1: 4px;
