@@ -21,7 +21,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:unit": "vitest run tests/unit --passWithNoTests",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "@synapse/runtime-agent-core": "workspace:*",
@@ -29,5 +32,8 @@
     "@synapse/runtime-conversation": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.5"
   }
 }

@@ -64,6 +64,14 @@ for (const pkg of packages) {
     if (pkg.name === "@synapse/runtime-agent-loop" && name === "@synapse/runtime-agent-api-provider")
       failures.push("Agent loop depends on concrete HTTP provider");
   }
+  for (const path of files(resolve(pkg.dir, "src"))) {
+    if (/(?:^|[\\/])[^\\/]+\\.(?:test|spec)\\.(?:ts|tsx|js|jsx)$/.test(path))
+      failures.push(`${relative(root, path).split(sep).join("/")}: Test files must live under tests`);
+  }
+  for (const dependency of Object.keys(pkg.dependencies ?? {})) {
+    if (/^(?:vitest|@vitest\/|@testing-library\/|jest|mocha|chai)$/.test(dependency))
+      failures.push(`${pkg.name}: Test-only dependency ${dependency} must be a devDependency`);
+  }
   if (pkg.name === "@synapse/runtime-server" && ["ink", "react"].some((name) => name in (pkg.dependencies ?? {})))
     failures.push("Runtime server depends on TUI rendering libraries");
   for (const path of files(resolve(pkg.dir, "src"))) {
