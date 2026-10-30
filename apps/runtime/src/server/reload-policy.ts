@@ -18,5 +18,7 @@ export function validateReloadConfig(current: RuntimeConfig, next: RuntimeConfig
     if (current.admin[key] !== next.admin[key]) fields.push(`admin.${key}`);
   }
   if (current.runtime.logLevel !== next.runtime.logLevel) fields.push("runtime.logLevel");
+  if (current.files.maxNativeUploadBytes !== next.files.maxNativeUploadBytes) fields.push("files.maxNativeUploadBytes");
+  if (JSON.stringify(current.files.mounts) !== JSON.stringify(next.files.mounts)) fields.push("files.mounts");
   if (fields.length > 0) throw new ReloadRequiresRestartError(fields);
 }

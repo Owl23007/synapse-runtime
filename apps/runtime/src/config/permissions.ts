@@ -1,5 +1,7 @@
 /** 默认权限表，未配置 permissions 时整体采用此表 */
 export const DEFAULT_PERMISSIONS = {
+  "asset.read": "allow",
+  "skill.read": "allow",
   "channel.qq.send_group_message": "allow",
   "channel.qq.send_channel_message": "allow",
   "channel.qq.send_private_message": "deny",

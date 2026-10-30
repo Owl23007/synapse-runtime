@@ -10,7 +10,14 @@ export function collectTraceSecrets(value: unknown): readonly string[] {
     if (item === null || typeof item !== "object" || seen.has(item)) return;
     seen.add(item);
     for (const [key, entry] of Object.entries(item))
-      visit(entry, sensitive || /authorization|cookie|password|secret|credential|api[_-]?key|token|headers/i.test(key));
+      if (key === "authTokenEnv" && typeof entry === "string") {
+        const secret = process.env[entry];
+        if (secret) secrets.add(secret);
+      } else
+        visit(
+          entry,
+          sensitive || /authorization|cookie|password|secret|credential|api[_-]?key|token|headers/i.test(key)
+        );
   };
   visit(value);
   // 长凭据先替换，避免共享前缀时暴露剩余部分

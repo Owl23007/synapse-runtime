@@ -5,6 +5,9 @@ import {
   agentLoopConfig,
   conversationConfig,
   contextConfig,
+  filesConfig,
+  capabilitiesConfig,
+  mcpConfig,
   memoryConfig,
   promptsConfig,
   presentationConfig,
@@ -71,6 +74,9 @@ export function createApplicationConfigManager(sources: readonly ConfigSource[])
   manager.register(agentConfig);
   manager.register(conversationConfig);
   manager.register(contextConfig);
+  manager.register(filesConfig);
+  manager.register(capabilitiesConfig);
+  manager.register(mcpConfig);
   manager.register(memoryConfig);
   manager.register(agentLoopConfig);
   manager.register(promptsConfig);
@@ -92,6 +98,9 @@ export function readApplicationConfig(manager: ConfigManager): RuntimeConfig {
     agent: manager.get(agentConfig),
     conversation: manager.get(conversationConfig),
     context: manager.get(contextConfig),
+    files: manager.get(filesConfig),
+    capabilities: manager.get(capabilitiesConfig),
+    mcp: manager.get(mcpConfig),
     memory: manager.get(memoryConfig),
     agentLoop: manager.get(agentLoopConfig),
     prompts: manager.get(promptsConfig),
