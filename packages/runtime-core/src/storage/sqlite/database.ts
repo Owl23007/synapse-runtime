@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { migrateSqliteRuntimeContextStore } from "./migrations.js";
 import { CONTEXT_GRAPH_SCHEMA_SQL } from "./context-graph-schema.js";
+import { RESOURCE_SCHEMA_SQL } from "./resource-schema.js";
+import { CAPABILITY_SCHEMA_SQL } from "./capability-schema.js";
 
 /** 统一连接配置与迁移，初始化失败时关闭连接避免泄漏 */
 export function openRuntimeDatabase(path: string): Database.Database {
@@ -28,6 +30,21 @@ export function openRuntimeDatabase(path: string): Database.Database {
       if (!applied.get("context-graph-v1")) {
         db.exec(CONTEXT_GRAPH_SCHEMA_SQL);
         record.run("context-graph-v1", new Date().toISOString());
+      }
+      // 与 run_trace_migrations 一样，资源领域独立记账，核心会话版本不承担其他领域版本
+      db.exec("CREATE TABLE IF NOT EXISTS resource_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+      const resourceHistory = db.prepare("SELECT id FROM resource_migrations").all() as { id: string }[];
+      if (resourceHistory.some((entry) => !["resources-v1", "capabilities-v1"].includes(entry.id)))
+        throw new Error("Unsupported resource database migration");
+      const resourceApplied = db.prepare("SELECT 1 FROM resource_migrations WHERE id = ?");
+      const resourceRecord = db.prepare("INSERT INTO resource_migrations VALUES (?, ?)");
+      if (!resourceApplied.get("resources-v1")) {
+        db.exec(RESOURCE_SCHEMA_SQL);
+        resourceRecord.run("resources-v1", new Date().toISOString());
+      }
+      if (!resourceApplied.get("capabilities-v1")) {
+        db.exec(CAPABILITY_SCHEMA_SQL);
+        resourceRecord.run("capabilities-v1", new Date().toISOString());
       }
     }).immediate();
     return db;

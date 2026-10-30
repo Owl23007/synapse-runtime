@@ -43,10 +43,24 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 会话归属独立于 Files 开关，能力授权也使用相同工作区 */
+  readonly sessionWorkspace?: (sessionId: string) => string | undefined;
+  /** 资源授权只接收可信会话映射，不从模型参数解析工作区 */
+  readonly resources?: {
+    readonly ingress: import("../assets/ingress.js").ResourceIngress;
+    readonly assets: import("../assets/service.js").AssetService;
+  };
   /** 仅在发送边界读取工件内容，持久事件与模型输出继续使用引用 */
   readonly materializeMessage?: (sessionId: string, message: SynapseMessage) => SynapseMessage;
   /** 持久化最终回复前移除未选中与重复工件，发送权限仍按最终内容检查 */
   readonly selectMessage?: (sessionId: string, message: SynapseMessage) => SynapseMessage;
+  /** 在交付前将选中工件发布为资源，保留既有 Artifact 与交付回执语义 */
+  readonly publishArtifacts?: (input: {
+    sessionId: string;
+    runId: string;
+    workspaceId: string;
+    message: SynapseMessage;
+  }) => Promise<void>;
   /** 在消息发送前逐项交付工件并落盘回执，避免部分成功被总回复失败掩盖 */
   readonly prepareDelivery?: (input: {
     readonly sessionId: string;
@@ -83,7 +97,9 @@ export interface RuntimeCoreOptions {
   readonly tools: ToolRuntime;
   readonly logger?: RuntimeCoreLogger;
   readonly localize?: (key: string, params?: Readonly<Record<string, string>>) => string;
-  readonly compileInvocation?: (request: AgentRequest) => ModelInvocationEnvelope | Promise<ModelInvocationEnvelope>;
+  readonly compileInvocation?: (
+    request: AgentRequest
+  ) => ModelInvocationEnvelope | undefined | Promise<ModelInvocationEnvelope | undefined>;
   readonly memory?: {
     readonly enableDurableMemory?: boolean;
     readonly store?: MemoryStore;

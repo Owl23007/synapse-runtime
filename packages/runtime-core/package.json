@@ -9,6 +9,14 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./capabilities": {
+      "types": "./dist/capabilities.d.ts",
+      "import": "./dist/capabilities.js"
+    },
+    "./assets": {
+      "types": "./dist/assets.d.ts",
+      "import": "./dist/assets.js"
+    },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js"
@@ -51,6 +59,7 @@
     "@synapse/runtime-i18n": "workspace:*",
     "@synapse/runtime-permission": "workspace:*",
     "@synapse/runtime-protocol": "workspace:*",
+    "@synapse/runtime-resources": "workspace:^",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "better-sqlite3": "^12.11.1",
     "zod": "^4.6.7"

@@ -1,5 +1,6 @@
 import type {
   ChannelCapabilityProfile,
+  ChannelFileNotice,
   ChannelActionTarget,
   GroupFileUpload,
   ChannelOperationResult,
@@ -45,6 +46,8 @@ export interface ChannelAdapter {
   executePlatformAction?(action: PlatformAction): Promise<ChannelOperationResult>;
   /** 注册频道事件处理器 */
   onEvent(handler: ChannelEventHandler): void;
+  /** 独立订阅文件发现，未实现的平台不承诺文件通知能力 */
+  onFileNotice?(handler: (notice: ChannelFileNotice) => void | Promise<void>): void;
 }
 
 /** 按频道标识管理 Adapter 实例 */

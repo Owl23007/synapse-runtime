@@ -93,7 +93,11 @@ export type ChannelMessageResourceAction =
 
 /** 文件读取、列表和删除分别建模，删除消息不隐含删除附件 */
 export type ChannelFileResourceAction =
-  | (ChannelResourceActionBase & { readonly actionType: "file.get" | "file.delete"; readonly fileId: string })
+  | (ChannelResourceActionBase & {
+      readonly actionType: "file.get" | "file.delete";
+      readonly fileId: string;
+      readonly busid?: string;
+    })
   | (ChannelResourceActionBase & {
       readonly actionType: "file.list";
       readonly page?: ChannelPageRequest;

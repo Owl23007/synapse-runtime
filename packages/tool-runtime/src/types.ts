@@ -17,6 +17,8 @@ export interface ToolSource {
 
 /** 一次工具执行的会话、调用与来源身份 */
 export interface ToolContext {
+  /** 由可信 Session 归属注入的工作区 */
+  readonly workspaceId?: string;
   /** 宿主取消信号，工具应在取消时终止受控资源 */
   readonly signal?: AbortSignal;
   /** 单工具执行上限，由宿主绑定而非模型参数决定 */
@@ -44,6 +46,8 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
 export type ToolPermissionResolver<TInput = unknown> = (input: TInput, context: ToolContext) => PermissionRequirement;
 
 export interface Tool<TInput = unknown, TOutput = unknown> {
+  /** 工作区能力策略同时用于可见性与实际调用，不能替代用户权限 */
+  readonly available?: (context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">) => boolean;
   readonly name: string;
   readonly description: string;
   /** 发送给模型并用于参数校验的 JSON Schema */
@@ -108,6 +112,8 @@ export interface ScopedToolRuntimeView {
 
 /** 固定会话身份与来源的工具视图，模型只能提供调用标识 */
 export interface ToolRuntimeScope {
+  /** 工作区归属只能由宿主绑定 */
+  readonly workspaceId?: string;
   /** 可信运行的取消信号与单工具上限 */
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;

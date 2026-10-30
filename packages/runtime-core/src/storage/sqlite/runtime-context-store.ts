@@ -80,6 +80,8 @@ import type { RunTraceStore, RecoverToolOutput } from "../../trace/types.js";
 import { redactTrace } from "../../trace/redact.js";
 import { acquireDirectoryLease } from "./directory-lease.js";
 import { recoverToolOutputs } from "./recover-tools.js";
+import { SqliteAssetStore } from "./asset-store.js";
+import { SqliteCapabilityStore } from "./capability-store.js";
 
 function validateInspectionPage(limit: number, cursor: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
@@ -181,6 +183,10 @@ export class SqliteRuntimeContextStore
   readonly contextGraph: ContextGraph;
   /** 与消息和语义图共享连接的执行追踪 */
   readonly runs: RunTraceStore;
+  /** 文件资源与会话共享连接和工作区约束 */
+  readonly assets: SqliteAssetStore;
+  /** 安装快照和工作区授权与运行依赖共享事务边界 */
+  readonly capabilities: SqliteCapabilityStore;
   readonly #traceSecrets: readonly string[];
   readonly #releaseLease: (() => void) | undefined;
 
@@ -194,6 +200,8 @@ export class SqliteRuntimeContextStore
       this.#conversation = new SqliteConversationRepository(this.#db);
       this.contextGraph = new SqliteContextGraphRepository(this.#db);
       this.runs = new SqliteRunTraceStore(this.#db, options.traceSecrets);
+      this.assets = new SqliteAssetStore(this.#db);
+      this.capabilities = new SqliteCapabilityStore(this.#db);
     } catch (error) {
       database?.close();
       this.#releaseLease?.();
@@ -205,6 +213,44 @@ export class SqliteRuntimeContextStore
   recoverRuns(resolveToolOutput?: RecoverToolOutput): void {
     if (resolveToolOutput !== undefined) recoverToolOutputs(this.#db, this.runs, this.#conversation, resolveToolOutput);
     this.runs.recover();
+  }
+
+  /** Native 会话显式绑定现有工作区，避免会话 ID 成为另一套资源域 */
+  async bindSessionWorkspace(sessionId: string, workspaceId?: string): Promise<string> {
+    const existing = this.sessionWorkspace(sessionId);
+    if (existing) {
+      if (workspaceId && existing !== workspaceId) throw new Error("Session workspace cannot change");
+      return existing;
+    }
+    const workspace = workspaceId
+      ? (this.assets.requireWorkspace(workspaceId), { id: workspaceId })
+      : await this.resolveWorkspace({
+          platform: "native",
+          provider: "native",
+          channelId: "native",
+          conversationType: "private",
+          conversationId: sessionId,
+          identityId: "runtime-admin",
+          defaultWorkspace: { id: "personal:runtime-admin", type: "personal", name: "Native" }
+        });
+    this.#db.prepare("INSERT INTO session_workspaces VALUES (?, ?)").run(sessionId, workspace.id);
+    return workspace.id;
+  }
+
+  /** 可信会话工作区映射只能由宿主创建或读取 */
+  sessionWorkspace(sessionId: string): string | undefined {
+    return (
+      this.#db.prepare("SELECT workspace_id AS id FROM session_workspaces WHERE session_id = ?").get(sessionId) as
+        | { id: string }
+        | undefined
+    )?.id;
+  }
+
+  /** 管理端列出持久工作区供 Files 和能力授权选择 */
+  listWorkspaces(): readonly WorkspaceRef[] {
+    return this.#db
+      .prepare("SELECT id, type, name FROM workspaces WHERE deleted_at IS NULL ORDER BY name, id LIMIT 500")
+      .all() as WorkspaceRef[];
   }
 
   /** 管理查询出口统一脱敏，不暴露旧消息或图内容中的部署凭据 */

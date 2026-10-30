@@ -5,6 +5,7 @@ import type {
   GroupFileUpload,
   SynapseMessage
 } from "@synapse/runtime-protocol";
+import type { ChannelFileResourceAction, ChannelFileRef } from "@synapse/runtime-protocol";
 import type { OneBot11Api } from "./api.js";
 import { isOneBot11Success } from "./codec.js";
 import type { OneBot11Connection } from "./transport.js";
@@ -16,6 +17,48 @@ export const NAPCAT_MAX_GROUP_FILE_BYTES = 10_485_760;
 /** NapCat 文件扩展，标准 OneBot11 提供方不实例化此对象 */
 export class NapCatApi {
   constructor(private readonly connection: OneBot11Connection) {}
+
+  /** 查询扩展只暴露平台文件事实，下载地址由使用方即时校验且不得持久化 */
+  async readFiles(action: ChannelFileResourceAction): Promise<ChannelOperationResult> {
+    if (action.target.type !== "group" || action.actionType === "file.delete")
+      return { status: "unsupported", error: "Only group file reads are implemented" };
+    const group_id = action.target.groupId;
+    try {
+      if (action.actionType === "file.get") {
+        const response = await this.connection.call("get_group_file_url", {
+          group_id,
+          file_id: action.fileId,
+          ...(action.busid ? { busid: action.busid } : {})
+        });
+        const url = isRecord(response.data) ? stringFromUnknown(response.data.url) : undefined;
+        if (!isOneBot11Success(response) || !url) return { status: "failed", error: "remote_file_unavailable" };
+        return { status: "succeeded", data: { kind: "file", file: { id: action.fileId, name: action.fileId, url } } };
+      }
+      const folderId = "folderId" in action ? action.folderId : undefined;
+      const response = await this.connection.call(folderId ? "get_group_files_by_folder" : "get_group_root_files", {
+        group_id,
+        ...(folderId ? { folder_id: folderId } : {})
+      });
+      if (!isOneBot11Success(response) || !isRecord(response.data) || !Array.isArray(response.data.files))
+        return { status: "failed", error: "remote_file_list_failed" };
+      const items: ChannelFileRef[] = response.data.files.filter(isRecord).flatMap((file) => {
+        const id = stringFromUnknown(file.file_id);
+        const name = stringFromUnknown(file.file_name);
+        if (!id || !name) return [];
+        return [
+          {
+            id,
+            name,
+            ...(typeof file.file_size === "number" ? { sizeBytes: file.file_size } : {}),
+            extensions: { ...(file.busid === undefined ? {} : { busid: String(file.busid) }) }
+          }
+        ];
+      });
+      return { status: "succeeded", data: { kind: "files", items } };
+    } catch {
+      return { status: "failed", error: "remote_file_read_failed" };
+    }
+  }
 
   /** 私聊与群文件共享原生上传动作，具体 API 仍明确标记为 NapCat 扩展 */
   getFileCapability(): ChannelCapability {

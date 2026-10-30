@@ -176,6 +176,8 @@ export class RunCoordinator {
         sessionId,
         source: request.source,
         userId: request.userId,
+        ...(request.workspaceId === undefined ? {} : { workspaceId: request.workspaceId }),
+        ...(request.taskId === undefined ? {} : { taskId: request.taskId }),
         attemptId,
         lineId,
         ...(branchId === undefined ? {} : { branchId }),

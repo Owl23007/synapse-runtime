@@ -6,6 +6,8 @@ import type { RuntimeCore } from "./runtime-core.js";
 
 /** 工作台依赖领域存储端口，具体数据库由应用层装配 */
 export interface RuntimeWorkspaceStore extends ConversationStore {
+  /** 宿主持久化 Native 会话到资源工作区的可信映射 */
+  bindSessionWorkspace?(sessionId: string, workspaceId?: string): Promise<string>;
   readonly contextGraph: ContextGraph;
   readonly runs: Pick<RunTraceStore, "list">;
   /** 对返回浏览器的历史内容脱敏 */
@@ -62,7 +64,11 @@ export class RuntimeWorkspace {
       type: "session",
       content: { title, lineId: session.mainlineId }
     });
-    return { session: contextStore.inspectValue(session) };
+    const workspaceId = await contextStore.bindSessionWorkspace?.(
+      id,
+      body.workspaceId === undefined ? undefined : string(body.workspaceId)
+    );
+    return { session: contextStore.inspectValue(session), ...(workspaceId ? { workspaceId } : {}) };
   }
 
   /** 接收原生输入并返回持久运行身份 */
@@ -73,6 +79,7 @@ export class RuntimeWorkspace {
       sessionId: string(body.sessionId),
       text: string(body.text, 32000),
       idempotencyKey: string(body.idempotencyKey, 200),
+      ...(body.attachments === undefined ? {} : { attachments: attachments(body.attachments) }),
       ...(body.lineId === undefined ? {} : { lineId: string(body.lineId) })
     });
     return { run };
@@ -220,6 +227,14 @@ export class RuntimeWorkspace {
     await publish(summary);
     return { commit: contextStore.inspectValue(merged) };
   }
+}
+
+function attachments(value: unknown): readonly { assetId: string; versionId: string }[] {
+  if (!Array.isArray(value) || value.length > 20) throw new WorkspaceOperationError(400, "附件列表无效");
+  return value.map((item) => {
+    const entry = object(item);
+    return { assetId: string(entry.assetId), versionId: string(entry.versionId) };
+  });
 }
 
 function object(value: unknown): Record<string, unknown> {

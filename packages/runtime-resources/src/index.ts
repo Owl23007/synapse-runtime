@@ -1,4 +1,15 @@
 export { ResourceError } from "./errors.js";
+export { SkillDirectoryLoader, validateSkillPath, type DirectorySkill } from "./skill-directory.js";
+export { extractSkillArchive } from "./skill-archive.js";
+export {
+  CatalogHttp,
+  parseClawHubId,
+  CatalogError,
+  ClawHubCatalog,
+  McpRegistryCatalog,
+  type CatalogProvider,
+  type CatalogEntry
+} from "./catalog.js";
 export {
   compilePromptBundleFileSync,
   loadPresentationProfileCatalogFile,

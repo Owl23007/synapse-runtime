@@ -1,4 +1,5 @@
 export { CHANNEL_PROTOCOL_SCHEMA_VERSION } from "./types.js";
+export type { ChannelFileNotice } from "./file-notice.js";
 export type {
   AdapterCapabilities,
   ChannelCapabilityConstraints,

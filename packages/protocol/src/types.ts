@@ -107,6 +107,8 @@ export type MessageSegment = (NormalizedMessageSegment & ProtocolPartMetadata) |
 
 /** 完整原生消息，平台仅映射可无损表达的片段与控件子集 */
 export interface SynapseMessage {
+  /** 宿主已授权的不可变资源引用，不包含宿主路径或文件字节 */
+  readonly assets?: readonly { readonly assetId: string; readonly versionId: string }[];
   /** 规范消息对象的协议版本，旧调用方可暂不填写 */
   readonly schemaVersion?: ChannelProtocolSchemaVersion;
   readonly id?: string;
