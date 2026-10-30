@@ -1,0 +1,111 @@
+/* 卡片自己管理布局，明确网格位置，避免页面异步样式或收起状态挤压标题 */
+.sidebar-footer .connection-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  grid-template-rows: auto 28px;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-panel);
+}
+.connection-card-heading {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-small);
+}
+.connection-card-title {
+  color: var(--muted);
+  font-weight: var(--weight-normal);
+  white-space: nowrap;
+}
+.connection-card-icon {
+  grid-column: 1;
+  grid-row: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.connection-card-host {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connection-card-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.connection-card-state .dot {
+  background: currentColor;
+  flex-shrink: 0;
+}
+.connection-state-connected {
+  color: var(--success);
+}
+.connection-state-connecting,
+.connection-state-reconnecting {
+  color: var(--warning);
+}
+.connection-state-unauthorized,
+.connection-state-incompatible {
+  color: var(--danger);
+}
+.sidebar-footer .connection-exit {
+  grid-column: 3;
+  grid-row: 2;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+.sidebar-footer .connection-exit:hover {
+  background: var(--surface-hover);
+  color: var(--danger);
+}
+.sidebar-collapsed .sidebar-footer .connection-card {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2);
+}
+.sidebar-collapsed .connection-card-icon,
+.sidebar-collapsed .connection-card-heading,
+.sidebar-collapsed .connection-card-host {
+  display: none;
+}
+@media (max-width: 760px) {
+  .sidebar-footer .connection-card {
+    display: flex;
+    width: auto;
+    padding: var(--space-1);
+  }
+  .connection-card-icon,
+  .connection-card-heading,
+  .connection-card-host {
+    display: none;
+  }
+}

@@ -68,7 +68,7 @@ function ToastCard({ item }: { item: ToastMessage }) {
   );
 }
 
-/** 在视口中央呈现无边框消息，空白区域允许点击穿透且不抢占输入焦点 */
+/** 在页面顶部按整个视口水平居中呈现消息，空白区域允许点击穿透且不抢占输入焦点 */
 export function ToastViewport() {
   const messages = useSyncExternalStore(toast.subscribe, toast.getSnapshot);
   return createPortal(
