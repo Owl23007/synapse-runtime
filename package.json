@@ -22,13 +22,6 @@
     "tui:spawn": "node apps/tui/dist/cli.js --spawn --runtime-entry apps/runtime/dist/cli.js --config runtime.config.toml --env-file .env",
     "test": "pnpm -r test && pnpm test:integration",
     "test:integration": "node --test tools/runtime-tui.test.mjs",
-    "test:webui": "node --test tools/webui.test.mjs",
-    "test:runs": "node --test tools/runs.test.mjs",
-    "test:new-conversation": "node --test tools/new-conversation.test.mjs",
-    "test:workspace": "node --test tools/workspace.test.mjs",
-    "test:workspace-layout": "node --test tools/workspace-layout.test.mjs",
-    "test:workspace-refinements": "node --test tools/workspace-refinements.test.mjs",
-    "test:webui-design": "node tools/run-webui-design-test.mjs",
     "test:docker": "node tools/docker-execution-smoke.mjs",
     "typecheck": "pnpm -r typecheck",
     "prepare": "husky install",
@@ -38,7 +31,6 @@
     "architecture:check": "node tools/check-boundaries.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
     "@types/node": "^26.6.5",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
