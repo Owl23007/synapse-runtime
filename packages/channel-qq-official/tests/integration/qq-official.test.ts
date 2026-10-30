@@ -1,0 +1,312 @@
+import { readFileSync } from "node:fs";
+import { getTextContent } from "@synapse/runtime-protocol";
+import { describe, expect, it } from "vitest";
+import {
+  createQqOfficialWebhookValidationResponse,
+  normalizeQqOfficialDispatch,
+  QqOfficialAccessTokenClient,
+  QqOfficialChannelAdapter,
+  textMessage
+} from "../../src/index.js";
+
+describe("QQ 官方访问令牌客户端", () => {
+  it("请求并缓存应用访问令牌", async () => {
+    const requests: Array<{ url: string; body?: string }> = [];
+    const client = new QqOfficialAccessTokenClient({
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      now: () => 1_000,
+      fetch: async (url, init) => {
+        requests.push({
+          url,
+          ...(init?.body === undefined ? {} : { body: init.body })
+        });
+        return jsonResponse({ access_token: "token-1", expires_in: "7200" });
+      }
+    });
+
+    await expect(client.getAccessToken()).resolves.toBe("token-1");
+    await expect(client.getAccessToken()).resolves.toBe("token-1");
+
+    expect(requests).toEqual([
+      {
+        url: "https://token.example.test",
+        body: JSON.stringify({ appId: "app-id", clientSecret: "app-secret" })
+      }
+    ]);
+  });
+
+  it("接受驼峰命名的令牌响应字段", async () => {
+    const client = new QqOfficialAccessTokenClient({
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async () => jsonResponse({ accessToken: "token-1", expiresIn: "7200" })
+    });
+
+    await expect(client.getAccessToken()).resolves.toBe("token-1");
+  });
+
+  it("解析失败时附带脱敏后的令牌响应正文", async () => {
+    const client = new QqOfficialAccessTokenClient({
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async () => jsonResponse({ code: 401, message: "bad credentials", clientSecret: "secret-value" })
+    });
+
+    await expect(client.getAccessToken()).rejects.toThrow(
+      'QQ official token response is missing "access_token/accessToken": {"code":401,"message":"bad credentials","clientSecret":"[REDACTED]"}'
+    );
+  });
+});
+
+describe("QQ 官方回调校验", () => {
+  it("创建 QQ 官方要求的回调校验响应", () => {
+    expect(
+      createQqOfficialWebhookValidationResponse("abcd", {
+        plain_token: "plain-token",
+        event_ts: "1700000000"
+      })
+    ).toEqual({
+      plain_token: "plain-token",
+      signature:
+        "f05f8b777c33904554b311e72f6396f3a55d2617dcef8869f166388bb2edc9e0872da4db97adbe0d2ba4e517edd7ac57da9f1a598f7ba01c874901df835f090b"
+    });
+  });
+});
+
+describe("QQ 官方分发事件规范化", () => {
+  it("将官方群消息规范化为 Synapse 通道事件", () => {
+    const event = normalizeQqOfficialDispatch("qq-official", {
+      op: 0,
+      t: "GROUP_AT_MESSAGE_CREATE",
+      d: {
+        id: "event-1",
+        msg_id: "message-1",
+        group_openid: "group-openid",
+        content: "hello Synapse",
+        timestamp: "2026-06-27T08:00:00+08:00",
+        author: {
+          user_openid: "user-openid",
+          username: "Alice"
+        }
+      }
+    });
+
+    expect(event).toMatchObject({
+      id: "event-1",
+      platform: "qq",
+      channelId: "qq-official",
+      eventType: "message.created",
+      conversation: { id: "group-openid", kind: "group" },
+      sender: { id: "user-openid", displayName: "Alice" },
+      message: {
+        id: "message-1",
+        type: "text",
+        segments: [{ type: "text", text: "hello Synapse" }, { type: "mention" }]
+      }
+    });
+  });
+
+  it("将有序附件保留为带命名空间的规范协议片段", () => {
+    const payload = loadPlatformEvent("../../src/test-data/group-attachments.json");
+    const attachments = (
+      payload.d as {
+        readonly attachments: readonly unknown[];
+      }
+    ).attachments;
+
+    const event = normalizeQqOfficialDispatch("qq-official", payload);
+
+    expect(event?.message).toMatchObject({
+      type: "mixed",
+      segments: [
+        { type: "text", text: "fixture attachments" },
+        {
+          type: "image",
+          url: "https://example.invalid/attachments/<image-1>.png",
+          alt: "<image-1>.png",
+          namespace: "qq-official",
+          raw: attachments[0]
+        },
+        {
+          type: "audio",
+          url: "https://example.invalid/attachments/<audio-1>.ogg",
+          namespace: "qq-official",
+          raw: attachments[1]
+        },
+        {
+          type: "video",
+          url: "https://example.invalid/attachments/<video-1>.mp4",
+          namespace: "qq-official",
+          raw: attachments[2]
+        },
+        {
+          type: "file",
+          name: "<file-1>.pdf",
+          url: "https://example.invalid/attachments/<file-1>.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 45678,
+          namespace: "qq-official",
+          raw: attachments[3]
+        }
+      ]
+    });
+    expect(JSON.parse(JSON.stringify(event?.message?.segments))).toEqual(event?.message?.segments);
+    expect(event?.message === undefined ? undefined : getTextContent(event.message)).toBe("fixture attachments");
+  });
+
+  it("将格式错误的附件项保留为未知协议片段", () => {
+    const rawAttachment = { filename: "future.bin", extension: { kind: "future" } };
+    const event = normalizeQqOfficialDispatch("qq-official", {
+      op: 0,
+      t: "C2C_MESSAGE_CREATE",
+      d: {
+        id: "message-unknown-attachment",
+        user_openid: "user-openid",
+        content: "",
+        attachments: [rawAttachment]
+      }
+    });
+
+    expect(event?.message).toMatchObject({
+      type: "mixed",
+      segments: [
+        { type: "text", text: "" },
+        {
+          type: "unknown",
+          namespace: "qq-official",
+          rawType: "attachment",
+          fallbackText: "future.bin",
+          raw: rawAttachment
+        }
+      ]
+    });
+  });
+});
+
+describe("QQ 官方通道适配器", () => {
+  it("通过 QQ 官方第二版 API 发送群文本消息", async () => {
+    const requests: Array<{ url: string; headers?: Readonly<Record<string, string>>; body?: string }> = [];
+    const adapter = new QqOfficialChannelAdapter({
+      id: "qq-official",
+      appId: "app-id",
+      appSecret: "app-secret",
+      apiBaseUrl: "https://api.example.test",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async (url, init) => {
+        requests.push({
+          url,
+          ...(init?.headers === undefined ? {} : { headers: init.headers }),
+          ...(init?.body === undefined ? {} : { body: init.body })
+        });
+
+        if (url === "https://token.example.test") {
+          return jsonResponse({ access_token: "token-1", expires_in: 7200 });
+        }
+
+        return jsonResponse({ id: "sent-1" });
+      }
+    });
+
+    const result = await adapter.sendMessage(
+      { type: "group", groupId: "group-openid" },
+      {
+        ...textMessage("hello"),
+        replyTo: {
+          messageId: "message-1",
+          eventId: "event-1",
+          sequence: 1
+        }
+      }
+    );
+
+    expect(result).toEqual({ status: "succeeded", messageId: "sent-1" });
+    expect(requests.at(-1)).toEqual({
+      url: "https://api.example.test/v2/groups/group-openid/messages",
+      headers: {
+        authorization: "QQBot token-1",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        content: "hello",
+        msg_type: 0,
+        msg_id: "message-1",
+        msg_seq: 1
+      })
+    });
+  });
+
+  it.each(["headers", "body"])("消息 %s 提交后传输失败时保留不确定状态", async (phase) => {
+    let messages = 0;
+    const adapter = new QqOfficialChannelAdapter({
+      id: "qq-official",
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async (url) => {
+        if (String(url) === "https://token.example.test")
+          return jsonResponse({ access_token: "token-1", expires_in: 7200 });
+        messages += 1;
+        if (phase === "headers") throw new Error("private payload");
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            throw new Error("private payload");
+          }
+        };
+      }
+    });
+    const receipt = await adapter.sendMessage({ type: "private", userId: "user-openid" }, textMessage("hello"));
+    expect(receipt).toMatchObject({ status: "uncertain" });
+    expect(JSON.stringify(receipt)).not.toContain("private payload");
+    expect(messages).toBe(1);
+  });
+
+  it("通过通道操作结果返回预检失败与不支持的媒体错误", async () => {
+    const adapter = new QqOfficialChannelAdapter({
+      id: "qq-official",
+      appId: "app-id",
+      appSecret: "app-secret",
+      tokenEndpoint: "https://token.example.test",
+      fetch: async () => {
+        throw new Error("network unavailable");
+      }
+    });
+
+    await expect(
+      adapter.sendMessage({ type: "private", userId: "user-openid" }, textMessage("hello"))
+    ).resolves.toEqual({ status: "failed", error: "network unavailable" });
+    await expect(
+      adapter.sendMessage(
+        { type: "private", userId: "user-openid" },
+        { type: "image", segments: [{ type: "image", url: "https://example.test/image.png" }] }
+      )
+    ).resolves.toEqual({
+      status: "failed",
+      error: "QQ official adapter can only send messages with text content in this MVP."
+    });
+  });
+});
+
+function jsonResponse(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return body;
+    }
+  };
+}
+
+function loadPlatformEvent(path: string): {
+  readonly op?: number;
+  readonly t?: string;
+  readonly id?: string;
+  readonly d?: unknown;
+} {
+  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
+}

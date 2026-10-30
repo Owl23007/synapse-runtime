@@ -56,6 +56,9 @@ jobs:
       - name: Check types
         run: pnpm typecheck
 
+      - name: Check test types
+        run: pnpm typecheck:tests
+
       - name: Validate minimal configuration
         run: pnpm config:check
 
@@ -79,4 +82,4 @@ jobs:
       - name: Verify group artifact runtime with Docker
         env:
           SYNAPSE_TEST_DOCKER: "1"
-        run: pnpm --filter @synapse/runtime-server exec vitest run src/server/runtime-artifacts.test.ts
+        run: pnpm --filter @synapse/runtime-server exec vitest run tests/integration/server/runtime-artifacts.test.ts
