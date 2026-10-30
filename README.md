@@ -27,7 +27,7 @@ node apps/runtime/dist/cli.js start --config examples/minimal.config.toml
 - 在分支中「比较与合并」，确认后将结构化结果发布到主线；并发修改会提示刷新
 - 在「工件」下载生成文件，在「系统状态」管理频道、取消活动任务或重载配置
 
-最小配置使用 echo Agent；执行模型与容器工具需在 Runtime 配置中启用对应能力及权限。开发界面可执行 `pnpm webui:dev`；浏览器验收使用 `pnpm test:webui` 与 `pnpm test:workspace`，需先构建
+最小配置使用 echo Agent；执行模型与容器工具需在 Runtime 配置中启用对应能力及权限。开发界面可执行 `pnpm webui:dev`；界面交互与布局在本地手动验收
 
 ### 创建部署配置
 
@@ -71,6 +71,8 @@ Channel 使用原生能力全集描述消息、资源、交互和管理动作，
 ## 开发与验收
 
 `pnpm verify` 是完整验收入口，构建失败或任一检查失败都会停止。开发时可单独执行 `pnpm build`、`pnpm typecheck`、`pnpm test`、`pnpm lint` 和 `pnpm fmt:check`；测试中的进程集成部分依赖最新的 `dist`，应先构建
+
+`tools` 保留 Runtime/TUI 进程集成、容器隔离与工件生成等核心验收脚本。CI 执行各包单元测试和核心集成检查，不安装浏览器或校验 WebUI 文案、布局与交互细节；界面调整由本地手动验收，协议、存储和领域逻辑继续由对应包的单元测试覆盖
 
 切换 Node.js 版本后先执行 `pnpm env:check`。如果 SQLite 原生模块的 ABI 不匹配，执行 `pnpm native:rebuild` 后重新验收；不要沿用其他 Node.js 主版本构建的二进制
 
