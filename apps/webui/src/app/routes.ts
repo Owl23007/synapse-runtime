@@ -6,13 +6,21 @@ export const PAGE_ITEMS = [
   { section: "overview", icon: "folder", label: "总览", path: "/" },
   { section: "runs", icon: "activity", label: "运行", path: "/runs" },
   { section: "explorer", icon: "database", label: "数据", path: "/explorer" },
+  { section: "files", icon: "file", label: "文件", path: "/files" },
+  { section: "capabilities", icon: "settings", label: "能力", path: "/capabilities" },
   { section: "channels", icon: "folder", label: "频道", path: "/channels" },
   { section: "tasks", icon: "task", label: "任务", path: "/tasks" }
 ] as const;
 
 /** 主导航只保留工作空间、运行、数据与任务，顺序沿用页面配置 */
 export const NAV_ITEMS = PAGE_ITEMS.filter(
-  ({ section }) => section === "workspace" || section === "runs" || section === "explorer" || section === "tasks"
+  ({ section }) =>
+    section === "workspace" ||
+    section === "runs" ||
+    section === "explorer" ||
+    section === "tasks" ||
+    section === "files" ||
+    section === "capabilities"
 );
 
 /** 受支持的页面范围包含兼容深链接，未知路径保持明确的空状态 */
