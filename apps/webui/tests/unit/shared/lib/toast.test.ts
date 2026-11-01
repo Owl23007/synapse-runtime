@@ -7,7 +7,7 @@ describe("全局消息通道", () => {
     const previous = store.success("已复制消息");
     const current = store.success("已复制消息");
     expect(current).not.toBe(previous);
-    expect(store.getSnapshot()).toEqual([{ id: current, tone: "success", text: "已复制消息", duration: 3200 }]);
+    expect(store.getSnapshot()).toEqual([{ id: current, tone: "success", text: "已复制消息", duration: 2400 }]);
     store.dismiss(previous!);
     expect(store.getSnapshot()).toHaveLength(1);
   });
@@ -19,7 +19,7 @@ describe("全局消息通道", () => {
     store.error("操作结果");
     store.warning("请检查配置");
     expect(store.getSnapshot().map((item) => item.tone)).toEqual(["success", "error", "warning"]);
-    expect(store.getSnapshot()[1]?.duration).toBe(6000);
+    expect(store.getSnapshot()[1]?.duration).toBe(5000);
   });
 
   it("订阅取消后不再通知，快照只在消息变化时替换", () => {

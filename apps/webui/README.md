@@ -30,13 +30,15 @@ config/                Vite 开发代理配置
 
 ## 连接与存储
 
-连接页按地址保存服务书签，支持新增、重命名、修改地址、删除和清空。成功认证后自动记录最近连接时间；失败认证不新增记录。首页显示最近五条，管理窗口最多保留二十条。
+连接页按地址保存服务书签，支持新增、重命名、修改地址、删除和清空。成功认证后自动记录访问时间；失败认证不新增记录。“最近访问”显示最近五条，管理窗口最多保留二十条。选择书签只切换目标地址并清空令牌，直接在当前 WebUI 连接服务。
 
 `localStorage` 的 `synapse.runtime.connections.v1` 只包含标准化的 HTTP/HTTPS 源地址、显示名称和最近成功连接时间。读写均按字段白名单校验，非法 URL、URL 凭据、路径、查询参数和片段不会恢复为连接。浏览器禁止存储或配额不足时退回页面内存并提示，仍可连接服务。书签按浏览器源隔离，不会自动同步到其他 Runtime。
 
-Admin Token 只保存在输入状态和当前客户端内存中，不写入 `localStorage`、`sessionStorage`、IndexedDB 或 URL。侧栏设置下方展示当前连接与实时状态，退出会停止实时订阅并返回连接页，默认从页面内存回填同源令牌。切换地址清空输入令牌，刷新后需要重新输入。浏览器可读的存储及其同处保存密钥的加密封装都不能防御同源脚本窃取令牌，因而不提供跨刷新“记住令牌”。如需跨刷新免输令牌，应另行实现服务端短期会话和 `HttpOnly; Secure; SameSite` Cookie，而非持久化 Admin Token。参考 [OWASP HTML5 存储安全建议](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html)。
+Admin Token 只保存在输入状态和当前客户端内存中，不写入 `localStorage`、`sessionStorage`、IndexedDB 或 URL。断开连接会停止订阅并返回连接页，保留当前页面的地址与令牌以便重连；退出登录与重新认证会停止订阅并清除令牌，保留地址及书签。切换地址清空输入令牌，关闭或刷新后需要重新输入。网络中断沿用现有 SSE 重连及游标接续，认证失败后可通过“重新认证”清除旧凭据。跨刷新免输令牌需要后续服务端短期会话支持。
 
-认证请求仍仅发往当前页面源。选择其他服务时按钮变为“打开 Runtime”，跳转到目标管理页后再输入令牌，跳转不携带认证材料。非回环地址通过 HTTP 打开时禁止发送访问令牌，远程部署应使用 HTTPS 或本地 SSH 隧道。
+同源连接继续使用当前页面源，本地开发沿用 Vite Proxy。跨源连接先无凭据读取目标 `/admin/connection`，确认协议版本及目标允许的当前 Origin，再发送 Token；不再跳转或跨站分享书签。目标必须将 WebUI 的完整源地址（协议、主机、端口）加入 `admin.allowedOrigins`，并允许客户端地址通过 `admin.allowedRemoteAddresses`。例如本地 WebUI 为 `http://localhost:5173`，则在目标配置中添加该完整来源；不同 localhost 端口也不跳过来源检查。
+
+管理 API 对允许来源返回精确 CORS 来源及 OPTIONS 预检响应，预检不要求 Token，业务读写、下载和 SSE 仍受令牌保护。浏览器请求不携带隐式 Cookie、不跟随重定向；非回环 HTTP 地址禁止发送访问令牌，远程部署使用 HTTPS 或本地 SSH 隧道。HTTPS 页面连接 HTTP 目标还受浏览器混合内容规则限制。旧版 Runtime 未提供来源探测接口时，跨源连接会在发送 Token 前失败，同源连接不受影响。
 
 ## 本地开发
 

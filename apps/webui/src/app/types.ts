@@ -6,7 +6,7 @@ export interface RuntimeConnection {
   readonly endpoint: string;
 }
 
-/** 仅在当前页面内存中保留同源连接草稿，退出可回填，刷新即丢弃且不写入浏览器存储 */
+/** 仅在当前页面内存中保留连接草稿，断开可回填，退出或刷新后清除 */
 export interface ConnectionDraft {
   readonly endpoint: string;
   readonly token: string;

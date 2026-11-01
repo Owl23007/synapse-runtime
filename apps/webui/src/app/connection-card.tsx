@@ -11,7 +11,7 @@ const connectionStates: Record<RunStreamState, string> = {
   stopped: "已断开"
 };
 
-/** 连接卡片按状态标题与地址操作分为两行，保持视觉对齐，退出不默认清空内存凭据 */
+/** 展示连接状态，断开停止订阅但保留当前页面会话供重连 */
 export function ConnectionCard({
   endpoint,
   stream,
@@ -42,8 +42,8 @@ export function ConnectionCard({
         type="button"
         className="connection-exit"
         onClick={onDisconnect}
-        aria-label="退出连接"
-        title={`退出连接 · ${host}`}
+        aria-label="断开连接"
+        title={`断开连接 · ${host}`}
       >
         <svg
           className="icon"

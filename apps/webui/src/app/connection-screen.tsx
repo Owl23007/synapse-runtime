@@ -1,7 +1,8 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import { RuntimeAdminClient } from "@synapse/runtime-client";
-import { normalizeEndpoint, record, message } from "../shared/lib/runtime.js";
-import { ErrorNotice } from "../shared/ui/feedback.js";
+import { normalizeEndpoint, message } from "../shared/lib/runtime.js";
+import { connectRuntime } from "./runtime-preflight.js";
+import { toast } from "../shared/lib/toast.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { ConnectionManager } from "./connection-manager.js";
 import { type ConnectionDraft } from "./types.js";
@@ -21,14 +22,6 @@ function initialConnections() {
     return { connections: readSavedConnections(window.localStorage), warning: "" };
   } catch {
     return { connections: [], warning: STORAGE_WARNING };
-  }
-}
-
-function normalizedEndpoint(input: string): string | undefined {
-  try {
-    return normalizeEndpoint(input);
-  } catch {
-    return undefined;
   }
 }
 
@@ -134,7 +127,7 @@ function ConnectionActions({
   );
 }
 
-/** 提供同源连接入口，退出后从页面内存回填凭据，服务书签仍不包含令牌 */
+/** 连接当前或受信任的跨源 Runtime，认证前检查目标是否允许当前 WebUI 来源 */
 export function ConnectionScreen({
   onConnect,
   initialConnection
@@ -146,16 +139,12 @@ export function ConnectionScreen({
   const [connections, setConnections] = useState(initial.connections);
   const [storageWarning, setStorageWarning] = useState(initial.warning);
   const [endpoint, setEndpoint] = useState(initialConnection?.endpoint ?? location.origin);
-  const [token, setToken] = useState(initialConnection?.endpoint === location.origin ? initialConnection.token : "");
+  const [token, setToken] = useState(initialConnection?.token ?? "");
   const [showToken, setShowToken] = useState(false);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [manager, setManager] = useState<{ selected?: SavedConnection }>();
   const tokenInput = useRef<HTMLInputElement>(null);
-  const endpointInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
-  const normalized = normalizedEndpoint(endpoint);
-  const external = normalized !== undefined && normalized !== location.origin;
   const updateConnections = (next: SavedConnection[]) => {
     setConnections(next);
     try {
@@ -169,39 +158,23 @@ export function ConnectionScreen({
     setEndpoint(connection.endpoint);
     setToken("");
     setShowToken(false);
-    setError("");
-    if (connection.endpoint === location.origin) tokenInput.current?.focus();
-    else endpointInput.current?.focus();
+    tokenInput.current?.focus();
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting.current) return;
-    setError("");
     submitting.current = true;
     setBusy(true);
     try {
       const target = normalizeEndpoint(endpoint);
       const previous = connections.find((item) => item.endpoint === target);
-      if (target !== location.origin) {
-        // 不跨源发送认证请求，也不通过 URL、存储或窗口通信传递令牌
-        setToken("");
-        setShowToken(false);
-        updateConnections(upsertSavedConnection(connections, previous ?? createSavedConnection(target)));
-        window.location.assign(`${target}/`);
-        return;
-      }
-      if (token && new URL(target).protocol !== "https:" && !isLocalEndpoint(target)) {
-        throw new Error("请通过 HTTPS 打开此 Runtime 后再使用访问令牌，避免令牌通过明文网络传输");
-      }
-      const client = new RuntimeAdminClient({ endpoint: target, ...(token ? { token } : {}) });
-      const status = record(await client.status());
-      if (status.protocolVersion !== 1) throw new Error("服务协议版本不兼容，请更新 WebUI 与 Runtime 到同一版本");
+      const client = await connectRuntime(target, token, location.origin);
       updateConnections(upsertSavedConnection(connections, createSavedConnection(target, previous?.name, Date.now())));
       setToken("");
       setShowToken(false);
       onConnect(client, target, token);
     } catch (cause) {
-      setError(message(cause));
+      toast.error(message(cause));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -226,7 +199,6 @@ export function ConnectionScreen({
             <div className="connection-input">
               <Icon name="link" />
               <input
-                ref={endpointInput}
                 id="runtime-endpoint"
                 required
                 type="url"
@@ -236,7 +208,6 @@ export function ConnectionScreen({
                   setEndpoint(event.target.value);
                   setToken("");
                   setShowToken(false);
-                  setError("");
                 }}
                 autoComplete="url"
                 spellCheck={false}
@@ -258,80 +229,71 @@ export function ConnectionScreen({
                 spellCheck={false}
                 placeholder="输入 Admin Token"
                 aria-describedby="connection-security"
-                disabled={external}
               />
               <button
                 type="button"
                 className="connection-icon-button"
                 aria-label={showToken ? "隐藏令牌" : "显示令牌"}
                 aria-pressed={showToken}
-                disabled={external}
                 onClick={() => setShowToken(!showToken)}
               >
                 <Icon name={showToken ? "eyeOff" : "eye"} />
               </button>
             </div>
-            {external && (
-              <p className="connection-remote-hint" role="status">
-                将在目标服务页面连接，请在那里输入访问令牌
-              </p>
-            )}
-            <ErrorNotice error={error} />
             <button type="submit" className="primary full connect-submit" disabled={busy}>
-              {busy ? "正在连接…" : external ? "打开 Runtime" : "连接 Runtime"}
+              {busy ? "正在连接…" : "连接 Runtime"}
               <Icon name="arrowRight" />
             </button>
           </fieldset>
         </form>
-        <section className="recent-connections" aria-labelledby="recent-connections-title">
-          <div className="recent-connections-heading">
-            <h2 id="recent-connections-title">最近连接</h2>
-          </div>
-          <ul className="recent-connections-list">
-            {connections.slice(0, 5).map((connection) => (
-              <li key={connection.endpoint}>
-                <button
-                  type="button"
-                  className="saved-connection"
-                  disabled={busy}
-                  aria-label={`选择 ${connection.name}`}
-                  onClick={() => select(connection)}
-                >
-                  <span
-                    className={`connection-service-icon ${isLocalEndpoint(connection.endpoint) ? "local" : "remote"}`}
+        {connections.length > 0 && (
+          <section className="recent-connections" aria-labelledby="recent-connections-title">
+            <div className="recent-connections-heading">
+              <h2 id="recent-connections-title">最近访问</h2>
+            </div>
+            <ul className="recent-connections-list">
+              {connections.slice(0, 5).map((connection) => (
+                <li key={connection.endpoint}>
+                  <button
+                    type="button"
+                    className="saved-connection"
+                    disabled={busy}
+                    aria-label={`选择 ${connection.name}`}
+                    onClick={() => select(connection)}
                   >
-                    <Icon name={isLocalEndpoint(connection.endpoint) ? "monitor" : "server"} />
-                  </span>
-                  <span className="connection-copy">
-                    <strong>{connection.name}</strong>
-                    <span>{new URL(connection.endpoint).host}</span>
-                  </span>
-                  <Icon name="chevron" />
-                </button>
-                <ConnectionActions
-                  connection={connection}
-                  disabled={busy}
-                  onEdit={() => setManager({ selected: connection })}
-                  onDelete={() =>
-                    updateConnections(connections.filter((item) => item.endpoint !== connection.endpoint))
-                  }
-                />
-              </li>
-            ))}
-          </ul>
-          {!connections.length && (
-            <p className="recent-connections-empty">暂无连接记录，成功连接后会自动保存服务地址</p>
-          )}
-          {storageWarning && (
-            <p className="connection-storage-warning" role="status">
-              {storageWarning}
-            </p>
-          )}
-        </section>
+                    <span
+                      className={`connection-service-icon ${isLocalEndpoint(connection.endpoint) ? "local" : "remote"}`}
+                    >
+                      <Icon name={isLocalEndpoint(connection.endpoint) ? "monitor" : "server"} />
+                    </span>
+                    <span className="connection-copy">
+                      <strong>{connection.name}</strong>
+                      <span>{new URL(connection.endpoint).host}</span>
+                    </span>
+                    <Icon name="chevron" />
+                  </button>
+                  <ConnectionActions
+                    connection={connection}
+                    disabled={busy}
+                    onEdit={() => setManager({ selected: connection })}
+                    onDelete={() =>
+                      updateConnections(connections.filter((item) => item.endpoint !== connection.endpoint))
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {storageWarning && (
+          <p className="connection-storage-warning" role="status">
+            {storageWarning}
+          </p>
+        )}
       </div>
       <p id="connection-security" className="connection-security">
         <Icon name="lock" />
-        <span>仅保存名称和地址，退出保留页面内存中的令牌，刷新后清除</span>
+        <span>仅保存名称和地址，退出登录、关闭或刷新后清除令牌</span>
       </p>
       {manager && (
         <ConnectionManager

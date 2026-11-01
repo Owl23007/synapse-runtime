@@ -25,7 +25,7 @@ export function createToastStore() {
   };
   const show = (tone: ToastTone, text: string, options: ToastOptions = {}) => {
     if (!text.trim()) return undefined;
-    const duration = options.duration ?? (tone === "error" ? 6000 : 3200);
+    const duration = options.duration ?? (tone === "error" ? 5000 : 2400); // 错误消息 5 秒，其他消息 2.4 秒
     const item: ToastMessage = {
       id: ++sequence,
       tone,

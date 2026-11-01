@@ -11,12 +11,14 @@ export function AppShell({
   stream,
   endpoint,
   onDisconnect,
+  onLogout,
   children
 }: {
   route: AppRoute;
   stream: RunStreamState;
   endpoint: string;
   onDisconnect: () => void;
+  onLogout: () => void;
   children: ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -79,6 +81,10 @@ export function AppShell({
               <span className="sidebar-label">设置</span>
             </a>
             <ConnectionCard endpoint={endpoint} stream={stream} onDisconnect={onDisconnect} />
+            <button type="button" className="settings-link" onClick={onLogout} aria-label="退出登录" title="退出登录">
+              <Icon name="lock" />
+              <span className="sidebar-label">退出登录</span>
+            </button>
           </div>
         </aside>
         <div className="main-shell">
@@ -96,8 +102,8 @@ export function AppShell({
               {stream === "unauthorized"
                 ? "认证失败，请重新连接并输入凭据"
                 : "服务协议版本不兼容，请更新 WebUI 与 Runtime 到同一版本"}
-              <button type="button" onClick={onDisconnect}>
-                重新连接
+              <button type="button" onClick={onLogout}>
+                重新认证
               </button>
             </div>
           )}
