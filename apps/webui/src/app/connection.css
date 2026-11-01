@@ -123,10 +123,6 @@
   gap: var(--space-3);
   border-radius: 9px;
 }
-.connection-remote-hint {
-  margin: -12px 0 var(--space-4);
-  font-size: var(--text-small);
-}
 .recent-connections {
   margin-top: var(--space-6);
   padding-top: var(--space-5);
@@ -243,11 +239,6 @@
 .connection-copy > span {
   color: var(--muted);
   font-size: var(--text-small);
-}
-.recent-connections-empty {
-  padding: var(--space-5) 0;
-  margin: 0;
-  font-size: 14px;
 }
 .connection-security {
   display: flex;

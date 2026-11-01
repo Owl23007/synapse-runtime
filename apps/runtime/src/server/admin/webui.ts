@@ -37,7 +37,7 @@ export function registerWebUi(app: Nova, directory = fileURLToPath(new URL("../.
         .setHeader("cache-control", path === "/" ? "no-cache" : "public, max-age=31536000, immutable")
         .setHeader(
           "content-security-policy",
-          "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+          "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' http: https:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
         );
       response.send(await readFile(filePath));
     } catch {

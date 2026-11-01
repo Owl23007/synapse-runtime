@@ -73,7 +73,7 @@ export function normalizeEndpoint(input: string): string {
     url.hash ||
     url.pathname !== "/"
   ) {
-    throw new Error("请输入不含路径、凭据和查询参数的 HTTP 或 HTTPS 服务地址");
+    throw new Error("请输入不含凭据和查询参数的服务地址");
   }
   return url.origin;
 }

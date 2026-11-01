@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Icon } from "../shared/ui/icons.js";
 import { message } from "../shared/lib/runtime.js";
-import { ErrorNotice } from "../shared/ui/feedback.js";
+import { toast } from "../shared/lib/toast.js";
 import { createSavedConnection, upsertSavedConnection, type SavedConnection } from "./saved-connections.js";
 
 /** 复用书签管理与精简编辑弹窗，快捷编辑完成后关闭并恢复触发控件焦点 */
@@ -24,7 +24,6 @@ export function ConnectionManager({
   const [original, setOriginal] = useState(selected?.endpoint);
   const [name, setName] = useState(selected?.name ?? "");
   const [endpoint, setEndpoint] = useState(selected?.endpoint ?? "");
-  const [error, setError] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     const element = dialog.current;
@@ -44,7 +43,6 @@ export function ConnectionManager({
     setOriginal(connection?.endpoint);
     setName(connection?.name ?? "");
     setEndpoint(connection?.endpoint ?? "");
-    setError("");
     setConfirmClear(false);
     setEditing(true);
   };
@@ -70,7 +68,7 @@ export function ConnectionManager({
       if (selected) onClose();
       else setEditing(false);
     } catch (cause) {
-      setError(message(cause));
+      toast.error(message(cause));
     }
   };
   return (
@@ -120,7 +118,6 @@ export function ConnectionManager({
               spellCheck={false}
             />
           </label>
-          <ErrorNotice error={error} />
           <div className="connection-editor-actions">
             <button type="button" onClick={() => (selected ? onClose() : setEditing(false))}>
               取消
