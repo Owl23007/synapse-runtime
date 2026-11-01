@@ -27,7 +27,7 @@
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/client": "2.4.0",
     "@synapse/runtime-config": "workspace:*",
     "@synapse/runtime-tool-runtime": "workspace:*",
     "@synapse/runtime-tool-web": "workspace:*",
