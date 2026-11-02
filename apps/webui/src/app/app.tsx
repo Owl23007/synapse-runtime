@@ -7,7 +7,7 @@ import { ConnectionScreen } from "./connection-screen.js";
 import { useHashRoute } from "./routes.js";
 import { useRuntimeEvents } from "./use-runtime-events.js";
 
-/** 装配连接生命周期，断开保留页面会话，退出与重新认证销毁凭据并停止订阅 */
+/** 装配连接生命周期，直接退出保留页面凭据，清除后退出与重新认证均销毁令牌并停止订阅 */
 export function App() {
   const [connection, setConnection] = useState<RuntimeConnection>();
   const draft = useRef<ConnectionDraft | undefined>(undefined);

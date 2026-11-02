@@ -1,11 +1,24 @@
 import { NAV_ITEMS, PAGE_ITEMS, type AppRoute } from "./routes.js";
-import { useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { type RunStreamState } from "@synapse/runtime-client";
 import { MaterialProvider } from "../shared/ui/surface.js";
 import { Icon, SynapseMark } from "../shared/ui/icons.js";
 import { ConnectionCard } from "./connection-card.js";
 
-/** 应用壳装配导航与底部连接卡片，认证或协议异常时保留重新连接入口 */
+// 仅记住退出偏好，不持久化令牌；存储不可用时仍在当前页面保留选择
+const CLEAR_TOKEN_ON_EXIT_KEY = "synapse.runtime.clear-token-on-exit.v1";
+let clearTokenPreference = false;
+
+function readClearTokenPreference(): boolean {
+  try {
+    clearTokenPreference = localStorage.getItem(CLEAR_TOKEN_ON_EXIT_KEY) === "true";
+  } catch {
+    // 浏览器禁用存储时沿用页面内存偏好，不能阻止退出
+  }
+  return clearTokenPreference;
+}
+
+/** 应用壳统一退出入口，退出时可保留或清除页面内存凭据，异常时仍可重新认证 */
 export function AppShell({
   route,
   stream,
@@ -22,6 +35,10 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [clearTokenOnExit, setClearTokenOnExit] = useState(readClearTokenPreference);
+  const exitDialog = useRef<HTMLDialogElement>(null);
+  const exitTitle = useId();
+  const exitDescription = useId();
   const section = route.section;
   return (
     <MaterialProvider>
@@ -80,11 +97,7 @@ export function AppShell({
               <Icon name="settings" />
               <span className="sidebar-label">设置</span>
             </a>
-            <ConnectionCard endpoint={endpoint} stream={stream} onDisconnect={onDisconnect} />
-            <button type="button" className="settings-link" onClick={onLogout} aria-label="退出登录" title="退出登录">
-              <Icon name="lock" />
-              <span className="sidebar-label">退出登录</span>
-            </button>
+            <ConnectionCard endpoint={endpoint} stream={stream} onDisconnect={() => exitDialog.current?.showModal()} />
           </div>
         </aside>
         <div className="main-shell">
@@ -112,6 +125,40 @@ export function AppShell({
           </main>
         </div>
       </div>
+      <dialog
+        ref={exitDialog}
+        className="connection-exit-dialog"
+        aria-labelledby={exitTitle}
+        aria-describedby={exitDescription}
+      >
+        <h2 id={exitTitle}>退出连接</h2>
+        <p id={exitDescription}>退出后保留当前页面的令牌，方便重新连接；勾选“同时清空令牌”后，重连需要重新输入</p>
+        <label className="connection-exit-option">
+          <input
+            type="checkbox"
+            checked={clearTokenOnExit}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              setClearTokenOnExit(checked);
+              clearTokenPreference = checked;
+              try {
+                localStorage.setItem(CLEAR_TOKEN_ON_EXIT_KEY, String(checked));
+              } catch {
+                // 偏好保存失败时仍按本次选择退出
+              }
+            }}
+          />
+          同时清空令牌
+        </label>
+        <div className="connection-exit-actions">
+          <button type="button" autoFocus onClick={() => exitDialog.current?.close()}>
+            取消
+          </button>
+          <button type="button" className="primary" onClick={clearTokenOnExit ? onLogout : onDisconnect}>
+            直接退出
+          </button>
+        </div>
+      </dialog>
     </MaterialProvider>
   );
 }

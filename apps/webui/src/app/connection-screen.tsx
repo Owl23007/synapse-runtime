@@ -293,7 +293,7 @@ export function ConnectionScreen({
       </div>
       <p id="connection-security" className="connection-security">
         <Icon name="lock" />
-        <span>仅保存名称和地址，退出登录、关闭或刷新后清除令牌</span>
+        <span>仅保存名称和地址，退出时可保留令牌，关闭或刷新后清除</span>
       </p>
       {manager && (
         <ConnectionManager
