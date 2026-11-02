@@ -97,6 +97,52 @@
 .sidebar-collapsed .connection-card-host {
   display: none;
 }
+.connection-exit-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-float);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+}
+.connection-exit-dialog::backdrop {
+  background: #20263850;
+}
+.connection-exit-dialog h2 {
+  margin: 0;
+  font-size: var(--text-brand);
+  font-weight: var(--weight-heading);
+}
+.connection-exit-dialog p {
+  margin-block: var(--space-4);
+  color: var(--muted);
+}
+.connection-exit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: var(--space-2);
+}
+.connection-exit-option {
+  flex-direction: row;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: var(--space-3);
+  color: var(--text);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+.connection-exit-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
 @media (max-width: 760px) {
   .sidebar-footer .connection-card {
     display: flex;
