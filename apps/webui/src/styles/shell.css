@@ -320,12 +320,6 @@ nav a[aria-current="page"] {
   min-height: var(--row-height);
   font-size: var(--text-control);
 }
-button.settings-link {
-  justify-content: start;
-  border: 0;
-  background: transparent;
-  font-weight: var(--weight-normal);
-}
 .settings-link:hover,
 .settings-link[aria-current="page"] {
   background: var(--surface-hover);
