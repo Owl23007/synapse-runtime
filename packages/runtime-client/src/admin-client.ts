@@ -33,7 +33,7 @@ export type {
 } from "./admin-client-types.js";
 
 /**
- * Runtime Admin HTTP 客户端
+ * Runtime Admin HTTP 客户端，将网络故障和无效响应转换为可诊断的请求错误
  */
 export class RuntimeAdminClient {
   readonly #endpoint: string;
@@ -497,11 +497,22 @@ export class RuntimeAdminClient {
         ...(this.#token === undefined ? {} : { authorization: `Bearer ${this.#token}` })
       },
       ...(init.body === undefined ? {} : { body: init.body })
+    }).catch((cause: unknown) => {
+      throw new Error("无法连接 Runtime，请检查服务是否启动、服务地址及网络连接", { cause });
     });
-    const body = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (cause) {
+      // 开发代理和网关可能返回空正文或 HTML，解析失败时仍需保留真正的 HTTP 故障
+      if (!response.ok) throw new Error(requestError(response.status), { cause });
+      throw new Error(`Runtime 返回了空响应或无效的 JSON（HTTP ${response.status}），请检查服务地址及代理配置`, {
+        cause
+      });
+    }
 
     if (!response.ok) {
-      throw new Error(`Admin API request failed with HTTP ${response.status}: ${safeJson(body)}`);
+      throw new Error(`${requestError(response.status)}: ${safeJson(body)}`);
     }
 
     return body;
@@ -563,6 +574,14 @@ export class RuntimeAdminClient {
 
     return readNext();
   }
+}
+
+function requestError(status: number): string {
+  const prefix = `Admin API 请求失败（HTTP ${status}）`;
+  if (status === 401 || status === 403) return `${prefix}，请检查访问令牌及服务访问权限`;
+  if (status === 500 || status === 502 || status === 503 || status === 504)
+    return `${prefix}，Runtime 或代理服务暂不可用，请检查 Runtime 是否启动及代理目标地址`;
+  return prefix;
 }
 
 function queryString(query: object): string {
