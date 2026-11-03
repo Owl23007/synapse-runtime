@@ -1,7 +1,7 @@
 /** 持久执行领域表，授权、计划、目标和副作用各自保持独立身份 */
 export const EXECUTION_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS execution_schema (version INTEGER PRIMARY KEY CHECK(version = 1));
-INSERT OR IGNORE INTO execution_schema VALUES (1);
+CREATE TABLE IF NOT EXISTS execution_schema (version INTEGER PRIMARY KEY CHECK(version = 2));
+INSERT OR IGNORE INTO execution_schema VALUES (2);
 CREATE TABLE IF NOT EXISTS execution_grants (
  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), principal_id TEXT NOT NULL,
  session_id TEXT, expires_at INTEGER NOT NULL CHECK(expires_at > 0), revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1)), record TEXT NOT NULL CHECK(json_valid(record)),
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS execution_intents (
  grant_id TEXT NOT NULL REFERENCES execution_grants(id), workspace_id TEXT NOT NULL REFERENCES workspaces(id),
  task_id TEXT REFERENCES agent_tasks(id), schedule_id TEXT REFERENCES agent_schedules(id),
  state TEXT NOT NULL CHECK(state IN ('queued','claimed','done','blocked')), attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
- created_at INTEGER NOT NULL, record TEXT NOT NULL,
+ created_at INTEGER NOT NULL, record TEXT NOT NULL, next_attempt_at INTEGER NOT NULL DEFAULT 0,
  FOREIGN KEY(grant_id, workspace_id) REFERENCES execution_grants(id, workspace_id),
  FOREIGN KEY(schedule_id, grant_id, workspace_id) REFERENCES agent_schedules(id, grant_id, workspace_id)
 );
@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS execution_inbox (
  created_at INTEGER NOT NULL, UNIQUE(run_id, event_key)
 );
 CREATE INDEX IF NOT EXISTS inbox_pending ON execution_inbox(run_id, consumed, ordinal);
+CREATE TABLE IF NOT EXISTS execution_input_receipts (
+ event_id TEXT PRIMARY KEY REFERENCES normalized_events(id), run_id TEXT NOT NULL REFERENCES run_traces(id)
+);
 CREATE TABLE IF NOT EXISTS observed_inputs (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, principal_id TEXT NOT NULL, context_eligible INTEGER NOT NULL CHECK(context_eligible IN (0,1)),
  expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, record TEXT NOT NULL
