@@ -151,6 +151,10 @@ describe("执行审计的持久一致性与公平调度", () => {
       1
     );
     expect((await store.listNormalizedEvents("session")).filter((event) => event.text === "修订 B")).toHaveLength(1);
+    store.execution.collect("delete-expired-derived-execution-records", Date.now() + 8 * 86_400_000);
+    expect(store.execution.forRun(first.id)).toBeUndefined();
+    expect((await runtime.submitNative(supplement)).id).toBe(first.id);
+    expect(requests).toHaveLength(1);
   });
 
   it("附件投影失败回滚规范补充消息和 Inbox", async () => {

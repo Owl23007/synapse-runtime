@@ -1,12 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
+import { ExecutionLimitError, keyId, stable, unpack, type Row } from "./records.js";
+import { createTaskStorage } from "./tasks.js";
+import { createScheduleStorage } from "./schedules.js";
+import { createOperationStorage } from "./operations.js";
+import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { getTextContent, textMessage, type SynapseChannelEvent } from "@synapse/runtime-protocol";
 import { AutonomySettingsSchema, type AutonomySettings } from "../config.js";
 import type { RunTraceStore, RunTrace } from "../trace/types.js";
-import type { ExecutionGrant, ExecutionIntent, OutputIntent, Schedule, ScheduleRule, Task } from "./types.js";
+import type { ExecutionGrant, ExecutionIntent, Task } from "./types.js";
 import { EXECUTION_SCHEMA_SQL } from "./schema.js";
-import { nextScheduleTime } from "./time.js";
 import type { Commit } from "../context-graph/index.js";
 import type { AcceptNormalizedEventInput, AcceptedNormalizedEvent } from "../conversation/types.js";
 import { redactTrace } from "../trace/redact.js";
@@ -25,25 +28,6 @@ type StoredIntent = Omit<ExecutionIntent, "payload"> & {
     deliveryOfRunId?: string;
   };
 };
-
-class ExecutionLimitError extends Error {
-  constructor(
-    readonly kind: "capacity" | "rate" | "grant" | "storage",
-    message: string
-  ) {
-    super(message);
-  }
-}
-
-type Row = { record: string };
-const unpack = <T>(row: Row | undefined): T | undefined => (row ? (JSON.parse(row.record) as T) : undefined);
-const stable = (value: unknown): string =>
-  JSON.stringify(value, (_key, item: unknown) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
-      : item
-  );
-const keyId = (kind: string, values: unknown) => `${kind}:${createHash("sha256").update(stable(values)).digest("hex")}`;
 
 /** 同库持久执行内核，事务只包含本地事实写入，不执行模型或网络调用 */
 export class ExecutionStore {
@@ -96,6 +80,46 @@ export class ExecutionStore {
     const pageSize = Number(db.pragma("page_size", { simple: true }));
     const pages = Number(db.pragma("page_count", { simple: true }));
     db.pragma(`max_page_count = ${Math.max(pages, Math.floor(this.settings.maxDatabaseBytes / pageSize))}`);
+
+    const storage = {
+      db,
+      runs,
+      settings: this.settings,
+      assertCapacity: () => this.assertCapacity(),
+      checkRecord: (value: unknown) => this.checkRecord(value),
+      checkText: (value: string) => this.checkText(value)
+    };
+    const tasks = createTaskStorage({
+      ...storage,
+      authorize: (...args) => this.authorize(...args),
+      forRun: (...args) => this.forRun(...args)
+    });
+    this.createTask = tasks.createTask;
+    this.getTask = tasks.getTask;
+    this.listTasks = tasks.listTasks;
+    this.inspectTasks = tasks.inspectTasks;
+    this.inspectTask = tasks.inspectTask;
+    this.controlTask = tasks.controlTask;
+    this.updateTask = tasks.updateTask;
+    const schedules = createScheduleStorage({
+      ...storage,
+      authorize: (...args) => this.authorize(...args),
+      getGrant: (...args) => this.getGrant(...args),
+      accept: (...args) => this.accept(...args)
+    });
+    this.createSchedule = schedules.createSchedule;
+    this.schedule = schedules.schedule;
+    this.listSchedules = schedules.listSchedules;
+    this.updateSchedule = schedules.updateSchedule;
+    this.tick = schedules.tick;
+    const operations = createOperationStorage({ ...storage });
+    this.saveResult = operations.saveResult;
+    this.result = operations.result;
+    this.startOperation = operations.startOperation;
+    this.transactionalTool = operations.transactionalTool;
+    this.consume = operations.consume;
+    this.receipt = operations.receipt;
+    this.operation = operations.operation;
   }
 
   /** 管理协议出口统一脱敏，权威运行输入仍保留原始事实 */
@@ -176,6 +200,17 @@ export class ExecutionStore {
       )
       .get(inputKey) as { run_id: string } | undefined;
     return row ? this.runs.get(row.run_id) : undefined;
+  }
+
+  /** 当前 Run 的输入由请求及 Inbox 注入，历史装配不重复采用同一来源 */
+  inputSources(runId: string): readonly string[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT e.source_event_id FROM execution_input_receipts i JOIN normalized_events e ON e.id = i.event_id WHERE i.run_id = ? LIMIT 65"
+        )
+        .all(runId) as { source_event_id: string }[]
+    ).map((row) => row.source_event_id);
   }
 
   /** 接受新工作前预留收尾空间，满额时拒绝增长并保留未决回执 */
@@ -481,20 +516,10 @@ export class ExecutionStore {
   }
 
   /** 已提交结果独立于消息交付，崩溃后只重做缺失交付 */
-  saveResult(runId: string, outcome: OutputIntent): void {
-    this.checkRecord(outcome);
-    const prior = this.result(runId);
-    if (prior && stable(prior) !== stable(outcome)) throw new Error("Execution result conflict");
-    this.db.prepare("INSERT OR IGNORE INTO execution_results VALUES (?, ?, ?)").run(runId, stable(outcome), Date.now());
-  }
+  readonly saveResult: ReturnType<typeof createOperationStorage>["saveResult"];
 
   /** 读取权威执行结果，不从已发送消息反向猜测结果 */
-  result(runId: string): OutputIntent | undefined {
-    const row = this.db.prepare("SELECT outcome FROM execution_results WHERE run_id = ?").get(runId) as
-      | { outcome: string }
-      | undefined;
-    return row ? (JSON.parse(row.outcome) as OutputIntent) : undefined;
-  }
+  readonly result: ReturnType<typeof createOperationStorage>["result"];
 
   /** 显式提交具有总量上限，幂等重试不消耗新额度 */
   commitContext(scopeId: string, key: string, commit: () => Commit): Commit {
@@ -763,61 +788,10 @@ export class ExecutionStore {
   }
 
   /** 模型只创建自己授权域内的目标，父子深度和数量有硬上限 */
-  createTask(grant: ExecutionGrant, input: { key: string; goal: string; acceptance: string; parentId?: string }): Task {
-    this.authorize(grant.id);
-    this.checkText(input.goal);
-    this.checkText(input.acceptance);
-    return this.db
-      .transaction(() => {
-        const id = keyId("task", [grant.workspaceId, grant.principalId, input.key]);
-        const previous = this.db.prepare("SELECT creation_request, record FROM agent_tasks WHERE id = ?").get(id) as
-          | (Row & { creation_request: string })
-          | undefined;
-        if (previous) {
-          if (previous.creation_request !== stable(input)) throw new Error("Task creation conflict");
-          return unpack<Task>(previous)!;
-        }
-        this.assertCapacity();
-        const count = this.db
-          .prepare("SELECT count(*) AS count FROM agent_tasks WHERE workspace_id = ?")
-          .get(grant.workspaceId) as { count: number };
-        if (count.count >= this.settings.maxTasks) throw new Error("Task quota exhausted");
-        let parentId = input.parentId;
-        let depth = 1;
-        while (parentId) {
-          if (++depth > this.settings.maxTaskDepth) throw new Error("Task depth exhausted");
-          parentId = this.getTask(parentId, grant).parentId;
-        }
-        const task: Task = {
-          id,
-          workspaceId: grant.workspaceId,
-          principalId: grant.principalId,
-          goal: input.goal,
-          acceptance: input.acceptance,
-          status: "open",
-          revision: 1,
-          progress: "",
-          results: [],
-          ...(input.parentId ? { parentId: input.parentId } : {})
-        };
-        this.db
-          .prepare("INSERT INTO agent_tasks VALUES (?, ?, ?, ?, 1, 'open', ?, ?, ?)")
-          .run(id, task.workspaceId, task.principalId, input.parentId ?? null, input.key, stable(input), stable(task));
-        return task;
-      })
-      .immediate();
-  }
+  readonly createTask: ReturnType<typeof createTaskStorage>["createTask"];
 
   /** 默认目标归属主体私有，共享工作区不隐式分享目标内容 */
-  getTask(id: string, grant: ExecutionGrant): Task {
-    const task = unpack<Task>(
-      this.db
-        .prepare("SELECT record FROM agent_tasks WHERE id = ? AND workspace_id = ? AND principal_id = ?")
-        .get(id, grant.workspaceId, grant.principalId) as Row | undefined
-    );
-    if (!task) throw new Error("Task not found or unauthorized");
-    return task;
-  }
+  readonly getTask: ReturnType<typeof createTaskStorage>["getTask"];
 
   /** 有界列出当前主体的目标 */
   readTask(runId: string, id: string): Task {
@@ -833,367 +807,34 @@ export class ExecutionStore {
   }
 
   /** 有界列出当前主体的目标 */
-  listTasks(grant: ExecutionGrant): readonly Task[] {
-    this.authorize(grant.id);
-    return (
-      this.db
-        .prepare(
-          "SELECT record FROM agent_tasks WHERE workspace_id = ? AND principal_id = ? ORDER BY rowid DESC LIMIT ?"
-        )
-        .all(grant.workspaceId, grant.principalId, this.settings.maxTasks) as Row[]
-    ).map((row) => unpack<Task>(row)!);
-  }
+  readonly listTasks: ReturnType<typeof createTaskStorage>["listTasks"];
 
   /** 已鉴权管理端按工作区检查持久目标，模型工具不暴露此全局入口 */
-  inspectTasks(workspaceId?: string): readonly Task[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT record FROM agent_tasks ${workspaceId ? "WHERE workspace_id = ?" : ""} ORDER BY rowid DESC LIMIT 200`
-        )
-        .all(...(workspaceId ? [workspaceId] : [])) as Row[]
-    ).map((row) => unpack<Task>(row)!);
-  }
+  readonly inspectTasks: ReturnType<typeof createTaskStorage>["inspectTasks"];
 
   /** 已鉴权管理端按身份读取单个目标 */
-  inspectTask(id: string): Task | undefined {
-    return unpack<Task>(this.db.prepare("SELECT record FROM agent_tasks WHERE id = ?").get(id) as Row | undefined);
-  }
+  readonly inspectTask: ReturnType<typeof createTaskStorage>["inspectTask"];
 
   /** 用户显式控制目标状态仍须检查 revision，不依赖目标原授权是否过期 */
-  controlTask(id: string, expectedRevision: number, status: "open" | "paused" | "cancelled"): Task {
-    return this.db
-      .transaction(() => {
-        const task = this.inspectTask(id);
-        if (!task) throw new Error("Task not found");
-        if (task.revision !== expectedRevision) throw new Error("Task revision conflict");
-        if (["completed", "cancelled"].includes(task.status)) throw new Error("Task is terminal");
-        if (!["open", "paused", "cancelled"].includes(status)) throw new Error("Invalid task status");
-        const next = { ...task, status, revision: task.revision + 1 };
-        this.db
-          .prepare("UPDATE agent_tasks SET status = ?, revision = ?, record = ? WHERE id = ? AND revision = ?")
-          .run(status, next.revision, stable(next), id, expectedRevision);
-        return next;
-      })
-      .immediate();
-  }
+  readonly controlTask: ReturnType<typeof createTaskStorage>["controlTask"];
 
   /** 过期结果仍作为事实保留，但不能完成新修订目标 */
-  updateTask(
-    grant: ExecutionGrant,
-    input: {
-      id: string;
-      expectedRevision: number;
-      goal?: string;
-      acceptance?: string;
-      status?: Task["status"];
-      progress?: string;
-      result?: { runId: string; revision: number; content: string };
-    }
-  ): { task: Task; conflict: boolean } {
-    this.authorize(grant.id);
-    this.checkRecord(input);
-    if (
-      [input.goal, input.acceptance, input.status, input.progress, input.result].every((value) => value === undefined)
-    )
-      throw new Error("Task update requires a change");
-    if (input.goal !== undefined) this.checkText(input.goal);
-    if (input.acceptance !== undefined) this.checkText(input.acceptance);
-    if (input.status !== undefined && !["open", "paused", "completed", "cancelled"].includes(input.status))
-      throw new Error("Invalid task status");
-    return this.db
-      .transaction(() => {
-        const current = this.getTask(input.id, grant);
-        if (
-          input.status === "completed" &&
-          (!input.result || input.goal !== undefined || input.acceptance !== undefined)
-        )
-          throw new Error("Completion requires current revision evidence");
-        if (input.result) {
-          const execution = this.forRun(input.result.runId);
-          if (
-            !execution ||
-            execution.taskId !== current.id ||
-            execution.taskRevision !== input.result.revision ||
-            execution.grantId !== grant.id
-          )
-            throw new Error("Task result source invalid");
-          if (input.status === "completed" && execution.state !== "claimed")
-            throw new Error("Only an active execution may complete a task");
-        }
-        const previousResult = input.result
-          ? current.results.find(
-              (item) => item.runId === input.result!.runId && item.revision === input.result!.revision
-            )
-          : undefined;
-        if (previousResult && previousResult.content !== input.result!.content)
-          throw new Error("Task result identity conflict");
-        const results = input.result && !previousResult ? [...current.results, input.result] : current.results;
-        if (results.length > 128) throw new Error("Task result quota exhausted");
-        const conflict =
-          current.revision !== input.expectedRevision ||
-          Boolean(input.status === "completed" && input.result && input.result.revision !== current.revision);
-        if (["completed", "cancelled"].includes(current.status) && !conflict) throw new Error("Task is terminal");
-        const task: Task = conflict
-          ? { ...current, results }
-          : {
-              ...current,
-              results,
-              revision: current.revision + 1,
-              ...(input.goal === undefined ? {} : { goal: input.goal }),
-              ...(input.acceptance === undefined ? {} : { acceptance: input.acceptance }),
-              ...(input.status === undefined ? {} : { status: input.status }),
-              ...(input.status === "completed" ? { completedByRunId: input.result!.runId } : {}),
-              ...(input.progress === undefined ? {} : { progress: input.progress })
-            };
-        this.checkRecord(task);
-        this.db
-          .prepare("UPDATE agent_tasks SET revision = ?, status = ?, record = ? WHERE id = ? AND revision = ?")
-          .run(task.revision, task.status, stable(task), task.id, current.revision);
-        return { task, conflict };
-      })
-      .immediate();
-  }
+  readonly updateTask: ReturnType<typeof createTaskStorage>["updateTask"];
 
   /** 创建有限次数和寿命的计划，授权域与通知源只能继承当前执行 */
-  createSchedule(
-    grant: ExecutionGrant,
-    input: {
-      key: string;
-      rule: ScheduleRule;
-      instruction: string;
-      mode: Schedule["mode"];
-      taskId?: string;
-      expiresAt?: number;
-      maxOccurrences?: number;
-      missed?: Schedule["missed"];
-      overlap?: Schedule["overlap"];
-    },
-    now = Date.now()
-  ): Schedule {
-    if (!this.settings.enabled) throw new Error("Autonomous scheduling disabled");
-    this.authorize(grant.id, input.taskId, now);
-    this.checkText(input.instruction);
-    return this.db
-      .transaction(() => {
-        const id = keyId("schedule", [grant.id, input.key]);
-        const previous = this.db
-          .prepare("SELECT record, creation_request FROM agent_schedules WHERE id = ?")
-          .get(id) as (Row & { creation_request: string }) | undefined;
-        if (previous) {
-          if (previous.creation_request !== stable(input)) throw new Error("Schedule creation conflict");
-          return unpack<Schedule>(previous)!;
-        }
-        this.assertCapacity();
-        const count = this.db
-          .prepare("SELECT count(*) AS count FROM agent_schedules WHERE workspace_id = ?")
-          .get(grant.workspaceId) as { count: number };
-        if (count.count >= this.settings.maxSchedules) throw new Error("Schedule quota exhausted");
-        if (input.rule.kind === "interval" && input.rule.everyMs < this.settings.minScheduleIntervalMs)
-          throw new Error("Schedule interval below host minimum");
-        const nextFireAt = nextScheduleTime(input.rule, now);
-        const expiresAt = Math.min(
-          input.expiresAt ?? Infinity,
-          grant.expiresAt,
-          now + this.settings.maxScheduleLifetimeHours * 3_600_000
-        );
-        const maxOccurrences = input.maxOccurrences ?? this.settings.maxScheduleOccurrences;
-        if (
-          !nextFireAt ||
-          nextFireAt >= expiresAt ||
-          !Number.isInteger(maxOccurrences) ||
-          maxOccurrences < 1 ||
-          maxOccurrences > this.settings.maxScheduleOccurrences
-        )
-          throw new Error("Schedule exceeds time or occurrence budget");
-        const schedule: Schedule = {
-          id,
-          grantId: grant.id,
-          workspaceId: grant.workspaceId,
-          rule: input.rule,
-          instruction: input.instruction,
-          mode: input.mode,
-          status: "active",
-          revision: 1,
-          nextFireAt,
-          expiresAt,
-          maxOccurrences,
-          fired: 0,
-          missed: input.missed ?? "coalesce",
-          overlap: input.overlap ?? "skip",
-          ...(input.taskId ? { taskId: input.taskId } : {})
-        };
-        this.db
-          .prepare("INSERT INTO agent_schedules VALUES (?, ?, ?, ?, 1, 'active', ?, ?, ?, ?)")
-          .run(
-            id,
-            grant.id,
-            grant.workspaceId,
-            input.taskId ?? null,
-            nextFireAt,
-            input.key,
-            stable(input),
-            stable(schedule)
-          );
-        return schedule;
-      })
-      .immediate();
-  }
+  readonly createSchedule: ReturnType<typeof createScheduleStorage>["createSchedule"];
 
   /** 读取计划快照，调用方必须先验证所属授权 */
-  schedule(id: string): Schedule | undefined {
-    return unpack(this.db.prepare("SELECT record FROM agent_schedules WHERE id = ?").get(id) as Row | undefined);
-  }
+  readonly schedule: ReturnType<typeof createScheduleStorage>["schedule"];
 
   /** 主体只能列出自己创建的计划 */
-  listSchedules(grant: ExecutionGrant): readonly Schedule[] {
-    this.authorize(grant.id);
-    return (
-      this.db
-        .prepare(
-          "SELECT s.record FROM agent_schedules s JOIN execution_grants g ON g.id = s.grant_id WHERE s.workspace_id = ? AND g.principal_id = ? ORDER BY s.rowid DESC LIMIT ?"
-        )
-        .all(grant.workspaceId, grant.principalId, this.settings.maxSchedules) as Row[]
-    ).map((row) => unpack<Schedule>(row)!);
-  }
+  readonly listSchedules: ReturnType<typeof createScheduleStorage>["listSchedules"];
 
   /** 修改、暂停与取消均增加修订，不复活已产生的旧 occurrence */
-  updateSchedule(
-    grant: ExecutionGrant,
-    id: string,
-    expectedRevision: number,
-    patch: { status?: "active" | "paused" | "cancelled"; instruction?: string; rule?: ScheduleRule },
-    now = Date.now()
-  ): Schedule {
-    this.authorize(grant.id, undefined, now);
-    this.checkRecord(patch);
-    if ([patch.status, patch.instruction, patch.rule].every((value) => value === undefined))
-      throw new Error("Schedule update requires a change");
-    if (patch.instruction !== undefined) this.checkText(patch.instruction);
-    if (patch.status !== undefined && !["active", "paused", "cancelled"].includes(patch.status))
-      throw new Error("Invalid schedule status");
-    return this.db
-      .transaction(() => {
-        const current = this.schedule(id);
-        const owner = current && this.getGrant(current.grantId);
-        if (!current || owner?.workspaceId !== grant.workspaceId || owner.principalId !== grant.principalId)
-          throw new Error("Schedule unauthorized");
-        if (current.revision !== expectedRevision) throw new Error("Schedule revision conflict");
-        if (current.status === "cancelled" || (current.status === "completed" && patch.status !== "cancelled"))
-          throw new Error("Schedule terminal");
-        const rule = patch.rule ?? current.rule;
-        if (rule.kind === "interval" && rule.everyMs < this.settings.minScheduleIntervalMs)
-          throw new Error("Schedule interval below host minimum");
-        const next = patch.rule || patch.status === "active" ? nextScheduleTime(rule, now) : current.nextFireAt;
-        if (!next || next >= current.expiresAt) throw new Error("Schedule expired");
-        const schedule: Schedule = { ...current, ...patch, rule, nextFireAt: next, revision: current.revision + 1 };
-        this.writeSchedule(schedule);
-        return schedule;
-      })
-      .immediate();
-  }
+  readonly updateSchedule: ReturnType<typeof createScheduleStorage>["updateSchedule"];
 
   /** 到期事实、标准 Intent 和 nextFireAt 原子提交，重启不能重复领取同一时刻 */
-  tick(now = Date.now()): number {
-    if (!this.settings.enabled) return 0;
-    const due = this.db
-      .prepare(
-        "SELECT record FROM agent_schedules WHERE status = 'active' AND next_fire_at <= ? ORDER BY next_fire_at LIMIT 100"
-      )
-      .all(now) as Row[];
-    let count = 0;
-    for (const row of due) {
-      try {
-        this.db
-          .transaction(() => {
-            const candidate = unpack<Schedule>(row)!;
-            const schedule = this.schedule(candidate.id)!;
-            if (schedule.status !== "active" || schedule.nextFireAt > now) return;
-            let grant: ExecutionGrant;
-            try {
-              grant = this.authorize(schedule.grantId, schedule.taskId, now);
-            } catch {
-              this.writeSchedule({ ...schedule, status: "cancelled" });
-              return;
-            }
-            if (schedule.expiresAt <= now || schedule.fired >= schedule.maxOccurrences) {
-              this.writeSchedule({ ...schedule, status: "completed" });
-              return;
-            }
-            const overlap = this.db
-              .prepare(
-                "SELECT 1 FROM execution_intents WHERE schedule_id = ? AND state IN ('queued','claimed') LIMIT 1"
-              )
-              .get(schedule.id);
-            const missed = schedule.missed === "skip" && now - schedule.nextFireAt > this.settings.pollIntervalMs * 2;
-            const skip = missed || (overlap && schedule.overlap === "skip");
-            let intentId: string | null = null;
-            if (!skip) {
-              const event: SynapseChannelEvent = {
-                id: `occurrence:${schedule.id}:${schedule.revision}:${schedule.nextFireAt}`,
-                platform: grant.source.platform as SynapseChannelEvent["platform"],
-                channelId: grant.source.channelId,
-                eventType: "schedule.due",
-                origin: "incoming",
-                conversation: {
-                  id: grant.source.conversationId,
-                  kind: grant.source.conversationKind as SynapseChannelEvent["conversation"]["kind"]
-                },
-                sender: { id: grant.principalId },
-                receivedAt: new Date(schedule.nextFireAt).toISOString(),
-                message: textMessage(schedule.instruction)
-              };
-              const request: AgentRequest = {
-                sessionId: grant.sessionId ?? "",
-                workspaceId: grant.workspaceId,
-                userId: grant.principalId,
-                ...(schedule.taskId ? { taskId: schedule.taskId } : {}),
-                input: event.message!,
-                source: grant.source,
-                event,
-                contextPolicy: { includeHistory: false, maxMessages: 0 }
-              };
-              const intent = this.accept(
-                {
-                  key: event.id,
-                  grantId: grant.id,
-                  payload: {
-                    event,
-                    request,
-                    ...(schedule.mode === "reminder" ? { reminder: schedule.instruction } : {})
-                  },
-                  scheduleId: schedule.id,
-                  scheduleRevision: schedule.revision,
-                  ...(schedule.taskId ? { taskId: schedule.taskId } : {})
-                },
-                now
-              );
-              intentId = intent.id;
-              count++;
-            }
-            this.db
-              .prepare("INSERT INTO schedule_occurrences VALUES (?, ?, ?, ?, ?, ?)")
-              .run(schedule.id, schedule.revision, schedule.nextFireAt, intentId, skip ? "skipped" : "accepted", now);
-            const next = nextScheduleTime(schedule.rule, now);
-            const fired = schedule.fired + 1;
-            this.writeSchedule({
-              ...schedule,
-              fired,
-              nextFireAt: next ?? schedule.nextFireAt,
-              status: !next || next >= schedule.expiresAt || fired >= schedule.maxOccurrences ? "completed" : "active"
-            });
-          })
-          .immediate();
-      } catch (error) {
-        if (!(error instanceof ExecutionLimitError)) throw error;
-        if (error.kind === "grant") {
-          const schedule = unpack<Schedule>(row)!;
-          this.writeSchedule({ ...schedule, status: "completed", stopReason: "grant_budget" });
-        }
-      }
-    }
-    return count;
-  }
+  readonly tick: ReturnType<typeof createScheduleStorage>["tick"];
 
   /** 补充信息先落持久 Inbox，消费确认独立于模型 HTTP 请求 */
   enqueueInput(runId: string, eventKey: string, content: string): void {
@@ -1267,125 +908,24 @@ export class ExecutionStore {
         )
         .all(sessionId, now, this.settings.maxObservationsPerSession) as Row[]
     )
-      .reverse()
+      .toReversed()
       .map((row) => unpack<SynapseChannelEvent>(row)!);
   }
 
   /** 开始副作用前保存稳定操作身份，未知结果不得作为缺失重放 */
-  startOperation(
-    runId: string,
-    id: string,
-    name: string,
-    input: unknown,
-    effect: "external" | "transactional" | "read" = "external"
-  ): void {
-    this.checkRecord(input);
-    const existing = this.db
-      .prepare("SELECT run_id, name, input, state, effect FROM execution_operations WHERE id = ?")
-      .get(id) as { run_id: string; name: string; input: string; state: string; effect: string } | undefined;
-    if (existing) {
-      if (existing.run_id !== runId || existing.name !== name || existing.input !== stable(input))
-        throw new Error("Operation identity conflict");
-      if (existing.state === "started" && existing.effect === effect && effect !== "external") return;
-      throw new Error("Operation already exists; reconcile before executing");
-    }
-    this.db
-      .prepare("INSERT INTO execution_operations VALUES (?, ?, ?, ?, ?, 'started', NULL, ?)")
-      .run(id, runId, name, stable(input), effect, Date.now());
-  }
+  readonly startOperation: ReturnType<typeof createOperationStorage>["startOperation"];
 
   /** 本地工具的变更与回执同事务提交，没有回执即没有已提交的本地变更 */
-  transactionalTool(id: string, execute: () => unknown): unknown {
-    return this.db
-      .transaction(() => {
-        const operation = this.operation(id);
-        if (!operation || operation.effect === "external") throw new Error("Transactional operation required");
-        const result = execute();
-        if (result && typeof result === "object" && "then" in result)
-          throw new Error("Async work is forbidden in a database transaction");
-        this.receipt(id, "succeeded", result ?? null);
-        return result;
-      })
-      .immediate();
-  }
+  readonly transactionalTool: ReturnType<typeof createOperationStorage>["transactionalTool"];
 
   /** 单 Run 的模型与工具额度跨 Attempt 累计，重启不会重置资源预算 */
-  consume(runId: string, kind: "model" | "tool"): void {
-    this.assertCapacity();
-    if (this.result(runId)) throw new Error("Execution outcome already committed");
-    this.db
-      .transaction(() => {
-        this.db.prepare("INSERT OR IGNORE INTO execution_usage(run_id) VALUES (?)").run(runId);
-        const usage = this.db
-          .prepare("SELECT model_calls, tool_calls FROM execution_usage WHERE run_id = ?")
-          .get(runId) as { model_calls: number; tool_calls: number };
-        if (
-          kind === "model"
-            ? usage.model_calls >= this.settings.maxModelCallsPerRun
-            : usage.tool_calls >= this.settings.maxToolCallsPerRun
-        )
-          throw new Error(`Run ${kind} budget exhausted`);
-        this.db
-          .prepare(
-            kind === "model"
-              ? "UPDATE execution_usage SET model_calls = model_calls + 1 WHERE run_id = ?"
-              : "UPDATE execution_usage SET tool_calls = tool_calls + 1 WHERE run_id = ?"
-          )
-          .run(runId);
-      })
-      .immediate();
-  }
+  readonly consume: ReturnType<typeof createOperationStorage>["consume"];
 
   /** 保存确定回执；超时或中断作为未知事实，不假定外部动作失败 */
-  receipt(id: string, state: "succeeded" | "failed" | "blocked" | "uncertain", result: unknown): void {
-    this.checkRecord(result);
-    const row = this.db.prepare("SELECT state, result FROM execution_operations WHERE id = ?").get(id) as
-      | { state: string; result: string | null }
-      | undefined;
-    if (!row) throw new Error("Operation not found");
-    if (!["started", "uncertain"].includes(row.state)) {
-      if (row.state !== state || row.result !== stable(result)) throw new Error("Receipt conflict");
-      return;
-    }
-    this.db
-      .prepare("UPDATE execution_operations SET state = ?, result = ? WHERE id = ?")
-      .run(state, stable(result), id);
-  }
+  readonly receipt: ReturnType<typeof createOperationStorage>["receipt"];
 
   /** 精确索引读取操作与回执，不扫描整条会话日志 */
-  operation(id: string):
-    | {
-        runId: string;
-        name: string;
-        input: unknown;
-        state: string;
-        effect: "external" | "transactional" | "read";
-        result: unknown;
-      }
-    | undefined {
-    const row = this.db
-      .prepare("SELECT run_id, name, input, state, effect, result FROM execution_operations WHERE id = ?")
-      .get(id) as
-      | {
-          run_id: string;
-          name: string;
-          input: string;
-          state: string;
-          effect: "external" | "transactional" | "read";
-          result: string | null;
-        }
-      | undefined;
-    return row
-      ? {
-          runId: row.run_id,
-          name: row.name,
-          input: JSON.parse(row.input),
-          state: row.state,
-          effect: row.effect,
-          result: row.result ? JSON.parse(row.result) : null
-        }
-      : undefined;
-  }
+  readonly operation: ReturnType<typeof createOperationStorage>["operation"];
 
   /** 宿主显式清理失效授权的过期派生记录，保留有效授权计数和未决动作 */
   collect(confirmation: "delete-expired-derived-execution-records", now = Date.now()): void {
@@ -1439,12 +979,6 @@ export class ExecutionStore {
   private checkText(value: string): void {
     if (typeof value !== "string" || !value.trim() || value.length > this.settings.maxRecordChars)
       throw new Error("Invalid execution content");
-  }
-
-  private writeSchedule(schedule: Schedule): void {
-    this.db
-      .prepare("UPDATE agent_schedules SET revision = ?, status = ?, next_fire_at = ?, record = ? WHERE id = ?")
-      .run(schedule.revision, schedule.status, schedule.nextFireAt, stable(schedule), schedule.id);
   }
 
   private blockRun(runId: string, reason: string): void {
