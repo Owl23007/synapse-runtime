@@ -44,7 +44,7 @@ export function validateSkillPath(path: string): string {
   return path;
 }
 
-/** 标准说明与辅助资源加载器，所有文件必须是根目录内的普通文件 */
+/** 标准说明与辅助资源加载器，只接受根目录内的独立普通文件，避免链接共享可变内容 */
 export class SkillDirectoryLoader {
   readonly root: string;
   readonly skill: DirectorySkill;
@@ -60,7 +60,7 @@ export class SkillDirectoryLoader {
         const relativePath = relative(this.root, path).split(sep).join("/");
         validateSkillPath(relativePath);
         const stat = lstatSync(path);
-        if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory()))
+        if (stat.isSymbolicLink() || (stat.isFile() && stat.nlink !== 1) || (!stat.isFile() && !stat.isDirectory()))
           throw new Error("Skill links and special files are forbidden");
         if (stat.isDirectory()) {
           walk(path);
