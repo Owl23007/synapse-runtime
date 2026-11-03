@@ -12,6 +12,7 @@ export default defineConfig({
     nav: [
       { text: "首页", link: "/" },
       { text: "Channel 契约", link: "/channel" },
+      { text: "自主执行", link: "/autonomous-runtime" },
       { text: "资源与能力", link: "/reference/resources/overview" },
       {
         text: "产品规划",
