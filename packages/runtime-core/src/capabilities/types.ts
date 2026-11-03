@@ -7,6 +7,7 @@ export interface CapabilityInstall {
   readonly sourceVersion: string | null;
   readonly sourceRevision: string | null;
   readonly contentDigest: string;
+  /** 仅保留旧部署的导入路径，新快照使用 contentDigest 相对配置的 Skill 根定位 */
   readonly installPath: string | null;
   readonly metadata: Readonly<Record<string, unknown>>;
   readonly state: "installed" | "disabled" | "failed";

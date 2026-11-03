@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, rm, lstat } from "node:fs/promises";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync, rmSync, lstatSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
@@ -56,7 +57,6 @@ export const CapabilityInstallInputSchema = z.discriminatedUnion("provider", [
 /** 能力用例只协调快照、目录与授权，不启动 Skill 脚本 */
 export class CapabilityService {
   readonly #root: string;
-  readonly #loaders = new Map<string, SkillDirectoryLoader>();
   readonly #updates = new Map<string, unknown>();
   #installing = 0;
   /** 网络与配置由应用注入，领域层不读取进程环境变量 */
@@ -69,6 +69,7 @@ export class CapabilityService {
     readonly allowedMcpHosts: readonly string[] = []
   ) {
     this.#root = resolve(directory);
+    if (existsSync(join(this.#root, ".maintenance-incomplete"))) throw new Error("Skill 目录的维护未完成");
   }
 
   /** 搜索目录不会安装、下载包或更改工作区授权 */
@@ -189,7 +190,7 @@ export class CapabilityService {
             sourceVersion: input.provider === "clawhub" ? input.version : null,
             sourceRevision: input.provider === "github" ? input.revision : (handoff?.commit ?? null),
             contentDigest: loader.skill.contentDigest,
-            installPath: snapshotPath,
+            installPath: null,
             metadata: { ...this.#metadata(loader.skill), ...(registryMetadata ? { registry: registryMetadata } : {}) }
           },
           actorId
@@ -202,9 +203,32 @@ export class CapabilityService {
     }
   }
 
-  /** 本地目录导入仅供管理员宿主装配使用，HTTP 不暴露任意宿主路径入口 */
+  /** 管理员导入目录时复制为托管快照，后续读取不再依赖外部原目录 */
   registerDirectory(directory: string, packageKey: string, actorId: string): CapabilityInstall {
     const loader = new SkillDirectoryLoader(directory);
+    for (const path of [this.#root, join(this.#root, "staging"), join(this.#root, "snapshots")]) {
+      mkdirSync(path, { recursive: true, mode: 0o700 });
+      if (!lstatSync(path).isDirectory()) throw new Error("Unsafe skill storage");
+    }
+    const target = join(this.#root, "snapshots", loader.skill.contentDigest);
+    const stage = join(this.#root, "staging", randomUUID());
+    if (!existsSync(target)) {
+      mkdirSync(stage, { mode: 0o700 });
+      try {
+        for (const file of loader.skill.files) {
+          const path = join(stage, file.path);
+          mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
+          writeFileSync(path, readFileSync(join(loader.root, file.path)), { flag: "wx", mode: 0o600 });
+        }
+        if (new SkillDirectoryLoader(stage).skill.contentDigest !== loader.skill.contentDigest)
+          throw new Error("Skill changed during import");
+        renameSync(stage, target);
+      } finally {
+        rmSync(stage, { recursive: true, force: true });
+      }
+    }
+    if (new SkillDirectoryLoader(target).skill.contentDigest !== loader.skill.contentDigest)
+      throw new Error("Snapshot digest mismatch");
     return this.store.save(
       {
         kind: "skill",
@@ -213,7 +237,7 @@ export class CapabilityService {
         sourceVersion: null,
         sourceRevision: null,
         contentDigest: loader.skill.contentDigest,
-        installPath: resolve(directory),
+        installPath: null,
         metadata: this.#metadata(loader.skill)
       },
       actorId
@@ -251,12 +275,20 @@ export class CapabilityService {
   /** 每次读取重新验证安装摘要，外部 Skill 永不授予额外工具权限 */
   loader(installId: string): SkillDirectoryLoader {
     const installation = this.store.get(installId);
-    if (installation.kind !== "skill" || !installation.installPath || installation.state !== "installed")
+    if (installation.kind !== "skill" || installation.state !== "installed")
       throw new ResourceOperationError(409, "skill_not_installed");
-    const loader = this.#loaders.get(installId) ?? new SkillDirectoryLoader(installation.installPath);
+    // 旧部署可继续读取原快照；离线备份会校验并转为摘要定位，绝不猜测丢失路径
+    if (!/^[a-f0-9]{64}$/.test(installation.contentDigest)) throw new Error("Invalid skill digest");
+    if (!installation.installPath) {
+      for (const path of [this.#root, join(this.#root, "snapshots")]) {
+        if (!lstatSync(path).isDirectory()) throw new Error("Unsafe skill storage");
+      }
+    }
+    const loader = new SkillDirectoryLoader(
+      installation.installPath ?? join(this.#root, "snapshots", installation.contentDigest)
+    );
     if (loader.skill.contentDigest !== installation.contentDigest)
       throw new ResourceOperationError(409, "skill_snapshot_integrity_failure");
-    this.#loaders.set(installId, loader);
     return loader;
   }
 
