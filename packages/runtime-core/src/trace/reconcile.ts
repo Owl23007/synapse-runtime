@@ -19,6 +19,7 @@ export function reconcileRunReceipts(
   attemptId: string | undefined,
   outcome: RunOutcome
 ): void {
+  if (!run.sessionId) return;
   // 独立 Trace 仓储可以没有旧会话表，不能为旧数据伪造回执
   if (!db.prepare("SELECT name FROM sqlite_master WHERE name = 'line_events'").get()) return;
   for (const correlationId of [attemptId, run.sourceEventId]) {

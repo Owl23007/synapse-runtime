@@ -9,6 +9,10 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./execution": {
+      "types": "./dist/execution.d.ts",
+      "import": "./dist/execution.js"
+    },
     "./capabilities": {
       "types": "./dist/capabilities.d.ts",
       "import": "./dist/capabilities.js"

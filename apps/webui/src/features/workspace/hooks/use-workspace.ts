@@ -1,5 +1,4 @@
 import { useRunActivity } from "./use-run-activity.js";
-import { useLegacySessionSummaries } from "./use-session-summaries.js";
 import { navigate } from "../lib/navigation.js";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type FormEvent } from "react";
 import { type WorkspaceMessage, type AssetAttachmentInfo } from "@synapse/runtime-client";
@@ -64,13 +63,6 @@ export function useWorkspace({
   const rawSessionItems = [
     ...new Map([...(sessions.value?.items ?? []), ...sessionPages].map((item) => [String(item.id), item])).values()
   ];
-  const needsLegacy = rawSessionItems.some((item) => !("lastMessageAt" in item));
-  const recentLoad = useCallback(
-    () => (needsLegacy ? client.runs({ limit: 200 }) : Promise.resolve(undefined)),
-    [client, needsLegacy]
-  );
-  const recent = useLoad(recentLoad, revision + nonce);
-  const legacySummaries = useLegacySessionSummaries(client, rawSessionItems, recent.value?.items ?? [], nonce);
   const load = useCallback(
     () => (initialSession ? client.workspace(initialSession, initialLine || undefined) : Promise.resolve(undefined)),
     [client, initialSession, initialLine]
@@ -79,11 +71,7 @@ export function useWorkspace({
   const session = data.value?.session;
   const sessionItems = rawSessionItems
     .map((item) => {
-      const value = Object.assign(
-        Object.create(null) as Record<string, unknown>,
-        item,
-        legacySummaries.get(String(item.id))
-      );
+      const value = Object.assign(Object.create(null) as Record<string, unknown>, item);
       if (item.id !== initialSession || !data.value) return value;
       const current = workspaceSummary(data.value);
       const lastMessageAt =
@@ -123,17 +111,14 @@ export function useWorkspace({
     inspectorOpen || tab === "chat" ? latestRun?.id : undefined,
     revision + nonce
   );
-  // 主线仅展示关联运行，任务属于分支，不能将主线标识传入分支任务接口
-  const taskBranchId = branch?.id;
+  const taskWorkspaceId = session?.workspaceId;
   const tasksLoad = useCallback(
-    () => (taskBranchId && tab === "runs" ? client.tasks(taskBranchId) : Promise.resolve(undefined)),
-    [client, taskBranchId, tab]
+    () => (taskWorkspaceId && tab === "runs" ? client.tasks(taskWorkspaceId) : Promise.resolve(undefined)),
+    [client, taskWorkspaceId, tab]
   );
   const tasks = useLoad(tasksLoad, revision + nonce);
   const taskItems = Array.isArray(record(tasks.value).tasks)
-    ? (record(tasks.value).tasks as unknown[])
-        .map(record)
-        .filter((task) => task.sessionId === initialSession && task.branchId === lineId)
+    ? (record(tasks.value).tasks as unknown[]).map(record).filter((task) => task.workspaceId === taskWorkspaceId)
     : [];
   const artifactsLoad = useCallback(
     () => (initialSession && inspectorOpen ? client.artifacts(initialSession) : Promise.resolve(undefined)),

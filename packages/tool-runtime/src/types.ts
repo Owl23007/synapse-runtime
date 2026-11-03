@@ -45,7 +45,10 @@ export type ToolHandler<TInput = unknown, TOutput = unknown> = (
 /** 根据输入和运行上下文动态生成权限要求 */
 export type ToolPermissionResolver<TInput = unknown> = (input: TInput, context: ToolContext) => PermissionRequirement;
 
+/** 具备可信授权和明确副作用恢复契约的模型工具 */
 export interface Tool<TInput = unknown, TOutput = unknown> {
+  /** 默认按外部动作保守恢复，事务工具必须保证结果与本地变更同事务提交 */
+  readonly effect?: "external" | "transactional" | "read";
   /** 工作区能力策略同时用于可见性与实际调用，不能替代用户权限 */
   readonly available?: (context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">) => boolean;
   readonly name: string;
@@ -140,10 +143,15 @@ interface ToolRuntimeEventBase {
   readonly occurredAt: string;
 }
 
+/** 工具调用事实区分确定失败与外部结果未知，恢复不能把传输异常当作未执行 */
 export type ToolRuntimeEvent =
   | (ToolRuntimeEventBase & { readonly type: "tool_call_started" })
   | (ToolRuntimeEventBase & { readonly type: "tool_call_blocked"; readonly reason: string })
   | (ToolRuntimeEventBase & { readonly type: "tool_call_succeeded"; readonly output: unknown })
-  | (ToolRuntimeEventBase & { readonly type: "tool_call_failed"; readonly error: unknown });
+  | (ToolRuntimeEventBase & {
+      readonly type: "tool_call_failed";
+      readonly error: unknown;
+      readonly outcome?: "uncertain";
+    });
 
 export type ToolRuntimeObserver = (event: ToolRuntimeEvent) => void | Promise<void>;

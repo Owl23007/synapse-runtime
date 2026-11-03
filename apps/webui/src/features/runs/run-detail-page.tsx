@@ -78,7 +78,9 @@ export function RunDetail({
     blocked: "所需权限或频道能力未满足。检查权限判定和交付事件，调整配置后再发起新请求。",
     failed: "执行已确认失败。检查失败阶段及错误详情，处理原因后再发起新请求。"
   };
-  const workspaceLink = `#/${run.channelId === "native" ? "workspace" : "explorer"}?session=${encodeURIComponent(run.sessionId)}`;
+  const workspaceLink = run.sessionId
+    ? `#/${run.channelId === "native" ? "workspace" : "explorer"}?session=${encodeURIComponent(run.sessionId)}`
+    : undefined;
   return (
     <div className={`run-inspection ${embedded ? "embedded" : "standalone"}`}>
       {!embedded && (
@@ -158,7 +160,11 @@ export function RunDetail({
           <span>
             <Icon name="chat" /> 会话
           </span>
-          <a href={workspaceLink}>{run.sessionId} ↗</a>
+          {workspaceLink ? (
+            <a href={workspaceLink}>{run.sessionId} ↗</a>
+          ) : (
+            <strong>后台运行 · {run.workspaceId}</strong>
+          )}
         </div>
         {!embedded && (
           <div>

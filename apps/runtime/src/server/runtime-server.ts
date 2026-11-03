@@ -125,11 +125,7 @@ export class RuntimeServer {
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#assembly.fileResources?.assets.blobs.cleanStaging();
       await this.#channelManager.connectAll();
-      const recovery = await this.#assembly.taskRunner.recover();
-      if (recovery.resumedTaskIds.length > 0 || recovery.failedTaskIds.length > 0) {
-        this.#logger.warn("Recovered persisted branch tasks.", { ...recovery });
-      }
-
+      this.#assembly.runtime.start();
       await this.#app.listen(this.#config.server.port, this.#config.server.host);
       const adminResult = await startAdminApp({
         app: this.#adminApp,
@@ -221,13 +217,8 @@ export class RuntimeServer {
           ? (await this.#assembly.runtime.conversationStore.getRecoveryState()).activeBranches
           : this.#assembly.runtime.conversationStore.listBranches(sessionId),
       getBranch: (branchId) => this.#assembly.runtime.conversationStore.getBranch(branchId),
-      listTasks: async (branchId) =>
-        branchId === undefined
-          ? (await this.#assembly.runtime.conversationStore.getRecoveryState()).unfinishedTasks
-          : this.#assembly.runtime.conversationStore.listTasks(branchId),
-      getTask: (taskId) => this.#assembly.runtime.conversationStore.getTask(taskId),
-      cancelTask: (taskId) => this.#assembly.taskRunner.cancel(taskId),
       getMemoryStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore),
+      getExecutionStore: () => (this.#assembly.closed ? undefined : this.#assembly.contextStore.execution),
       getInspection: () => (this.#assembly.closed ? undefined : this.#assembly.inspection),
       localize: (key, params) => this.#assembly.localeResolver.resolve(key, params, this.#config.locale.default)
     });
@@ -271,10 +262,10 @@ export class RuntimeServer {
         logger: this.#logger,
         ...(this.#fetch === undefined ? {} : { fetch: this.#fetch })
       });
-      await this.#assembly.taskRunner.recover();
       this.#channelManager.attachEnabledChannels(this.#config);
       await this.#channelManager.connectAll();
       this.#webhookRegistry.resume();
+      this.#assembly.runtime.start();
     } catch (error) {
       await this.#cleanupStep("drain failed replacement runtime", () => this.#assembly.quiesce());
       await this.#cleanupStep("disconnect failed replacement channels", () => this.#channelManager.disconnectAll());

@@ -817,7 +817,7 @@ describe("RuntimeCore 分支隔离与恢复", () => {
     }
   });
 
-  it("重新打开旧版分支状态并通过主线发布交付隔离结果", async () => {
+  it("隔离分支保留工具来源与交付回执，结果不自动发布到主线", async () => {
     const channel = new RecordingChannel();
     const channels = new InMemoryChannelRegistry();
     channels.register(channel);
@@ -856,7 +856,7 @@ describe("RuntimeCore 分支隔离与恢复", () => {
       idempotencyKey: "legacy-investigation-active"
     });
     await conversationStore.transitionBranch(branch.id, {
-      status: "completed",
+      status: "inactive",
       idempotencyKey: "legacy-investigation-completed"
     });
     const tools = new ToolRuntime(
@@ -930,15 +930,8 @@ describe("RuntimeCore 分支隔离与恢复", () => {
     expect(channel.sent[0]?.message).toMatchObject(textMessage("branch-only answer"));
 
     const mainlineEvents = await conversationStore.listEvents(seed.mainline.id);
-    expect(mainlineEvents.map((item) => item.type)).toEqual(["user_message", "branch_result", "delivery_succeeded"]);
-    expect(mainlineEvents[1]).toMatchObject({
-      type: "branch_result",
-      payload: expect.objectContaining({
-        branchId: branch.id,
-        summary: "branch-only answer",
-        artifacts: [expect.objectContaining({ kind: "assistant_output", text: "branch-only answer" })]
-      })
-    });
+    expect(mainlineEvents.map((item) => item.type)).toEqual(["user_message", "delivery_succeeded"]);
+    expect(mainlineEvents.some((item) => item.type === "branch_result")).toBe(false);
     const branchEvents = await conversationStore.listEvents(branch.id);
     expect(branchEvents.map((item) => item.type)).toEqual([
       "branch_created",
@@ -947,14 +940,11 @@ describe("RuntimeCore 分支隔离与恢复", () => {
       "user_message",
       "context_attributed",
       "branch_status_changed",
-      "branch_status_changed",
       "agent_run_started",
       "tool_call",
       "tool_result",
       "agent_run_completed",
-      "assistant_message",
-      "branch_result",
-      "branch_result_published"
+      "assistant_message"
     ]);
     await expect(conversationStore.getBranch(branch.id)).resolves.toMatchObject({ status: "active" });
     const incomingBranchEvent = branchEvents.find((item) => item.type === "user_message");

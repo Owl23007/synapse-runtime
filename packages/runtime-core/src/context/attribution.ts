@@ -243,15 +243,7 @@ export class ContextAttributorLite implements ContextAttributor {
     text: string,
     isRecent: boolean
   ): Promise<ContextAttributionCandidate> {
-    const state = await this.#conversationStore.reconstructLineState(branch.id);
-    const nodes = await this.#conversationStore.listNodes(branch.id, { limit: 3 });
-    const candidateText = [
-      branch.title,
-      branch.goal,
-      branch.reason,
-      JSON.stringify(state.state),
-      ...nodes.map((node) => node.title)
-    ].join("\n");
+    const candidateText = [branch.title, branch.goal, branch.reason].join("\n");
     const semanticScore = lexicalSimilarity(text, candidateText);
     const recencyBonus = isRecent ? 0.12 : 0;
     const activeBonus = branch.status === "active" || branch.status === "created" ? 0.04 : 0;

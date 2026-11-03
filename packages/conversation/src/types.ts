@@ -6,6 +6,7 @@ export type TriggerKind = "private" | "mention" | "reply" | "command" | "keyword
 export type TriggerConfidence = "explicit" | "platform" | "heuristic";
 
 export type ConversationDecisionReason =
+  | "self_message"
   | "not_message"
   | "no_message"
   | "private_always"
@@ -42,7 +43,12 @@ export interface ChannelSource {
   readonly provider?: string;
 }
 
+/** 已授权的历史消息候选，保留事实来源和可信作者 */
 export interface PromptContextMessage {
+  /** 同一事实的稳定来源，不以纯文本内容作为去重键 */
+  readonly sourceRef?: string;
+  /** 可信作者供群聊呈现与授权审计使用 */
+  readonly actorId?: string;
   readonly role: "user" | "assistant" | "system";
   readonly content: string;
   readonly messageId?: string;

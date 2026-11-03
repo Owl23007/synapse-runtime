@@ -110,9 +110,9 @@ describe("统一 Docker 工件持久边界", () => {
       });
       const run = instance.contextStore.runs.list().items[0]!;
       const artifacts = new ArtifactStore(join(directory, "artifacts"), config.container);
-      const saved = artifacts.list(run.sessionId).items;
+      const saved = artifacts.list(run.sessionId!).items;
       expect(saved).toHaveLength(1);
-      expect(artifacts.read(run.sessionId, saved[0]!.id).data).toEqual(content);
+      expect(artifacts.read(run.sessionId!, saved[0]!.id).data).toEqual(content);
       expect(JSON.stringify(instance.contextStore.runs.events(run.id))).not.toContain("base64://");
       expect(JSON.stringify(await instance.contextStore.listEvents(run.lineId!))).not.toContain("base64://");
       expect(sent.some((body) => body.includes(url))).toBe(true);

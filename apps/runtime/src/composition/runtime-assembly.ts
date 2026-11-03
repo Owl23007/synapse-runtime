@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { ChannelConfig, RuntimeConfig } from "../config/index.js";
 import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
-import { RuntimeCore, SqliteRuntimeContextStore, TaskRunner } from "@synapse/runtime-core";
+import { RuntimeCore, SqliteRuntimeContextStore } from "@synapse/runtime-core";
 import { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import { StaticPermissionEngine } from "@synapse/runtime-permission";
 import { createWebTools, InMemoryWebCache } from "@synapse/runtime-tool-web";
@@ -23,6 +23,7 @@ import { CapabilityResources } from "./capability-resources.js";
 import { canUploadGroupFile } from "./channel-delivery.js";
 import { collectTraceSecrets } from "../secrets.js";
 import { ArtifactDeliveryStore } from "../infrastructure/artifact-delivery.js";
+import { createExecutionTools } from "@synapse/runtime-core/execution";
 import {
   persistDockerArtifacts,
   materializeArtifactMessage,
@@ -57,7 +58,6 @@ export class RuntimeAssembly {
     readonly tools: ToolRuntime,
     readonly localeResolver: LocaleResolver,
     readonly artifacts: ArtifactStore,
-    readonly taskRunner: TaskRunner,
     readonly fileResources?: ReturnType<typeof createFileResources>,
     readonly capabilityResources?: CapabilityResources
   ) {
@@ -74,7 +74,6 @@ export class RuntimeAssembly {
   quiesce(): Promise<void> {
     this.#quiescePromise ??= (async () => {
       await this.runtime.dispose();
-      await this.taskRunner.dispose();
     })();
     return this.#quiescePromise;
   }
@@ -105,7 +104,8 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
   const contextStore = new SqliteRuntimeContextStore({
     databasePath: join(options.config.runtime.dataDir, "runtime-context.sqlite"),
     exclusiveOwner: true,
-    traceSecrets: collectTraceSecrets(options.config)
+    traceSecrets: collectTraceSecrets(options.config),
+    autonomy: options.config.autonomy
   });
 
   let capabilityResources: CapabilityResources | undefined;
@@ -131,8 +131,10 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
     });
     capabilityResources = new CapabilityResources(options.config, contextStore, tools);
     const compileInvocation = createInvocationCompiler(options.config, tools, options.channels, capabilityResources);
-    const taskRunner = new TaskRunner({ store: contextStore, executors: {} });
+    for (const tool of createExecutionTools(contextStore.execution, contextStore.contextGraph)) tools.register(tool);
     const runtime = new RuntimeCore({
+      execution: contextStore.execution,
+      getWorkspace: (id) => contextStore.getWorkspace(id),
       sessionWorkspace: (id) => contextStore.sessionWorkspace(id),
       ...(fileResources ? { resources: { assets: fileResources.assets, ingress: fileResources.ingress } } : {}),
       materializeMessage: (sessionId, message) => materializeArtifactMessage(artifacts, sessionId, message),
@@ -175,6 +177,7 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
       localize: (key, params) => localeResolver.resolve(key, params, options.config.locale.default),
       ...(compileInvocation === undefined ? {} : { compileInvocation }),
       memory: {
+        store: contextStore,
         enableDurableMemory: durableMemoryEnabled(options.config)
       },
       presentation: {
@@ -184,6 +187,7 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
         graph: contextStore.contextGraph,
         enabled: options.config.context.enabled,
         maxHistoryChars: options.config.context.maxHistoryChars,
+        maxTotalChars: options.config.context.maxTotalChars,
         timezone: options.config.context.timezone,
         strategy: options.config.context.strategy,
         cacheEnabled: options.config.context.cache.enabled,
@@ -207,7 +211,6 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
       tools,
       localeResolver,
       artifacts,
-      taskRunner,
       fileResources,
       capabilityResources
     );

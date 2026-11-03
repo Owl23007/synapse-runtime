@@ -24,6 +24,7 @@ export function recoverToolOutputs(
   do {
     const page = runs.list({ status: "running", limit: 100, ...(before === undefined ? {} : { before }) });
     for (const run of page.items) {
+      if (!run.sessionId) continue;
       const started = runs.latestEvent(run.id, "run_started");
       const resumed = runs.latestEvent(run.id, "run_resumed");
       const attemptId = (resumed && resumed.seq > (started?.seq ?? 0) ? resumed : started)?.attemptId;

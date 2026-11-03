@@ -323,6 +323,22 @@ export class RuntimeAdminClient {
   }
 
   /** 从选定不可变提交建立可继续对话的分支 */
+  commitContext(
+    sessionId: string,
+    input: {
+      lineId?: string;
+      expectedVersion: number | null;
+      content: Readonly<Record<string, unknown>>;
+      idempotencyKey: string;
+    }
+  ): Promise<{ commit: import("./workspace-types.js").GraphCommit }> {
+    return this.#request(`/admin/sessions/${encodeURIComponent(sessionId)}/context`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    }) as Promise<{ commit: import("./workspace-types.js").GraphCommit }>;
+  }
+
+  /** 从选定不可变提交建立可继续对话的分支 */
   forkSession(
     sessionId: string,
     input: { commitId: string; title: string; idempotencyKey: string }
@@ -414,9 +430,9 @@ export class RuntimeAdminClient {
     return this.#get(`/admin/branches/${encodeURIComponent(branchId)}`);
   }
 
-  /** 查询分支任务 */
-  tasks(branchId?: string): Promise<unknown> {
-    const query = branchId === undefined ? "" : `?branchId=${encodeURIComponent(branchId)}`;
+  /** 按工作区查询持久目标，目标不依赖会话分支 */
+  tasks(workspaceId?: string): Promise<unknown> {
+    const query = workspaceId === undefined ? "" : `?workspaceId=${encodeURIComponent(workspaceId)}`;
     return this.#get(`/admin/tasks${query}`);
   }
 
@@ -425,9 +441,12 @@ export class RuntimeAdminClient {
     return this.#get(`/admin/tasks/${encodeURIComponent(taskId)}`);
   }
 
-  /** 请求取消指定任务 */
-  cancelTask(taskId: string): Promise<unknown> {
-    return this.#request(`/admin/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST" });
+  /** 按已读取的 revision 取消目标，拒绝覆盖并发修订 */
+  cancelTask(taskId: string, expectedRevision: number): Promise<unknown> {
+    return this.#request(`/admin/tasks/${encodeURIComponent(taskId)}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ expectedRevision })
+    });
   }
 
   /** 更新频道启用状态 */

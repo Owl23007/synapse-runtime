@@ -5,56 +5,37 @@ import {
   type AcceptedNormalizedEvent,
   type AppendLineEventInput,
   type BranchContext,
-  type BranchMerge,
+  type BranchPublication,
   type BranchResult,
   type BranchResultTrace,
   type ConversationBranch,
-  type ConversationContextSnapshot,
   type ConversationLine,
-  type ConversationLineHead,
   type ConversationMainline,
-  type ConversationNode,
   type ConversationRecoveryState,
   type ConversationSession,
   type ConversationSessionLocator,
-  type ConversationTask,
   type CreateBranchInput,
   type CreateBranchResultInput,
-  type CreateConversationContextSnapshotInput,
-  type CreateConversationNodeInput,
   type CreateSessionInput,
-  type CreateTaskInput,
   type EventTrace,
   type LineEvent,
   type LineEventType,
   type ListBranchesOptions,
-  type ListConversationNodesOptions,
   type ListLineEventsOptions,
   type ListLinesOptions,
-  type ListTasksOptions,
-  type MergeBranchResultInput,
   type NormalizedEvent,
   type PublishBranchResultInput,
-  type ReconstructedConversationState,
-  type TaskTrace,
   type TransitionBranchInput,
-  type TransitionSessionInput,
-  type TransitionTaskInput
+  type TransitionSessionInput
 } from "../../conversation/types.js";
 import type { ConversationStore } from "../../conversation/store.js";
 import { ConversationStoreError } from "../../conversation/errors.js";
 import { collectRelatedEvents } from "../../conversation/trace.js";
-import { applyConversationStatePatch } from "../../conversation/state.js";
 import {
   assertBranchCanCreateResult,
-  assertBranchCanCreateTask,
   assertWritableSession,
-  BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS,
   invalidTransition,
   isBranchTransitionAllowed,
-  isTaskTransitionAllowed,
-  isTerminalTaskStatus,
-  payloadContainsTaskId,
   SESSION_ARCHIVABLE_BRANCH_STATUSES
 } from "../../conversation/rules.js";
 import { decodeJson, encodeOptionalJson, encodeRequiredJson, jsonValuesEqual } from "./json-codec.js";
@@ -62,12 +43,9 @@ import type {
   LineEventRow,
   LineRow,
   MergeRow,
-  NodeRow,
   NormalizedEventRow,
   ResultRow,
-  SessionRow,
-  SnapshotRow,
-  TaskRow
+  SessionRow
 } from "./conversation-rows.js";
 
 const LOCATOR_TYPES = new Set(["private", "group", "channel", "cli", "system"]);
@@ -86,6 +64,11 @@ export class SqliteConversationRepository implements ConversationStore {
   }
 
   async acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent> {
+    return this.acceptNormalizedEventSync(input);
+  }
+
+  /** 供同库输入与执行意图用例组合短事务，返回前不跨越异步边界 */
+  acceptNormalizedEventSync(input: AcceptNormalizedEventInput): AcceptedNormalizedEvent {
     validateNormalizedEventInput(input);
     const segments = input.segments ?? input.message?.segments ?? [];
     encodeRequiredJson(segments, "normalized event segments");
@@ -228,6 +211,18 @@ export class SqliteConversationRepository implements ConversationStore {
     return this.#getNormalizedEvent(eventId);
   }
 
+  /** 从规范事实精确恢复执行作用域，不复制输入正文到调度记录 */
+  readAcceptedEvent(eventId: string): AcceptedNormalizedEvent {
+    const event = this.#requireNormalizedEvent(eventId);
+    return {
+      event,
+      session: this.#requireSession(event.sessionId),
+      mainline: this.#requireMainline(event.sessionId),
+      lineEvent: this.#requireEvent(event.lineEventId),
+      created: true
+    };
+  }
+
   async listNormalizedEvents(sessionId: string): Promise<readonly NormalizedEvent[]> {
     validateId(sessionId, "session id");
     if (this.#getSession(sessionId) === undefined) {
@@ -250,6 +245,11 @@ export class SqliteConversationRepository implements ConversationStore {
   }
 
   async createSession(input: CreateSessionInput): Promise<ConversationSession> {
+    return this.createSessionSync(input);
+  }
+
+  /** 会话创建用例在同库短事务中复用相同校验与幂等契约 */
+  createSessionSync(input: CreateSessionInput): ConversationSession {
     validateCreateSessionInput(input);
     encodeOptionalJson(input.metadata, "session metadata");
     return this.#write(() => this.#createOrEnsureSession(input, true));
@@ -490,14 +490,11 @@ export class SqliteConversationRepository implements ConversationStore {
       if (input.status === "merged") {
         throw new ConversationStoreError(
           "invalid_state_transition",
-          `Branch "${branch.id}" can enter "merged" only through mergeBranchResult().`
+          `Branch "${branch.id}" can enter "merged" only through publishBranchResult().`
         );
       }
       if (!isBranchTransitionAllowed(branch.status, input.status)) {
         throw invalidTransition("branch", branch.id, branch.status, input.status);
-      }
-      if (BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS.has(input.status)) {
-        this.#assertBranchTasksTerminal(branch.id, `transition to "${input.status}"`);
       }
       assertWritableSession(this.#requireSession(branch.sessionId));
       const createdAt = input.createdAt ?? new Date().toISOString();
@@ -659,15 +656,6 @@ export class SqliteConversationRepository implements ConversationStore {
         );
       }
     }
-    if (input.taskId !== undefined) {
-      const task = this.#requireTask(input.taskId);
-      if (task.sessionId !== line.sessionId || line.kind !== "branch" || task.branchId !== line.id) {
-        throw new ConversationStoreError(
-          "ownership_mismatch",
-          `Task "${task.id}" events must be appended to branch "${task.branchId}".`
-        );
-      }
-    }
 
     const eventId = input.id ?? `event-${randomUUID()}`;
     this.#assertUnusedLineEventId(eventId);
@@ -811,206 +799,6 @@ export class SqliteConversationRepository implements ConversationStore {
       .run(status, at, status, at, status, at, status, at, branchId);
   }
 
-  async createTask(branchId: string, input: CreateTaskInput): Promise<ConversationTask> {
-    validateId(branchId, "branch id");
-    validateCreateTaskInput(input);
-    encodeRequiredJson(input.input, "task input");
-    encodeRequiredJson(input.artifacts ?? [], "task artifacts");
-
-    return this.#write(() => {
-      const existingRow = this.#db
-        .prepare(`
-          SELECT *
-          FROM conversation_tasks
-          WHERE branch_line_id = ? AND create_request_id = ?
-          LIMIT 1
-        `)
-        .get(branchId, input.idempotencyKey) as TaskRow | undefined;
-      if (existingRow !== undefined) {
-        const existing = taskFromRow(existingRow);
-        this.#assertTaskCreateRetry(existing, input);
-        return this.#taskCreationSnapshot(existing);
-      }
-
-      const branch = this.#requireBranch(branchId);
-      assertBranchCanCreateTask(branch);
-      assertWritableSession(this.#requireSession(branch.sessionId));
-      if (input.sourceEventId !== undefined) {
-        const sourceEvent = this.#requireEvent(input.sourceEventId);
-        if (sourceEvent.sessionId !== branch.sessionId || sourceEvent.lineId !== branch.id) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Task source event "${sourceEvent.id}" must belong to branch "${branch.id}".`
-          );
-        }
-      }
-
-      const taskId = input.id ?? `task-${randomUUID()}`;
-      if (this.#getTask(taskId) !== undefined) {
-        throw new ConversationStoreError("conflict", `Task "${taskId}" already exists.`);
-      }
-      const createdAt = input.createdAt ?? new Date().toISOString();
-      const artifacts = input.artifacts ?? [];
-      this.#db
-        .prepare(`
-          INSERT INTO conversation_tasks (
-            id,
-            session_id,
-            branch_line_id,
-            workspace_id,
-            executor,
-            status,
-            input_json,
-            artifacts_json,
-            create_request_id,
-            source_event_id,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
-        `)
-        .run(
-          taskId,
-          branch.sessionId,
-          branch.id,
-          input.workspaceId ?? null,
-          input.executor,
-          encodeRequiredJson(input.input, "task input"),
-          encodeRequiredJson(artifacts, "task artifacts"),
-          input.idempotencyKey,
-          input.sourceEventId ?? null,
-          createdAt,
-          createdAt
-        );
-      const task = this.#requireTask(taskId);
-      const causationEventId = input.sourceEventId ?? this.#lastEventId(branch.id);
-      this.#appendLineEvent(branch, {
-        type: "task_created",
-        idempotencyKey: `internal:task-created:${task.id}`,
-        ...(input.sourceEventId === undefined ? {} : { sourceEventId: input.sourceEventId }),
-        ...(causationEventId === undefined ? {} : { causationEventId }),
-        correlationId: branch.id,
-        taskId: task.id,
-        payload: {
-          taskId: task.id,
-          executor: task.executor,
-          ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
-          input: task.input,
-          artifacts: task.artifacts
-        },
-        createdAt
-      });
-      return task;
-    });
-  }
-
-  async getTask(taskId: string): Promise<ConversationTask | undefined> {
-    validateId(taskId, "task id");
-    return this.#getTask(taskId);
-  }
-
-  async listTasks(branchId: string, options: ListTasksOptions = {}): Promise<readonly ConversationTask[]> {
-    validateId(branchId, "branch id");
-    this.#requireBranch(branchId);
-    if (options.statuses?.length === 0) {
-      return [];
-    }
-    const statusClause =
-      options.statuses === undefined ? "" : ` AND status IN (${placeholders(options.statuses.length)})`;
-    const rows = this.#db
-      .prepare(`
-        SELECT *
-        FROM conversation_tasks
-        WHERE branch_line_id = ?
-          ${statusClause}
-        ORDER BY created_at, rowid
-      `)
-      .all(branchId, ...(options.statuses ?? [])) as TaskRow[];
-    return rows.map(taskFromRow);
-  }
-
-  async transitionTask(taskId: string, input: TransitionTaskInput): Promise<ConversationTask> {
-    validateId(taskId, "task id");
-    validateTransitionTaskInput(input);
-    encodeOptionalJson(input.output, "task output");
-    encodeOptionalJson(input.error, "task error");
-    encodeOptionalJson(input.artifacts, "task artifacts");
-
-    return this.#write(() => {
-      const task = this.#requireTask(taskId);
-      const internalKey = `internal:task-status:${task.id}:${input.idempotencyKey}`;
-      const existingEvent = this.#getEventByLineAndRequest(task.branchId, internalKey);
-      if (existingEvent !== undefined) {
-        assertTaskTransitionEventRequest(existingEvent, input);
-        return this.#taskSnapshotAtEvent(task, existingEvent);
-      }
-
-      if (!isTaskTransitionAllowed(task.status, input.status)) {
-        throw invalidTransition("task", task.id, task.status, input.status);
-      }
-      const branch = this.#requireBranch(task.branchId);
-      if (branch.status === "merged" || branch.status === "archived" || branch.status === "cancelled") {
-        throw new ConversationStoreError(
-          "invalid_state_transition",
-          `Task "${task.id}" cannot transition while branch "${branch.id}" is "${branch.status}".`
-        );
-      }
-      assertWritableSession(this.#requireSession(branch.sessionId));
-
-      const createdAt = input.createdAt ?? new Date().toISOString();
-      const causationEventId = this.#lastEventId(branch.id);
-      this.#appendLineEvent(branch, {
-        type: "task_status_changed",
-        idempotencyKey: internalKey,
-        ...(causationEventId === undefined ? {} : { causationEventId }),
-        correlationId: branch.id,
-        taskId: task.id,
-        payload: {
-          taskId: task.id,
-          fromStatus: task.status,
-          toStatus: input.status,
-          ...(input.output === undefined ? {} : { output: input.output }),
-          ...(input.error === undefined ? {} : { error: input.error }),
-          ...(input.artifacts === undefined ? {} : { artifacts: input.artifacts })
-        },
-        createdAt
-      });
-      this.#db
-        .prepare(`
-          UPDATE conversation_tasks
-          SET status = ?,
-              output_json = CASE WHEN ? IS NULL THEN output_json ELSE ? END,
-              error_json = CASE WHEN ? IS NULL THEN error_json ELSE ? END,
-              artifacts_json = CASE WHEN ? IS NULL THEN artifacts_json ELSE ? END,
-              started_at = CASE
-                WHEN ? = 'running' THEN COALESCE(started_at, ?)
-                ELSE started_at
-              END,
-              finished_at = CASE
-                WHEN ? IN ('completed', 'failed', 'cancelled') THEN COALESCE(finished_at, ?)
-                ELSE finished_at
-              END,
-              updated_at = ?
-          WHERE id = ?
-        `)
-        .run(
-          input.status,
-          input.output === undefined ? null : 1,
-          encodeOptionalJson(input.output, "task output"),
-          input.error === undefined ? null : 1,
-          encodeOptionalJson(input.error, "task error"),
-          input.artifacts === undefined ? null : 1,
-          encodeOptionalJson(input.artifacts, "task artifacts"),
-          input.status,
-          createdAt,
-          input.status,
-          createdAt,
-          createdAt,
-          task.id
-        );
-      return this.#requireTask(task.id);
-    });
-  }
-
   async createBranchResult(branchId: string, input: CreateBranchResultInput): Promise<BranchResult> {
     validateId(branchId, "branch id");
     validateCreateBranchResultInput(input);
@@ -1035,25 +823,6 @@ export class SqliteConversationRepository implements ConversationStore {
       const branch = this.#requireBranch(branchId);
       assertBranchCanCreateResult(branch, input.status);
       assertWritableSession(this.#requireSession(branch.sessionId));
-      const sourceTaskIds = [...(input.sourceTaskIds ?? [])];
-      if (new Set(sourceTaskIds).size !== sourceTaskIds.length) {
-        throw new ConversationStoreError("validation_error", "sourceTaskIds must not contain duplicates.");
-      }
-      for (const taskId of sourceTaskIds) {
-        const task = this.#requireTask(taskId);
-        if (task.sessionId !== branch.sessionId || task.branchId !== branch.id) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Result task "${task.id}" must belong to branch "${branch.id}".`
-          );
-        }
-        if (!isTerminalTaskStatus(task.status)) {
-          throw new ConversationStoreError(
-            "invalid_state_transition",
-            `Result task "${task.id}" must be terminal before its output can be recorded.`
-          );
-        }
-      }
       if (input.sourceEventId !== undefined) {
         const sourceEvent = this.#requireEvent(input.sourceEventId);
         if (sourceEvent.sessionId !== branch.sessionId || sourceEvent.lineId !== branch.id) {
@@ -1110,10 +879,6 @@ export class SqliteConversationRepository implements ConversationStore {
           input.sourceEventId ?? null,
           createdAt
         );
-      const insertTask = this.#db.prepare("INSERT INTO branch_result_tasks (result_id, task_id) VALUES (?, ?)");
-      for (const taskId of sourceTaskIds) {
-        insertTask.run(resultId, taskId);
-      }
       const createdResult = this.#requireBranchResult(resultId);
       const causationEventId = input.sourceEventId ?? this.#lastEventId(branch.id);
       this.#appendLineEvent(branch, {
@@ -1131,7 +896,6 @@ export class SqliteConversationRepository implements ConversationStore {
     if (resultEvent === undefined) {
       throw new ConversationStoreError("not_found", `Branch result event for "${result.id}" does not exist.`);
     }
-    await this.#ensureResultNode(result, resultEvent.id);
     return result;
   }
 
@@ -1164,7 +928,7 @@ export class SqliteConversationRepository implements ConversationStore {
     branchId: string,
     mainlineId: string,
     input: PublishBranchResultInput = {}
-  ): Promise<BranchMerge> {
+  ): Promise<BranchPublication> {
     validateId(branchId, "branch id");
     validateId(mainlineId, "mainline id");
     validateMergeInput(input);
@@ -1283,541 +1047,7 @@ export class SqliteConversationRepository implements ConversationStore {
     });
   }
 
-  async mergeBranchResult(
-    branchId: string,
-    mainlineId: string,
-    input: MergeBranchResultInput = {}
-  ): Promise<BranchMerge> {
-    return this.publishBranchResult(branchId, mainlineId, input);
-  }
-
-  async createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
-    validateId(lineId, "line id");
-    validateCreateConversationNodeInput(input);
-
-    return this.#write(() => {
-      const line = this.#requireLine(lineId);
-      const existingRow = this.#db
-        .prepare("SELECT * FROM conversation_nodes WHERE line_id = ? AND create_request_id = ? LIMIT 1")
-        .get(line.id, input.idempotencyKey) as NodeRow | undefined;
-      if (existingRow !== undefined) {
-        const existing = this.#nodeFromRow(existingRow);
-        this.#assertNodeRetry(existing, input);
-        return existing;
-      }
-
-      const currentHead = this.#getLineHead(line.id);
-      const parentIds =
-        input.parentIds === undefined ? (currentHead === undefined ? [] : [currentHead.nodeId]) : input.parentIds;
-      const uniqueParentIds = uniqueIds(parentIds, "parentIds");
-      for (const parentId of uniqueParentIds) {
-        const parent = this.#requireNode(parentId);
-        if (parent.sessionId !== line.sessionId) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Conversation node parent "${parent.id}" must belong to session "${line.sessionId}".`
-          );
-        }
-      }
-      const sourceEventIds = uniqueIds(input.sourceEventIds ?? [], "sourceEventIds");
-      for (const eventId of sourceEventIds) {
-        const event = this.#requireEvent(eventId);
-        if (event.sessionId !== line.sessionId) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Conversation node source event "${event.id}" must belong to session "${line.sessionId}".`
-          );
-        }
-      }
-      const sourceTaskIds = uniqueIds(input.sourceTaskIds ?? [], "sourceTaskIds");
-      for (const taskId of sourceTaskIds) {
-        const task = this.#requireTask(taskId);
-        if (task.sessionId !== line.sessionId) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Conversation node source task "${task.id}" must belong to session "${line.sessionId}".`
-          );
-        }
-      }
-      const sourceResultIds = uniqueIds(input.sourceResultIds ?? [], "sourceResultIds");
-      for (const resultId of sourceResultIds) {
-        const result = this.#requireBranchResult(resultId);
-        if (result.sessionId !== line.sessionId) {
-          throw new ConversationStoreError(
-            "ownership_mismatch",
-            `Conversation node source result "${result.id}" must belong to session "${line.sessionId}".`
-          );
-        }
-      }
-
-      const nodeId = input.id ?? `conversation-node-${randomUUID()}`;
-      if (this.#getNode(nodeId) !== undefined) {
-        throw new ConversationStoreError("conflict", `Conversation node "${nodeId}" already exists.`);
-      }
-      const nextSequence = (
-        this.#db
-          .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM conversation_nodes WHERE line_id = ?")
-          .get(line.id) as { readonly sequence: number }
-      ).sequence;
-      const createdAt = input.createdAt ?? new Date().toISOString();
-      this.#db
-        .prepare(`
-          INSERT INTO conversation_nodes (
-            id,
-            session_id,
-            line_id,
-            sequence,
-            parent_ids_json,
-            kind,
-            title,
-            state_patch_json,
-            source_event_ids_json,
-            source_task_ids_json,
-            source_result_ids_json,
-            created_by,
-            create_request_id,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-        .run(
-          nodeId,
-          line.sessionId,
-          line.id,
-          nextSequence,
-          encodeRequiredJson(uniqueParentIds, "conversation node parent ids"),
-          input.kind,
-          input.title,
-          encodeRequiredJson(input.statePatch, "conversation node state patch"),
-          encodeRequiredJson(sourceEventIds, "conversation node source event ids"),
-          encodeRequiredJson(sourceTaskIds, "conversation node source task ids"),
-          encodeRequiredJson(sourceResultIds, "conversation node source result ids"),
-          input.createdBy,
-          input.idempotencyKey,
-          createdAt
-        );
-      this.#db
-        .prepare(`
-          INSERT INTO conversation_line_heads (line_id, node_id, updated_at)
-          VALUES (?, ?, ?)
-          ON CONFLICT(line_id) DO UPDATE SET
-            node_id = excluded.node_id,
-            updated_at = excluded.updated_at
-        `)
-        .run(line.id, nodeId, createdAt);
-      return this.#requireNode(nodeId);
-    });
-  }
-
-  async getNode(nodeId: string): Promise<ConversationNode | undefined> {
-    validateId(nodeId, "conversation node id");
-    return this.#getNode(nodeId);
-  }
-
-  async listNodes(lineId: string, options: ListConversationNodesOptions = {}): Promise<readonly ConversationNode[]> {
-    validateId(lineId, "line id");
-    validateListConversationNodesOptions(options);
-    this.#requireLine(lineId);
-    const clauses = ["line_id = ?"];
-    const parameters: unknown[] = [lineId];
-    if (options.afterOrdinal !== undefined) {
-      clauses.push("ordinal > ?");
-      parameters.push(options.afterOrdinal);
-    }
-    if (options.beforeOrdinal !== undefined) {
-      clauses.push("ordinal < ?");
-      parameters.push(options.beforeOrdinal);
-    }
-    if (options.kinds !== undefined && options.kinds.length > 0) {
-      clauses.push(`kind IN (${options.kinds.map(() => "?").join(", ")})`);
-      parameters.push(...options.kinds);
-    }
-    const limit = options.limit === undefined ? "" : " LIMIT ?";
-    if (options.limit !== undefined) {
-      parameters.push(options.limit);
-    }
-    const rows = this.#db
-      .prepare(`
-        SELECT *
-        FROM (
-          SELECT *
-          FROM conversation_nodes
-          WHERE ${clauses.join(" AND ")}
-          ORDER BY ordinal DESC
-          ${limit}
-        )
-        ORDER BY ordinal
-      `)
-      .all(...parameters) as NodeRow[];
-    return rows.map((row) => this.#nodeFromRow(row));
-  }
-
-  async getLineHead(lineId: string): Promise<ConversationLineHead | undefined> {
-    validateId(lineId, "line id");
-    this.#requireLine(lineId);
-    return this.#getLineHead(lineId);
-  }
-
-  async createContextSnapshot(
-    lineId: string,
-    input: CreateConversationContextSnapshotInput
-  ): Promise<ConversationContextSnapshot> {
-    validateId(lineId, "line id");
-    validateIdempotencyKey(input.idempotencyKey);
-
-    return this.#write(() => {
-      const line = this.#requireLine(lineId);
-      const currentHead = this.#getLineHead(line.id);
-      const nodeId = input.nodeId ?? currentHead?.nodeId;
-      if (nodeId === undefined) {
-        throw new ConversationStoreError("validation_error", `Line "${line.id}" has no semantic node to snapshot.`);
-      }
-      const existingRow = this.#db
-        .prepare("SELECT * FROM conversation_context_snapshots WHERE line_id = ? AND create_request_id = ? LIMIT 1")
-        .get(line.id, input.idempotencyKey) as SnapshotRow | undefined;
-      if (existingRow !== undefined) {
-        const existing = this.#snapshotFromRow(existingRow);
-        if (
-          existing.nodeId !== nodeId ||
-          existing.id !== (input.id ?? existing.id) ||
-          existing.createdAt !== (input.createdAt ?? existing.createdAt)
-        ) {
-          throw new ConversationStoreError(
-            "idempotency_conflict",
-            `Idempotency key "${input.idempotencyKey}" was already used for a different context snapshot request.`
-          );
-        }
-        return existing;
-      }
-
-      const node = this.#requireNode(nodeId);
-      if (node.sessionId !== line.sessionId || node.lineId !== line.id) {
-        throw new ConversationStoreError(
-          "ownership_mismatch",
-          `Snapshot node "${node.id}" must belong to line "${line.id}".`
-        );
-      }
-      const reconstructed = this.#reconstructLineState(line.id, node.id);
-      const snapshotId = input.id ?? `conversation-snapshot-${randomUUID()}`;
-      if (this.#db.prepare("SELECT 1 FROM conversation_context_snapshots WHERE id = ?").get(snapshotId) !== undefined) {
-        throw new ConversationStoreError("conflict", `Conversation context snapshot "${snapshotId}" already exists.`);
-      }
-      const createdAt = input.createdAt ?? new Date().toISOString();
-      this.#db
-        .prepare(`
-          INSERT INTO conversation_context_snapshots (
-            id,
-            session_id,
-            line_id,
-            node_id,
-            node_ordinal,
-            state_json,
-            create_request_id,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-        .run(
-          snapshotId,
-          line.sessionId,
-          line.id,
-          node.id,
-          node.ordinal,
-          encodeRequiredJson(reconstructed.state, "conversation context snapshot state"),
-          input.idempotencyKey,
-          createdAt
-        );
-      return this.#requireSnapshot(snapshotId);
-    });
-  }
-
-  async getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined> {
-    validateId(lineId, "line id");
-    this.#requireLine(lineId);
-    const row = this.#db
-      .prepare(`
-        SELECT *
-        FROM conversation_context_snapshots
-        WHERE line_id = ?
-        ORDER BY node_ordinal DESC, rowid DESC
-        LIMIT 1
-      `)
-      .get(lineId) as SnapshotRow | undefined;
-    return row === undefined ? undefined : this.#snapshotFromRow(row);
-  }
-
-  async reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState> {
-    validateId(lineId, "line id");
-    if (headNodeId !== undefined) {
-      validateId(headNodeId, "conversation node id");
-    }
-    return this.#reconstructLineState(lineId, headNodeId);
-  }
-
-  #getNode(nodeId: string): ConversationNode | undefined {
-    const row = this.#db.prepare("SELECT * FROM conversation_nodes WHERE id = ? LIMIT 1").get(nodeId) as
-      | NodeRow
-      | undefined;
-    return row === undefined ? undefined : this.#nodeFromRow(row);
-  }
-
-  #requireNode(nodeId: string): ConversationNode {
-    const node = this.#getNode(nodeId);
-    if (node === undefined) {
-      throw new ConversationStoreError("not_found", `Conversation node "${nodeId}" does not exist.`);
-    }
-    return node;
-  }
-
-  #nodeFromRow(row: NodeRow): ConversationNode {
-    return {
-      id: row.id,
-      ordinal: row.ordinal,
-      sequence: row.sequence,
-      sessionId: row.session_id,
-      lineId: row.line_id,
-      parentIds: decodeJson<readonly string[]>(row.parent_ids_json, "conversation node parent ids"),
-      kind: row.kind,
-      title: row.title,
-      statePatch: decodeJson<ConversationNode["statePatch"]>(row.state_patch_json, "conversation node state patch"),
-      sourceEventIds: decodeJson<readonly string[]>(row.source_event_ids_json, "conversation node source event ids"),
-      sourceTaskIds: decodeJson<readonly string[]>(row.source_task_ids_json, "conversation node source task ids"),
-      sourceResultIds: decodeJson<readonly string[]>(row.source_result_ids_json, "conversation node source result ids"),
-      createdBy: row.created_by,
-      idempotencyKey: row.create_request_id,
-      createdAt: row.created_at
-    };
-  }
-
-  #getLineHead(lineId: string): ConversationLineHead | undefined {
-    const row = this.#db
-      .prepare("SELECT line_id, node_id, updated_at FROM conversation_line_heads WHERE line_id = ? LIMIT 1")
-      .get(lineId) as
-      | {
-          readonly line_id: string;
-          readonly node_id: string;
-          readonly updated_at: string;
-        }
-      | undefined;
-    return row === undefined
-      ? undefined
-      : {
-          lineId: row.line_id,
-          nodeId: row.node_id,
-          updatedAt: row.updated_at
-        };
-  }
-
-  #snapshotFromRow(row: SnapshotRow): ConversationContextSnapshot {
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      lineId: row.line_id,
-      nodeId: row.node_id,
-      nodeOrdinal: row.node_ordinal,
-      state: decodeJson<Readonly<Record<string, unknown>>>(row.state_json, "conversation context snapshot state"),
-      idempotencyKey: row.create_request_id,
-      createdAt: row.created_at
-    };
-  }
-
-  #requireSnapshot(snapshotId: string): ConversationContextSnapshot {
-    const row = this.#db
-      .prepare("SELECT * FROM conversation_context_snapshots WHERE id = ? LIMIT 1")
-      .get(snapshotId) as SnapshotRow | undefined;
-    if (row === undefined) {
-      throw new ConversationStoreError("not_found", `Conversation context snapshot "${snapshotId}" does not exist.`);
-    }
-    return this.#snapshotFromRow(row);
-  }
-
-  #reconstructLineState(lineId: string, headNodeId?: string): ReconstructedConversationState {
-    const line = this.#requireLine(lineId);
-    const resolvedHeadId = headNodeId ?? this.#getLineHead(line.id)?.nodeId;
-    if (resolvedHeadId === undefined) {
-      return {
-        sessionId: line.sessionId,
-        lineId: line.id,
-        state: {},
-        appliedNodeIds: []
-      };
-    }
-    const head = this.#requireNode(resolvedHeadId);
-    if (head.lineId !== line.id) {
-      throw new ConversationStoreError(
-        "ownership_mismatch",
-        `Conversation node "${head.id}" is not a head candidate for line "${line.id}".`
-      );
-    }
-
-    const ancestry = this.#collectNodeAncestry(head);
-    const ancestryIds = new Set(ancestry.map((node) => node.id));
-    const snapshotRows = this.#db
-      .prepare(`
-        SELECT *
-        FROM conversation_context_snapshots
-        WHERE session_id = ?
-        ORDER BY node_ordinal DESC, rowid DESC
-      `)
-      .all(line.sessionId) as SnapshotRow[];
-    const snapshotRow = snapshotRows.find((candidate) => ancestryIds.has(candidate.node_id));
-    const snapshot = snapshotRow === undefined ? undefined : this.#snapshotFromRow(snapshotRow);
-    let state: Readonly<Record<string, unknown>> = snapshot?.state ?? {};
-    const nodesToApply = ancestry.filter((node) => snapshot === undefined || node.ordinal > snapshot.nodeOrdinal);
-    for (const node of nodesToApply) {
-      state = applyConversationStatePatch(state, node.statePatch);
-    }
-    return {
-      sessionId: line.sessionId,
-      lineId: line.id,
-      headNodeId: head.id,
-      ...(snapshot === undefined ? {} : { snapshot }),
-      state,
-      appliedNodeIds: nodesToApply.map((node) => node.id)
-    };
-  }
-
-  #collectNodeAncestry(head: ConversationNode): readonly ConversationNode[] {
-    const visited = new Set<string>();
-    const visit = (node: ConversationNode): void => {
-      if (visited.has(node.id)) {
-        return;
-      }
-      for (const parentId of node.parentIds) {
-        visit(this.#requireNode(parentId));
-      }
-      visited.add(node.id);
-    };
-    visit(head);
-    return [...visited]
-      .map((nodeId) => this.#requireNode(nodeId))
-      .toSorted((left, right) => left.ordinal - right.ordinal);
-  }
-
-  #assertNodeRetry(existing: ConversationNode, input: CreateConversationNodeInput): void {
-    if (
-      existing.id !== (input.id ?? existing.id) ||
-      (input.parentIds !== undefined && !jsonValuesEqual(existing.parentIds, input.parentIds)) ||
-      existing.kind !== input.kind ||
-      existing.title !== input.title ||
-      !jsonValuesEqual(existing.statePatch, input.statePatch) ||
-      !jsonValuesEqual(existing.sourceEventIds, input.sourceEventIds ?? []) ||
-      !jsonValuesEqual(existing.sourceTaskIds, input.sourceTaskIds ?? []) ||
-      !jsonValuesEqual(existing.sourceResultIds, input.sourceResultIds ?? []) ||
-      existing.createdBy !== input.createdBy ||
-      existing.createdAt !== (input.createdAt ?? existing.createdAt)
-    ) {
-      throw new ConversationStoreError(
-        "idempotency_conflict",
-        `Idempotency key "${input.idempotencyKey}" was already used for a different conversation node request.`
-      );
-    }
-  }
-
-  #getTask(taskId: string): ConversationTask | undefined {
-    const row = this.#db.prepare("SELECT * FROM conversation_tasks WHERE id = ? LIMIT 1").get(taskId) as
-      | TaskRow
-      | undefined;
-    return row === undefined ? undefined : taskFromRow(row);
-  }
-
-  #requireTask(taskId: string): ConversationTask {
-    const task = this.#getTask(taskId);
-    if (task === undefined) {
-      throw new ConversationStoreError("not_found", `Task "${taskId}" does not exist.`);
-    }
-    return task;
-  }
-
-  #assertTaskCreateRetry(existing: ConversationTask, input: CreateTaskInput): void {
-    const created = this.#taskCreationSnapshot(existing);
-    const mismatch =
-      (input.id !== undefined && created.id !== input.id) ||
-      created.executor !== input.executor ||
-      created.workspaceId !== input.workspaceId ||
-      !jsonValuesEqual(created.input, input.input) ||
-      !jsonValuesEqual(created.artifacts, input.artifacts ?? []) ||
-      created.sourceEventId !== input.sourceEventId ||
-      (input.createdAt !== undefined && created.createdAt !== input.createdAt);
-    if (mismatch) {
-      throw new ConversationStoreError(
-        "idempotency_conflict",
-        `Task creation request "${input.idempotencyKey}" conflicts with the stored task.`
-      );
-    }
-  }
-
-  #taskCreationSnapshot(task: ConversationTask): ConversationTask {
-    const event = this.#getEventByLineAndRequest(task.branchId, `internal:task-created:${task.id}`);
-    const payload = eventPayloadRecord(event, "task creation");
-    return {
-      id: task.id,
-      sessionId: task.sessionId,
-      branchId: task.branchId,
-      status: "pending",
-      executor: task.executor,
-      ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
-      input: payload?.input ?? task.input,
-      artifacts: Array.isArray(payload?.artifacts) ? payload.artifacts : [],
-      idempotencyKey: task.idempotencyKey,
-      ...(task.sourceEventId === undefined ? {} : { sourceEventId: task.sourceEventId }),
-      createdAt: task.createdAt,
-      updatedAt: task.createdAt
-    };
-  }
-
-  #taskSnapshotAtEvent(task: ConversationTask, targetEvent: LineEvent): ConversationTask {
-    let snapshot = this.#taskCreationSnapshot(task);
-    const rows = this.#db
-      .prepare(`
-        SELECT *
-        FROM line_events
-        WHERE task_id = ?
-          AND ordinal <= ?
-        ORDER BY ordinal
-      `)
-      .all(task.id, targetEvent.ordinal) as LineEventRow[];
-    for (const row of rows) {
-      const event = lineEventFromRow(row);
-      if (event.type !== "task_status_changed") {
-        continue;
-      }
-      const payload = eventPayloadRecord(event, "task transition");
-      if (payload === undefined) {
-        continue;
-      }
-      const status = payload?.toStatus;
-      if (
-        status !== "pending" &&
-        status !== "running" &&
-        status !== "blocked" &&
-        status !== "completed" &&
-        status !== "failed" &&
-        status !== "cancelled"
-      ) {
-        continue;
-      }
-      snapshot = Object.assign(
-        {},
-        snapshot,
-        { status, updatedAt: event.createdAt },
-        Object.hasOwn(payload, "output") ? { output: payload.output } : {},
-        Object.hasOwn(payload, "error") ? { error: payload.error } : {},
-        Array.isArray(payload.artifacts) ? { artifacts: payload.artifacts } : {},
-        status === "running" && snapshot.startedAt === undefined ? { startedAt: event.createdAt } : {},
-        isTerminalTaskStatus(status) && snapshot.finishedAt === undefined ? { finishedAt: event.createdAt } : {}
-      );
-    }
-    return snapshot;
-  }
-
   #resultFromRow(row: ResultRow): BranchResult {
-    const taskRows = this.#db
-      .prepare(`
-        SELECT task_id
-        FROM branch_result_tasks
-        WHERE result_id = ?
-        ORDER BY rowid
-      `)
-      .all(row.id) as Array<{ readonly task_id: string }>;
     return {
       id: row.id,
       sessionId: row.session_id,
@@ -1828,7 +1058,6 @@ export class SqliteConversationRepository implements ConversationStore {
       artifacts: decodeJson<readonly unknown[]>(row.artifacts_json, "branch result artifacts"),
       citations: decodeJson<readonly unknown[]>(row.citations_json, "branch result citations"),
       nextActions: decodeJson<readonly string[]>(row.next_actions_json, "branch result next actions"),
-      sourceTaskIds: taskRows.map((task) => task.task_id),
       idempotencyKey: row.create_request_id,
       ...(row.source_event_id === null ? {} : { sourceEventId: row.source_event_id }),
       createdAt: row.created_at
@@ -1861,59 +1090,7 @@ export class SqliteConversationRepository implements ConversationStore {
     return this.#resultFromRow(row);
   }
 
-  async #ensureResultNode(result: BranchResult, resultEventId: string): Promise<void> {
-    await this.createNode(result.branchId, {
-      id: `conversation-node:result:${result.id}`,
-      kind: "task_result",
-      title: `记录分支结果 v${result.version}`,
-      statePatch: {
-        latestResult: {
-          id: result.id,
-          version: result.version,
-          status: result.status,
-          summary: result.summary,
-          nextActions: result.nextActions,
-          sourceTaskIds: result.sourceTaskIds,
-          createdAt: result.createdAt
-        }
-      },
-      sourceEventIds: [resultEventId],
-      sourceTaskIds: result.sourceTaskIds,
-      sourceResultIds: [result.id],
-      createdBy: "system",
-      idempotencyKey: `branch-result:${result.id}:semantic-node`,
-      createdAt: result.createdAt
-    });
-  }
-
-  #assertBranchTasksTerminal(branchId: string, action: string): void {
-    const rows = this.#db
-      .prepare(`
-        SELECT id
-        FROM conversation_tasks
-        WHERE branch_line_id = ?
-          AND status IN ('pending', 'running', 'blocked')
-        ORDER BY created_at, rowid
-      `)
-      .all(branchId) as Array<{ readonly id: string }>;
-    if (rows.length !== 0) {
-      throw new ConversationStoreError(
-        "invalid_state_transition",
-        `Branch "${branchId}" cannot ${action} while tasks are unfinished: ${rows.map((row) => row.id).join(", ")}.`
-      );
-    }
-  }
-
   #assertSessionCanArchive(sessionId: string): void {
-    const unfinishedTask = this.#db
-      .prepare(`
-        SELECT id
-        FROM conversation_tasks
-        WHERE session_id = ?
-          AND status IN ('pending', 'running', 'blocked')
-        LIMIT 1
-      `)
-      .get(sessionId);
     const openBranch = this.#db
       .prepare(`
         SELECT id
@@ -1924,7 +1101,7 @@ export class SqliteConversationRepository implements ConversationStore {
         LIMIT 1
       `)
       .get(sessionId, ...SESSION_ARCHIVABLE_BRANCH_STATUSES);
-    if (unfinishedTask !== undefined || openBranch !== undefined) {
+    if (openBranch !== undefined) {
       throw new ConversationStoreError(
         "invalid_state_transition",
         `Session "${sessionId}" cannot be archived while branches or tasks are unfinished.`
@@ -1941,7 +1118,6 @@ export class SqliteConversationRepository implements ConversationStore {
       !jsonValuesEqual(existing.artifacts, input.artifacts ?? []) ||
       !jsonValuesEqual(existing.citations, input.citations ?? []) ||
       !jsonValuesEqual(existing.nextActions, input.nextActions ?? []) ||
-      !jsonValuesEqual(existing.sourceTaskIds, input.sourceTaskIds ?? []) ||
       existing.sourceEventId !== input.sourceEventId ||
       (input.createdAt !== undefined && existing.createdAt !== input.createdAt);
     if (mismatch) {
@@ -1952,7 +1128,7 @@ export class SqliteConversationRepository implements ConversationStore {
     }
   }
 
-  #requireMerge(mergeId: string): BranchMerge {
+  #requireMerge(mergeId: string): BranchPublication {
     const row = this.#db
       .prepare(`
         SELECT branch_merges.*, conversation_lines.session_id
@@ -1968,7 +1144,12 @@ export class SqliteConversationRepository implements ConversationStore {
     return mergeFromRow(row);
   }
 
-  #assertMergeRetry(existing: BranchMerge, mainlineId: string, resultId: string, input: MergeBranchResultInput): void {
+  #assertMergeRetry(
+    existing: BranchPublication,
+    mainlineId: string,
+    resultId: string,
+    input: PublishBranchResultInput
+  ): void {
     const mismatch =
       existing.mainlineId !== mainlineId ||
       existing.resultId !== resultId ||
@@ -1992,14 +1173,6 @@ export class SqliteConversationRepository implements ConversationStore {
       const mainline = this.#requireMainline(session.id);
       const sourceEvent = this.#requireEvent(branch.sourceEventId);
       const events = this.#listAllEvents(branch.id);
-      const taskRows = this.#db
-        .prepare(`
-          SELECT *
-          FROM conversation_tasks
-          WHERE branch_line_id = ?
-          ORDER BY created_at, rowid
-        `)
-        .all(branch.id) as TaskRow[];
       const resultRows = this.#db
         .prepare(`
           SELECT *
@@ -2015,7 +1188,6 @@ export class SqliteConversationRepository implements ConversationStore {
         sourceEvent,
         ...(branch.contextSnapshot === undefined ? {} : { contextSnapshot: branch.contextSnapshot }),
         events,
-        tasks: taskRows.map(taskFromRow),
         results: resultRows.map((row) => this.#resultFromRow(row))
       };
     });
@@ -2055,18 +1227,6 @@ export class SqliteConversationRepository implements ConversationStore {
           ORDER BY conversation_lines.created_at, conversation_lines.rowid
         `)
         .all(...(sessionId === undefined ? [] : [sessionId])) as LineRow[];
-      const taskRows = this.#db
-        .prepare(`
-          SELECT conversation_tasks.*
-          FROM conversation_tasks
-          JOIN conversation_sessions
-            ON conversation_sessions.id = conversation_tasks.session_id
-          WHERE conversation_tasks.status IN ('pending', 'running', 'blocked')
-            AND conversation_sessions.status = 'active'
-            ${sessionId === undefined ? "" : " AND conversation_tasks.session_id = ?"}
-          ORDER BY conversation_tasks.created_at, conversation_tasks.rowid
-        `)
-        .all(...(sessionId === undefined ? [] : [sessionId])) as TaskRow[];
       const resultRows = this.#db
         .prepare(`
           SELECT branch_results.*
@@ -2088,54 +1248,7 @@ export class SqliteConversationRepository implements ConversationStore {
         sessions,
         mainlines,
         activeBranches: branchRows.map(requireBranchFromRow),
-        unfinishedTasks: taskRows.map(taskFromRow),
         unmergedResults: resultRows.map((row) => this.#resultFromRow(row))
-      };
-    });
-  }
-
-  async getTaskTrace(taskId: string): Promise<TaskTrace> {
-    validateId(taskId, "task id");
-    return this.#read(() => {
-      const task = this.#requireTask(taskId);
-      const branch = this.#requireBranch(task.branchId);
-      const session = this.#requireSession(task.sessionId);
-      const mainline = this.#requireMainline(session.id);
-      const sourceEvent = task.sourceEventId === undefined ? undefined : this.#requireEvent(task.sourceEventId);
-      const branchSourceEvent = this.#requireEvent(branch.sourceEventId);
-      const eventRows = this.#db
-        .prepare(`
-          SELECT *
-          FROM line_events
-          WHERE session_id = ?
-          ORDER BY ordinal
-        `)
-        .all(task.sessionId) as LineEventRow[];
-      const events = eventRows
-        .map(lineEventFromRow)
-        .filter(
-          (event) =>
-            event.taskId === task.id || (event.payload !== undefined && payloadContainsTaskId(event.payload, task.id))
-        );
-      const resultRows = this.#db
-        .prepare(`
-          SELECT branch_results.*
-          FROM branch_results
-          JOIN branch_result_tasks
-            ON branch_result_tasks.result_id = branch_results.id
-          WHERE branch_result_tasks.task_id = ?
-          ORDER BY branch_results.created_at, branch_results.rowid
-        `)
-        .all(task.id) as ResultRow[];
-      return {
-        task,
-        branch,
-        mainline,
-        session,
-        ...(sourceEvent === undefined ? {} : { sourceEvent }),
-        branchSourceEvent,
-        events,
-        results: resultRows.map((row) => this.#resultFromRow(row))
       };
     });
   }
@@ -2147,7 +1260,6 @@ export class SqliteConversationRepository implements ConversationStore {
       const line = this.#requireLine(event.lineId);
       const session = this.#requireSession(event.sessionId);
       const branch = line.kind === "branch" ? line : undefined;
-      const task = event.taskId === undefined ? undefined : this.#requireTask(event.taskId);
       const sourceEvent = event.sourceEventId === undefined ? undefined : this.#getEvent(event.sourceEventId);
       const causationChain = this.#causationChain(event);
       const sessionEvents = (
@@ -2165,7 +1277,6 @@ export class SqliteConversationRepository implements ConversationStore {
         line,
         session,
         ...(branch === undefined ? {} : { branch }),
-        ...(task === undefined ? {} : { task }),
         ...(sourceEvent === undefined ? {} : { sourceEvent }),
         causationChain,
         relatedEvents: collectRelatedEvents(sessionEvents, event, causationChain)
@@ -2181,7 +1292,6 @@ export class SqliteConversationRepository implements ConversationStore {
       const session = this.#requireSession(result.sessionId);
       const mainline = this.#requireMainline(session.id);
       const sourceEvent = result.sourceEventId === undefined ? undefined : this.#requireEvent(result.sourceEventId);
-      const tasks = result.sourceTaskIds.map((taskId) => this.#requireTask(taskId));
       const mergeRow = this.#db
         .prepare(`
           SELECT branch_merges.*, conversation_lines.session_id
@@ -2200,8 +1310,7 @@ export class SqliteConversationRepository implements ConversationStore {
         mainline,
         session,
         ...(sourceEvent === undefined ? {} : { sourceEvent }),
-        tasks,
-        ...(merge === undefined ? {} : { publication: merge, merge }),
+        ...(merge === undefined ? {} : { publication: merge }),
         ...(mainlineEvent === undefined ? {} : { mainlineEvent })
       };
     });
@@ -2671,28 +1780,7 @@ function lineEventFromRow(row: LineEventRow): LineEvent {
   };
 }
 
-function taskFromRow(row: TaskRow): ConversationTask {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    branchId: row.branch_line_id,
-    status: row.status,
-    executor: row.executor,
-    ...(row.workspace_id === null ? {} : { workspaceId: row.workspace_id }),
-    input: decodeJson(row.input_json, "task input"),
-    ...(row.output_json === null ? {} : { output: decodeJson(row.output_json, "task output") }),
-    ...(row.error_json === null ? {} : { error: decodeJson(row.error_json, "task error") }),
-    artifacts: decodeJson<readonly unknown[]>(row.artifacts_json, "task artifacts"),
-    idempotencyKey: row.create_request_id,
-    ...(row.source_event_id === null ? {} : { sourceEventId: row.source_event_id }),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    ...(row.started_at === null ? {} : { startedAt: row.started_at }),
-    ...(row.finished_at === null ? {} : { finishedAt: row.finished_at })
-  };
-}
-
-function mergeFromRow(row: MergeRow): BranchMerge {
+function mergeFromRow(row: MergeRow): BranchPublication {
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -2759,8 +1847,7 @@ function branchResultPayload(branch: ConversationBranch, result: BranchResult): 
     summary: result.summary,
     artifacts: result.artifacts,
     citations: result.citations,
-    nextActions: result.nextActions,
-    sourceTaskIds: result.sourceTaskIds
+    nextActions: result.nextActions
   };
 }
 
@@ -2792,26 +1879,6 @@ function assertTransitionEventRequest(
     throw new ConversationStoreError(
       "idempotency_conflict",
       `Transition request "${event.idempotencyKey}" conflicts with the stored event.`
-    );
-  }
-}
-
-function assertTaskTransitionEventRequest(event: LineEvent, input: TransitionTaskInput): void {
-  const payload = eventPayloadRecord(event, "task transition");
-  const storedOutput = payload !== undefined && Object.hasOwn(payload, "output") ? payload.output : undefined;
-  const storedError = payload !== undefined && Object.hasOwn(payload, "error") ? payload.error : undefined;
-  const storedArtifacts = payload !== undefined && Object.hasOwn(payload, "artifacts") ? payload.artifacts : undefined;
-  if (
-    event.type !== "task_status_changed" ||
-    payload?.toStatus !== input.status ||
-    !jsonValuesEqual(storedOutput, input.output) ||
-    !jsonValuesEqual(storedError, input.error) ||
-    !jsonValuesEqual(storedArtifacts, input.artifacts) ||
-    (input.createdAt !== undefined && event.createdAt !== input.createdAt)
-  ) {
-    throw new ConversationStoreError(
-      "idempotency_conflict",
-      `Task transition request "${input.idempotencyKey}" conflicts with the stored event.`
     );
   }
 }
@@ -2960,26 +2027,6 @@ function validateListLineEventsOptions(options: ListLineEventsOptions): void {
   }
 }
 
-function validateCreateTaskInput(input: CreateTaskInput): void {
-  validateId(input.executor, "task executor");
-  validateId(input.idempotencyKey, "idempotency key");
-  if (input.id !== undefined) {
-    validateId(input.id, "task id");
-  }
-  if (input.workspaceId !== undefined) {
-    validateId(input.workspaceId, "workspace id");
-  }
-  if (input.sourceEventId !== undefined) {
-    validateId(input.sourceEventId, "source event id");
-  }
-  validateTimestamp(input.createdAt, "createdAt");
-}
-
-function validateTransitionTaskInput(input: TransitionTaskInput): void {
-  validateId(input.idempotencyKey, "idempotency key");
-  validateTimestamp(input.createdAt, "createdAt");
-}
-
 function validateCreateBranchResultInput(input: CreateBranchResultInput): void {
   validateId(input.summary, "branch result summary");
   validateId(input.idempotencyKey, "idempotency key");
@@ -2992,16 +2039,13 @@ function validateCreateBranchResultInput(input: CreateBranchResultInput): void {
   if (input.sourceEventId !== undefined) {
     validateId(input.sourceEventId, "source event id");
   }
-  for (const taskId of input.sourceTaskIds ?? []) {
-    validateId(taskId, "source task id");
-  }
   if ((input.nextActions ?? []).some((action) => typeof action !== "string")) {
     throw new ConversationStoreError("validation_error", "Branch result next actions must be strings.");
   }
   validateTimestamp(input.createdAt, "createdAt");
 }
 
-function validateMergeInput(input: MergeBranchResultInput): void {
+function validateMergeInput(input: PublishBranchResultInput): void {
   for (const [value, label] of [
     [input.resultId, "branch result id"],
     [input.id, "branch merge id"],
@@ -3014,44 +2058,6 @@ function validateMergeInput(input: MergeBranchResultInput): void {
     }
   }
   validateTimestamp(input.createdAt, "createdAt");
-}
-
-function validateCreateConversationNodeInput(input: CreateConversationNodeInput): void {
-  validateId(input.kind, "conversation node kind");
-  validateId(input.title, "conversation node title");
-  validateId(input.createdBy, "conversation node creator");
-  validateIdempotencyKey(input.idempotencyKey);
-  if (input.id !== undefined) {
-    validateId(input.id, "conversation node id");
-  }
-  if (input.statePatch === null || typeof input.statePatch !== "object" || Array.isArray(input.statePatch)) {
-    throw new ConversationStoreError("validation_error", "Conversation node statePatch must be an object.");
-  }
-  for (const [values, label] of [
-    [input.parentIds, "conversation node parent id"],
-    [input.sourceEventIds, "conversation node source event id"],
-    [input.sourceTaskIds, "conversation node source task id"],
-    [input.sourceResultIds, "conversation node source result id"]
-  ] as const) {
-    for (const value of values ?? []) {
-      validateId(value, label);
-    }
-  }
-  validateTimestamp(input.createdAt, "createdAt");
-}
-
-function validateListConversationNodesOptions(options: ListConversationNodesOptions): void {
-  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
-    throw new ConversationStoreError("validation_error", "Node list limit must be a positive safe integer.");
-  }
-  for (const [value, label] of [
-    [options.afterOrdinal, "afterOrdinal"],
-    [options.beforeOrdinal, "beforeOrdinal"]
-  ] as const) {
-    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-      throw new ConversationStoreError("validation_error", `${label} must be a non-negative safe integer.`);
-    }
-  }
 }
 
 function validateLocator(locator: ConversationSessionLocator): void {
@@ -3088,21 +2094,6 @@ function validateId(value: string, label: string): void {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new ConversationStoreError("validation_error", `${label} must be a non-empty string.`);
   }
-}
-
-function validateIdempotencyKey(value: string): void {
-  validateId(value, "idempotency key");
-}
-
-function uniqueIds(values: readonly string[], label: string): readonly string[] {
-  const unique = [...new Set(values)];
-  if (unique.length !== values.length) {
-    throw new ConversationStoreError("validation_error", `${label} must not contain duplicates.`);
-  }
-  for (const value of unique) {
-    validateId(value, label);
-  }
-  return unique;
 }
 
 function validateTimestamp(value: string | undefined, label: string, required = false): void {

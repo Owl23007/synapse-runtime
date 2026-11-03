@@ -270,7 +270,7 @@ export class ToolRuntime implements ToolRuntimeView {
         if (signal.aborted) abort();
       });
     } catch (error) {
-      return this.#fail(name, input, callContext, error);
+      return this.#fail(name, input, callContext, error, (tool.effect ?? "external") === "external");
     } finally {
       clearTimeout(timer);
     }
@@ -290,13 +290,20 @@ export class ToolRuntime implements ToolRuntimeView {
     };
   }
 
-  async #fail(name: string, input: unknown, context: ToolCallContext, error: unknown): Promise<never> {
+  async #fail(
+    name: string,
+    input: unknown,
+    context: ToolCallContext,
+    error: unknown,
+    uncertain = false
+  ): Promise<never> {
     try {
       await this.#notify({
         type: "tool_call_failed",
         name,
         input,
         error,
+        ...(uncertain ? { outcome: "uncertain" as const } : {}),
         context,
         occurredAt: new Date().toISOString()
       });

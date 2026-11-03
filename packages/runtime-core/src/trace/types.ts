@@ -3,6 +3,7 @@ export type RunStatus = "accepted" | "running" | "succeeded" | "failed" | "block
 
 /** 运行事件类型，日志不参与该持久协议 */
 export type RunEventType =
+  | "execution_completed"
   | "asset_materialized"
   | "skill_activated"
   | "dependencies_resolved"
@@ -49,7 +50,9 @@ export interface RunTrace {
   readonly id: string;
   readonly protocolVersion: 1;
   readonly sourceEventId: string;
-  readonly sessionId: string;
+  readonly sessionId?: string;
+  /** 后台运行可以没有会话，但必须有明确的工作区归属 */
+  readonly workspaceId?: string;
   readonly channelId: string;
   readonly lineId?: string;
   readonly branchId?: string;
@@ -80,7 +83,8 @@ export interface RunEvent {
 /** 接受请求所需的持久身份与展示摘要 */
 export interface AcceptRunInput {
   readonly sourceEventId: string;
-  readonly sessionId: string;
+  readonly sessionId?: string;
+  readonly workspaceId?: string;
   readonly channelId: string;
   readonly lineId?: string;
   readonly branchId?: string;

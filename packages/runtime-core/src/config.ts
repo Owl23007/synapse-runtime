@@ -1,6 +1,47 @@
 import { defineConfig } from "@synapse/runtime-config";
 import { z } from "zod";
 
+/** 自主执行的宿主硬上限，模型只能在这些额度内创建工作 */
+export const AutonomySettingsSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    pollIntervalMs: z.number().int().min(100).max(60_000).default(1000),
+    maxPendingIntents: z.number().int().min(1).max(10_000).default(128),
+    maxAttempts: z.number().int().min(1).max(10).default(3),
+    maxRunsPerHour: z.number().int().min(1).max(10_000).default(60),
+    maxRunsPerGrant: z.number().int().min(1).max(1000).default(24),
+    maxModelCallsPerRun: z.number().int().min(1).max(64).default(8),
+    maxToolCallsPerRun: z.number().int().min(1).max(128).default(16),
+    maxTasks: z.number().int().min(1).max(1000).default(32),
+    maxTaskDepth: z.number().int().min(1).max(8).default(3),
+    maxSchedules: z.number().int().min(1).max(1000).default(16),
+    maxScheduleOccurrences: z.number().int().min(1).max(1000).default(24),
+    maxScheduleLifetimeHours: z.number().int().min(1).max(8760).default(168),
+    minScheduleIntervalMs: z.number().int().min(60_000).max(86_400_000).default(300_000),
+    maxContextCommits: z.number().int().min(1).max(100_000).default(1000),
+    maxRecordChars: z.number().int().min(1024).max(1_000_000).default(32_000),
+    retentionHours: z.number().int().min(1).max(8760).default(168),
+    observationTtlMinutes: z.number().int().min(1).max(1440).default(30),
+    maxObservationsPerSession: z.number().int().min(1).max(1000).default(64),
+    maxDatabaseBytes: z
+      .number()
+      .int()
+      .min(16 * 1024 * 1024)
+      .max(16 * 1024 * 1024 * 1024)
+      .default(512 * 1024 * 1024)
+  })
+  .strict();
+
+/** 已校验的自主执行与数据保留配置 */
+export type AutonomySettings = z.infer<typeof AutonomySettingsSchema>;
+
+/** 自主执行配置令牌，未知配置项直接拒绝 */
+export const autonomyConfig = defineConfig({
+  id: "autonomy",
+  defaults: AutonomySettingsSchema.parse({}),
+  parse: (value: unknown) => AutonomySettingsSchema.parse(value)
+});
+
 /** 文件限额与只读目录由管理员定义，不接受模型提供宿主路径 */
 export const FilesSettingsSchema = z.object({
   enabled: z.boolean().default(true),
@@ -50,6 +91,7 @@ export const RuntimeContextSettingsSchema = z
   .object({
     enabled: z.boolean().default(true),
     maxHistoryChars: z.number().int().positive().default(6000),
+    maxTotalChars: z.number().int().min(1024).max(500_000).default(24_000),
     timezone: z.string().min(1).default("UTC"),
     privateHistoryTtlMinutes: z.number().int().positive().default(720),
     groupHistoryTtlMinutes: z.number().int().positive().default(30),

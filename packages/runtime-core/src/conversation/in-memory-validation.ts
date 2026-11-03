@@ -4,10 +4,7 @@ import type {
   AppendLineEventInput,
   CreateBranchInput,
   CreateBranchResultInput,
-  CreateConversationNodeInput,
   CreateSessionInput,
-  CreateTaskInput,
-  ListConversationNodesOptions,
   ListLineEventsOptions
 } from "./types.js";
 
@@ -74,44 +71,12 @@ export function validateAppendLineEventInput(input: AppendLineEventInput): void 
   validateIdempotencyKey(input.idempotencyKey);
 }
 
-/** 校验内存任务创建参数 */
-export function validateCreateTaskInput(input: CreateTaskInput): void {
-  validateNonEmpty("executor", input.executor);
-  validateIdempotencyKey(input.idempotencyKey);
-}
-
 /** 校验内存分支结果创建参数 */
 export function validateCreateBranchResultInput(input: CreateBranchResultInput): void {
   validateNonEmpty("summary", input.summary);
   validateIdempotencyKey(input.idempotencyKey);
   if (input.version !== undefined && (!Number.isSafeInteger(input.version) || input.version <= 0)) {
     throw validationError("Branch result version must be a positive safe integer.");
-  }
-}
-
-/** 校验内存会话节点创建参数 */
-export function validateCreateConversationNodeInput(input: CreateConversationNodeInput): void {
-  validateNonEmpty("node kind", input.kind);
-  validateNonEmpty("title", input.title);
-  validateNonEmpty("createdBy", input.createdBy);
-  validateIdempotencyKey(input.idempotencyKey);
-  if (input.statePatch === null || typeof input.statePatch !== "object" || Array.isArray(input.statePatch)) {
-    throw validationError("Conversation node statePatch must be an object.");
-  }
-}
-
-/** 校验内存会话节点列表参数 */
-export function validateListConversationNodesOptions(options: ListConversationNodesOptions): void {
-  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
-    throw validationError("Node list limit must be a positive safe integer.");
-  }
-  for (const [name, value] of [
-    ["afterOrdinal", options.afterOrdinal],
-    ["beforeOrdinal", options.beforeOrdinal]
-  ] as const) {
-    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
-      throw validationError(`${name} must be a non-negative safe integer.`);
-    }
   }
 }
 

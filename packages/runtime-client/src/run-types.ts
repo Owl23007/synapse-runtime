@@ -5,7 +5,9 @@ export interface RunTrace {
   readonly id: string;
   readonly protocolVersion: 1;
   readonly sourceEventId: string;
-  readonly sessionId: string;
+  readonly sessionId?: string;
+  /** 后台运行只关联工作区，不伪造会话 */
+  readonly workspaceId?: string;
   readonly channelId: string;
   readonly lineId?: string;
   readonly branchId?: string;

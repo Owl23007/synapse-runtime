@@ -14,6 +14,7 @@ function createRuntimeLimitsFixture(fetch: RuntimeFetch, limits: Record<string, 
   onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
   const config = parseConfigObject({
     runtime: { dataDir: directory, limits },
+    autonomy: { maxPendingIntents: 1 },
     conversation: { groupTrigger: { mode: "always" } },
     agent: {
       default: "model",
@@ -102,9 +103,15 @@ describe("生产执行约束", () => {
     try {
       const first = runtime.runtime.handleChannelEvent(runtime.event, "napcat");
       await modelStarted;
-      await expect(runtime.runtime.handleChannelEvent({ ...runtime.event, id: "other" }, "napcat")).rejects.toThrow(
-        "队列已满"
-      );
+      await runtime.runtime.handleChannelEvent({ ...runtime.event, id: "steering" }, "napcat");
+      const active = runtime.contextStore.runs.list().items[0]!;
+      expect(runtime.contextStore.execution.inputs(active.id)).toHaveLength(1);
+      await expect(
+        runtime.runtime.handleChannelEvent(
+          { ...runtime.event, id: "other", conversation: { id: "other-group", kind: "group" } },
+          "napcat"
+        )
+      ).rejects.toThrow("capacity exhausted");
       await first;
       expect(signal?.aborted).toBe(true);
       expect(runtime.contextStore.runs.list().items).toHaveLength(1);

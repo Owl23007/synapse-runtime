@@ -90,8 +90,13 @@ describe("原生模型与工具工作流", () => {
       expect(artifacts).toHaveLength(1);
       expect(Buffer.from(assembly.artifacts.read(session.id, artifacts[0]!.id).data).toString()).toBe("native report");
       const original = await assembly.inspection.getSessionGraph(session.id);
-      expect(original?.nodes).toEqual(expect.arrayContaining([expect.objectContaining({ type: "tool_result" })]));
-      const history = original!.refs.find((ref) => ref.name === `line:${session.mainlineId}`)!.commitId;
+      expect(original?.nodes).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "tool_result" })]));
+      const saved = await assembly.workspace.commit(session.id, {
+        expectedVersion: 1,
+        content: { summary: "生成原生报告：已完成并保存", artifacts: [artifacts[0]!.id] },
+        idempotencyKey: "report-checkpoint"
+      });
+      const history = (saved.commit as { id: string }).id;
       const later = await assembly.runtime.submitNative({
         sessionId: session.id,
         text: "MAINLINE_FUTURE_ONLY",

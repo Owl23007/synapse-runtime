@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 import type { ConversationStore } from "../conversation/store.js";
-import type { ContextGraph } from "../context-graph/index.js";
-import type { RunTraceStore } from "../trace/types.js";
+import type { ContextGraph, Commit, CommitInput } from "../context-graph/index.js";
+import type { ConversationSession } from "../conversation/types.js";
 import type { RuntimeCore } from "./runtime-core.js";
 
 /** 工作台依赖领域存储端口，具体数据库由应用层装配 */
 export interface RuntimeWorkspaceStore extends ConversationStore {
-  /** 宿主持久化 Native 会话到资源工作区的可信映射 */
-  bindSessionWorkspace?(sessionId: string, workspaceId?: string): Promise<string>;
+  /** 原子建立会话、固定工作区与初始版本 */
+  createNativeSession(input: { id: string; key: string; title: string; workspaceId?: string }): ConversationSession;
+  /** 原子采用上下文版本与呈现投影 */
+  commitContextResult(
+    input: CommitInput & { readonly additionalParents: readonly string[] },
+    mainlineId: string,
+    branchId: string,
+    summary: string
+  ): Commit;
+  /** 显式保存受额度限制的完整快照 */
+  commitSnapshot(input: CommitInput): Commit;
   readonly contextGraph: ContextGraph;
-  readonly runs: Pick<RunTraceStore, "list">;
   /** 对返回浏览器的历史内容脱敏 */
   inspectValue(value: unknown): unknown;
 }
@@ -42,33 +50,13 @@ export class RuntimeWorkspace {
     const title = string(body.title, 120);
     if (existing && (existing.metadata as { title?: string } | undefined)?.title !== title)
       throw new WorkspaceOperationError(409, "幂等键对应的会话名称不同");
-    const session =
-      existing ??
-      (await contextStore.createSession({
-        id,
-        locator: {
-          platform: "native",
-          provider: "native",
-          channelId: "native",
-          conversationType: "private",
-          conversationId: id
-        },
-        metadata: { title },
-        idempotencyKey: key
-      }));
-    contextStore.contextGraph.commit({
-      scopeId: id,
-      refName: `line:${session.mainlineId}`,
-      expectedVersion: null,
-      idempotencyKey: `session:${id}:root`,
-      type: "session",
-      content: { title, lineId: session.mainlineId }
-    });
-    const workspaceId = await contextStore.bindSessionWorkspace?.(
+    const session = contextStore.createNativeSession({
       id,
-      body.workspaceId === undefined ? undefined : string(body.workspaceId)
-    );
-    return { session: contextStore.inspectValue(session), ...(workspaceId ? { workspaceId } : {}) };
+      key,
+      title,
+      ...(body.workspaceId === undefined ? {} : { workspaceId: string(body.workspaceId) })
+    });
+    return { session: contextStore.inspectValue(session), workspaceId: session.workspaceId! };
   }
 
   /** 接收原生输入并返回持久运行身份 */
@@ -129,6 +117,31 @@ export class RuntimeWorkspace {
     };
   }
 
+  /** 显式保存可独立解析的上下文快照，聊天和工具执行不会隐式调用此入口 */
+  async commit(sessionId: string, input: unknown) {
+    const session = await this.contextStore.getSession(sessionId);
+    if (!session || session.locator?.platform !== "native") throw new WorkspaceOperationError(404, "原生会话不存在");
+    const body = object(input);
+    const lineId = body.lineId === undefined ? session.mainlineId : string(body.lineId);
+    const line = await this.contextStore.getLine(lineId);
+    if (!line || line.sessionId !== sessionId) throw new WorkspaceOperationError(404, "会话线不存在");
+    if (
+      body.expectedVersion !== null &&
+      (!Number.isSafeInteger(body.expectedVersion) || Number(body.expectedVersion) < 1)
+    )
+      throw new WorkspaceOperationError(400, "版本无效");
+    const commit = this.contextStore.commitSnapshot({
+      scopeId: sessionId,
+      refName: `line:${lineId}`,
+      expectedVersion: body.expectedVersion as number | null,
+      idempotencyKey: `snapshot:${string(body.idempotencyKey, 200)}`,
+      type: "snapshot",
+      content: object(body.content),
+      metadata: { principalId: "runtime-admin", lineId }
+    });
+    return { commit: this.contextStore.inspectValue(commit) };
+  }
+
   /** 从历史上下文提交建立隔离会话线 */
   async fork(sessionId: string, input: unknown) {
     const { runtime, contextStore } = this;
@@ -175,56 +188,37 @@ export class RuntimeWorkspace {
     const target = contextStore.contextGraph.getRef(sessionId, `line:${session.mainlineId}`);
     const key = string(body.idempotencyKey, 200);
     const prior = contextStore.contextGraph.getCommitByKey(sessionId, `merge:${key}`);
-    const publish = async (summary: string) => {
-      const result = await contextStore.createBranchResult(branch.id, {
-        status: "completed",
-        summary,
-        idempotencyKey: `native-merge:${key}:result`
-      });
-      await contextStore.publishBranchResult(branch.id, session.mainlineId, {
-        resultId: result.id,
-        idempotencyKey: `native-merge:${key}:publish`
-      });
-    };
     if (prior) {
       if (prior.content.branchId !== branch.id || !prior.parents.includes(String(body.sourceCommitId)))
         throw new WorkspaceOperationError(409, "幂等键对应的合并请求不同");
-      await publish(String(prior.content.summary));
       return { commit: contextStore.inspectValue(prior) };
     }
     if (!source || !target || target.version !== body.expectedVersion || source.commitId !== body.sourceCommitId)
       throw new WorkspaceOperationError(409, "上下文已更新，请刷新后重新比较");
-    const runs = contextStore.runs.list({ sessionId, limit: 200 }).items;
-    if (runs.find((run) => run.lineId === branch.id)?.status !== "succeeded")
-      throw new WorkspaceOperationError(409, "分支需要有成功的运行结果才能合并");
-    if (
-      runs.some(
-        (run) =>
-          ["accepted", "running"].includes(run.status) && [branch.id, session.mainlineId].includes(run.lineId ?? "")
-      )
-    )
-      throw new WorkspaceOperationError(409, "请等待主线与分支运行结束后合并");
     const commit = contextStore.contextGraph.getCommit(sessionId, source.commitId)!;
     const summary =
       typeof commit.content.summary === "string"
         ? commit.content.summary
         : typeof commit.content.output === "string"
           ? commit.content.output
-          : "";
+          : JSON.stringify(commit.content);
     if (!summary || source.commitId === object(branch.contextSnapshot).contextCommitId)
       throw new WorkspaceOperationError(409, "分支尚无可合并的运行结果");
-    const merged = contextStore.contextGraph.merge({
-      scopeId: sessionId,
-      refName: target.name,
-      expectedVersion: target.version,
-      additionalParents: [source.commitId],
-      idempotencyKey: `merge:${key}`,
-      type: "merge",
-      content: { summary, branchId: branch.id },
-      metadata: { sourceVersion: source.version }
-    });
-    // 图与结构化结果使用同一操作键，跨投影中断后由相同请求补齐，不再次移动引用
-    await publish(summary);
+    const merged = contextStore.commitContextResult(
+      {
+        scopeId: sessionId,
+        refName: target.name,
+        expectedVersion: target.version,
+        additionalParents: [source.commitId],
+        idempotencyKey: `merge:${key}`,
+        type: "merge",
+        content: { ...commit.content, summary, branchId: branch.id },
+        metadata: { sourceVersion: source.version }
+      },
+      session.mainlineId,
+      branch.id,
+      summary
+    );
     return { commit: contextStore.inspectValue(merged) };
   }
 }

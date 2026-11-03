@@ -11,6 +11,7 @@ import type {
   IdentityStore,
   TranscriptStore,
   WorkspaceResolver,
+  WorkspaceRef,
   WorkspaceStore
 } from "../context.js";
 import type { PresentationProfile } from "../output/index.js";
@@ -43,6 +44,10 @@ export interface RuntimeCoreLogger {
  * RuntimeCore 构造参数
  */
 export interface RuntimeCoreOptions {
+  /** 持久意图是生产调度权威，嵌入式执行可独立提供领域存储 */
+  readonly execution?: import("../execution/store.js").ExecutionStore;
+  /** 读取固定归属工作区的真实元数据 */
+  readonly getWorkspace?: (id: string) => WorkspaceRef | undefined;
   /** 会话归属独立于 Files 开关，能力授权也使用相同工作区 */
   readonly sessionWorkspace?: (sessionId: string) => string | undefined;
   /** 资源授权只接收可信会话映射，不从模型参数解析工作区 */
@@ -121,6 +126,7 @@ export interface RuntimeCoreOptions {
     readonly workspaceResolver?: WorkspaceResolver;
     readonly workspaceStore?: WorkspaceStore;
     readonly maxHistoryChars?: number;
+    readonly maxTotalChars?: number;
     readonly timezone?: string;
     readonly strategy?: string;
     readonly cacheEnabled?: boolean;

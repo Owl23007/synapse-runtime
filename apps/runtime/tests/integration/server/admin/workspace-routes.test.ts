@@ -61,8 +61,19 @@ describe("第一方会话工作台", () => {
       "第二轮",
       "第二轮"
     ]);
+    const beforeCheckpoint = await client.sessionGraph(session.id);
+    expect(beforeCheckpoint.nodes.filter((node) => node.type === "input")).toHaveLength(0);
+    expect(beforeCheckpoint.nodes.filter((node) => node.type === "snapshot")).toHaveLength(0);
+    const checkpointInput = {
+      lineId: session.mainlineId,
+      expectedVersion: 1,
+      content: { summary: "confirmed" },
+      idempotencyKey: "explicit-checkpoint"
+    };
+    const saved = await client.commitContext(session.id, checkpointInput);
+    expect((await client.commitContext(session.id, checkpointInput)).commit.id).toBe(saved.commit.id);
     const graph = await client.sessionGraph(session.id);
-    expect(graph.nodes.filter((node) => node.type === "input")).toHaveLength(2);
+    expect(graph.nodes.filter((node) => node.type === "snapshot")).toHaveLength(1);
     expect(graph.nodes.filter((node) => node.type === "session")).toHaveLength(1);
     expect(graph.edges.every((edge) => graph.nodes.some((node) => node.id === edge.source))).toBe(true);
     const restarted = await testContext.restart();
@@ -75,9 +86,15 @@ describe("第一方会话工作台", () => {
     const { client } = await createWorkspaceRoutesFixture();
     const { session } = await client.createSession("历史探索", "history");
     await execute(client, session.id, session.mainlineId, "原方案", "main");
+    await client.commitContext(session.id, {
+      lineId: session.mainlineId,
+      expectedVersion: 1,
+      content: { summary: "original" },
+      idempotencyKey: "original-checkpoint"
+    });
     const original = await client.sessionGraph(session.id);
     const originalHead = original.refs.find((ref) => ref.name === `line:${session.mainlineId}`)!;
-    const historical = original.nodes.find((node) => node.type === "input")!;
+    const historical = original.nodes.find((node) => node.type === "snapshot")!;
     const { branch } = await client.forkSession(session.id, {
       commitId: historical.id,
       title: "备选方案",
@@ -92,10 +109,19 @@ describe("第一方会话工作台", () => {
       (await client.forkSession(session.id, { commitId: historical.id, title: "备选方案", idempotencyKey: "fork-a" }))
         .branch.id
     ).toBe(branch.id);
+    expect((await client.sessionGraph(session.id)).refs.find((ref) => ref.name === `line:${branch.id}`)?.commitId).toBe(
+      historical.id
+    );
+    await client.commitContext(session.id, {
+      lineId: branch.id,
+      expectedVersion: 1,
+      content: { summary: "new-plan" },
+      idempotencyKey: "branch-checkpoint"
+    });
     const afterBranch = await client.sessionGraph(session.id);
     expect(afterBranch.refs.find((ref) => ref.name === originalHead.name)).toEqual(originalHead);
     const branchHead = afterBranch.refs.find((ref) => ref.name === `line:${branch.id}`)!;
-    const branchInput = afterBranch.nodes.find((node) => node.content.input === "新方案")!;
+    const branchInput = afterBranch.nodes.find((node) => node.id === branchHead.commitId)!;
     expect(branchInput.parents).toContain(historical.id);
     expect((await client.workspace(session.id, branch.id)).messages.map((item) => item.payload.text)).toEqual([
       "新方案",
@@ -115,10 +141,10 @@ describe("第一方会话工作台", () => {
     const main = afterMerge.refs.find((ref) => ref.name === originalHead.name)!;
     const merged = afterMerge.nodes.find((node) => node.id === main.commitId)!;
     expect(merged.parents).toEqual([originalHead.commitId, branchHead.commitId]);
-    expect(merged.content.summary).toBe("新方案");
+    expect(merged.content.summary).toBe("new-plan");
     expect((await client.workspace(session.id)).messages).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "branch_result", payload: expect.objectContaining({ summary: "新方案" }) })
+        expect.objectContaining({ type: "branch_result", payload: expect.objectContaining({ summary: "new-plan" }) })
       ])
     );
     expect(afterMerge.nodes.filter((node) => node.content.branchId === branch.id)).toHaveLength(1);
@@ -148,6 +174,12 @@ describe("第一方会话工作台", () => {
     await expect(
       client.forkSession(b.id, { commitId: graphA.nodes[0]!.id, title: "越界", idempotencyKey: "foreign" })
     ).rejects.toThrow("404");
+    await client.commitContext(a.id, {
+      lineId: a.mainlineId,
+      expectedVersion: 1,
+      content: { summary: "bounded-checkpoint" },
+      idempotencyKey: "bounded"
+    });
     const bounded = await fetch(`${endpoint}/admin/sessions/${a.id}/graph?limit=1`, {
       headers: { authorization: "Bearer workspace-token" }
     });

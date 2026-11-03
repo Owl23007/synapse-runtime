@@ -5,14 +5,14 @@ import { Icon } from "../../../shared/ui/icons.js";
 import { phaseLabel } from "../lib/activity.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 
-/** 当前分支的任务与运行记录支持关联跳转，状态直接使用服务端结果 */
+/** 工作区持久目标与当前会话线的运行分别呈现，目标控制使用 revision */
 export function WorkspaceTasks({ workspace }: { workspace: WorkspaceController }) {
   const { client, busy, setNotice, lineRuns, tasks, taskItems, act } = workspace;
 
   return (
     <div className="workspace-runs">
       <div className="pane-heading">
-        <h3>分支任务</h3>
+        <h3>工作区目标</h3>
         <span className="count">{taskItems.length}</span>
       </div>
       <ErrorNotice error={tasks.error} retry={tasks.reload} />
@@ -21,27 +21,25 @@ export function WorkspaceTasks({ workspace }: { workspace: WorkspaceController }
         <details className="workspace-task" key={String(task.id)}>
           <summary>
             <Icon name="task" />
-            <strong>{String(task.executor ?? task.id)}</strong>
+            <strong>{String(task.goal ?? task.id)}</strong>
             <span className="task-state">
               {(
                 {
-                  pending: "等待执行",
-                  running: "执行中",
+                  open: "进行中",
+                  paused: "已暂停",
                   completed: "已完成",
-                  failed: "失败",
-                  blocked: "受阻",
                   cancelled: "已取消"
                 } as Record<string, string>
               )[String(task.status)] ?? String(task.status)}
             </span>
           </summary>
           <Json value={task} />
-          {["pending", "running", "blocked"].includes(String(task.status)) && (
+          {["open", "paused"].includes(String(task.status)) && (
             <button
               disabled={busy}
               onClick={() =>
                 void act(async () => {
-                  await client.cancelTask(String(task.id));
+                  await client.cancelTask(String(task.id), Number(task.revision));
                   setNotice("已请求取消任务");
                 })
               }
@@ -51,7 +49,7 @@ export function WorkspaceTasks({ workspace }: { workspace: WorkspaceController }
           )}
         </details>
       ))}
-      {!taskItems.length && !tasks.loading && <Empty title="暂无分支任务" text="" />}
+      {!taskItems.length && !tasks.loading && <Empty title="暂无持久目标" text="需要持续推进的工作会显示在这里" />}
       <div className="pane-heading">
         <h3>关联运行</h3>
         <span className="count">{lineRuns.length}</span>

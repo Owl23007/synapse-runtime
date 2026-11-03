@@ -7,12 +7,25 @@ import { RuntimeAdminClient } from "@synapse/runtime-client";
 import { parseConfigObject } from "../../../../src/config/index.js";
 import { RuntimeServer } from "../../../../src/server/runtime-server.js";
 
-describe("分支任务查询", () => {
-  it("拒绝主线和不存在的分支，保留分支过滤、未完成任务查询与认证边界", async () => {
+describe("持久目标管理契约", () => {
+  it("无需分支按工作区查询目标，取消检查 revision，并保持认证边界", async () => {
     const directory = mkdtempSync(join(tmpdir(), "synapse-task-api-"));
     onTestFinished(() => rmSync(directory, { recursive: true, force: true }));
     const store = new SqliteRuntimeContextStore({ databasePath: join(directory, "runtime-context.sqlite") });
-    onTestFinished(() => store.close());
+    await store.bindProjectWorkspace({ workspaceId: "project", identityId: "owner" });
+    const grant = store.execution.issueGrant({
+      key: "admin",
+      workspaceId: "project",
+      principalId: "owner",
+      source: { platform: "cli", channelId: "background", conversationId: "project", conversationKind: "system" }
+    });
+    const task = store.execution.createTask(grant, {
+      key: "goal",
+      goal: "验证目标管理",
+      acceptance: "正确处理修订和权限"
+    });
+    store.execution.controlTask(task.id, 1, "paused");
+    store.close();
     const server = new RuntimeServer({
       config: parseConfigObject({
         runtime: { dataDir: directory },
@@ -21,56 +34,25 @@ describe("分支任务查询", () => {
       }),
       logger: { info() {}, warn() {}, error() {} }
     });
-    try {
-      const session = await store.createSession({ id: "native:tasks" });
-      const source = await store.appendEvent(session.mainlineId, {
-        type: "user_message",
-        payload: { text: "创建任务分支" },
-        idempotencyKey: "source"
-      });
-      const branch = await store.createBranch({
-        sessionId: session.id,
-        sourceEventId: source.id,
-        title: "任务分支",
-        goal: "验证任务过滤",
-        reason: "隔离主线与分支",
-        createdBy: "user",
-        idempotencyKey: "branch"
-      });
-      await store.transitionBranch(branch.id, { status: "active", idempotencyKey: "active" });
-      const task = await store.createTask(branch.id, {
-        executor: "test-executor",
-        input: {},
-        idempotencyKey: "task"
-      });
-      await store.transitionTask(task.id, { status: "running", idempotencyKey: "running" });
-      await store.transitionTask(task.id, { status: "completed", idempotencyKey: "completed" });
-
-      const listening = await server.start();
-      const endpoint = `http://127.0.0.1:${listening.admin!.port}`;
-      const client = new RuntimeAdminClient({ endpoint, token: "tasks-test-token" });
-      expect(await client.tasks(branch.id)).toMatchObject({
-        ok: true,
-        tasks: [{ id: task.id, branchId: branch.id, status: "completed" }]
-      });
-      expect(await client.tasks()).toEqual({ ok: true, tasks: [] });
-      const headers = { authorization: "Bearer tasks-test-token" };
-      await Promise.all(
-        [session.mainlineId, "missing", "", " "].map(async (branchId) => {
-          const response = await fetch(`${endpoint}/admin/tasks?branchId=${encodeURIComponent(branchId)}`, { headers });
-          expect(response.status).toBe(404);
-          expect(await response.json()).toEqual({
-            ok: false,
-            error: "branch_not_found",
-            message: "未找到对应的分支。"
-          });
-        })
-      );
-      expect((await fetch(`${endpoint}/admin/tasks?branchId=${encodeURIComponent(branch.id)}`)).status).toBe(401);
-    } finally {
-      await server.stop();
-      store.close();
-      rmSync(directory, { recursive: true, force: true });
-    }
+    onTestFinished(() => server.stop());
+    const listening = await server.start();
+    const endpoint = `http://127.0.0.1:${listening.admin!.port}`;
+    const client = new RuntimeAdminClient({ endpoint, token: "tasks-test-token" });
+    expect(await client.tasks("project")).toMatchObject({
+      ok: true,
+      tasks: [{ id: task.id, workspaceId: "project", goal: "验证目标管理", revision: 2, status: "paused" }]
+    });
+    expect(await client.tasks("other")).toEqual({ ok: true, tasks: [] });
+    expect(await client.task(task.id)).toMatchObject({ task: { id: task.id, status: "paused" } });
+    await expect(client.cancelTask(task.id, 1)).rejects.toThrow("409");
+    expect(await client.cancelTask(task.id, 2)).toMatchObject({
+      task: { id: task.id, revision: 3, status: "cancelled" }
+    });
+    await expect(client.cancelTask(task.id, 3)).rejects.toThrow("409");
+    await expect(client.task("missing")).rejects.toThrow("404");
+    const headers = { authorization: "Bearer tasks-test-token" };
+    expect((await fetch(`${endpoint}/admin/tasks?branchId=obsolete`, { headers })).status).toBe(409);
+    expect((await fetch(`${endpoint}/admin/tasks`)).status).toBe(401);
+    await server.stop();
   });
 });

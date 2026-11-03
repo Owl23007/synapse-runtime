@@ -42,11 +42,8 @@ describe("SQLite 运行时会话模型", () => {
     onTestFinished(store.close.bind(store));
     let mainlineId = "";
     let activeBranchId = "";
-    let activeTaskId = "";
     let resultBranchId = "";
-    let completedTaskId = "";
     let resultId = "";
-    let toolEventId = "";
     let branchHistoryBeforeMerge: readonly string[] = [];
 
     try {
@@ -123,25 +120,6 @@ describe("SQLite 运行时会话模型", () => {
       } as const;
       await store.transitionBranch(activeBranch.id, activeBranchTransitionInput);
 
-      const activeTaskInput = {
-        id: "task-active",
-        executor: "repository-agent",
-        workspaceId: "workspace-1",
-        input: { operation: "scan", paths: ["packages/runtime-core"] },
-        artifacts: [{ type: "log", id: "scan-log" }],
-        idempotencyKey: "create-task-active",
-        createdAt: "2026-07-26T08:03:00.000Z"
-      } as const;
-      const activeTask = await store.createTask(activeBranch.id, activeTaskInput);
-      expect(await store.createTask(activeBranch.id, activeTaskInput)).toEqual(activeTask);
-      activeTaskId = activeTask.id;
-      const activeTaskTransitionInput = {
-        status: "running",
-        idempotencyKey: "run-task-active",
-        createdAt: "2026-07-26T08:04:00.000Z"
-      } as const;
-      await store.transitionTask(activeTask.id, activeTaskTransitionInput);
-
       const resultBranchInput = {
         id: "branch-result",
         sessionId,
@@ -167,28 +145,10 @@ describe("SQLite 运行时会话模型", () => {
         createdAt: "2026-07-26T08:06:00.000Z"
       });
 
-      const completedTaskInput = {
-        id: "task-completed",
-        executor: "profiler-agent",
-        workspaceId: "workspace-1",
-        input: { operation: "profile", target: "body-parser" },
-        idempotencyKey: "create-task-completed",
-        createdAt: "2026-07-26T08:07:00.000Z"
-      } as const;
-      const completedTask = await store.createTask(resultBranch.id, completedTaskInput);
-      expect(await store.createTask(resultBranch.id, completedTaskInput)).toEqual(completedTask);
-      completedTaskId = completedTask.id;
-      await store.transitionTask(completedTask.id, {
-        status: "running",
-        idempotencyKey: "run-task-completed",
-        createdAt: "2026-07-26T08:08:00.000Z"
-      });
-
       const toolEventInput = {
         id: "event-tool-call",
         type: "tool_call",
         idempotencyKey: "tool-call-profiler",
-        taskId: completedTask.id,
         correlationId: resultBranch.id,
         payload: {
           tool: "profiler",
@@ -199,19 +159,6 @@ describe("SQLite 运行时会话模型", () => {
       } as const;
       const toolEvent = await store.appendEvent(resultBranch.id, toolEventInput);
       expect(await store.appendEvent(resultBranch.id, toolEventInput)).toEqual(toolEvent);
-      toolEventId = toolEvent.id;
-
-      const completedTaskTransitionInput = {
-        status: "completed",
-        output: {
-          bottleneck: "repeated Buffer concatenation",
-          measurements: { beforeMs: 12.4, expectedMs: 7.1 }
-        },
-        artifacts: [{ type: "profile", id: "profile-1", path: "artifacts/profile.json" }],
-        idempotencyKey: "complete-task-completed",
-        createdAt: "2026-07-26T08:10:00.000Z"
-      } as const;
-      await store.transitionTask(completedTask.id, completedTaskTransitionInput);
 
       const resultInput = {
         id: "result-1",
@@ -221,7 +168,6 @@ describe("SQLite 运行时会话模型", () => {
         artifacts: [{ type: "profile", id: "profile-1", path: "artifacts/profile.json" }],
         citations: [{ eventId: toolEvent.id, label: "Profiler output" }],
         nextActions: ["Use segmented Buffer reads", "Avoid intermediate strings"],
-        sourceTaskIds: [completedTask.id],
         sourceEventId: toolEvent.id,
         idempotencyKey: "create-result-1",
         createdAt: "2026-07-26T08:11:00.000Z"
@@ -229,12 +175,6 @@ describe("SQLite 运行时会话模型", () => {
       const result = await store.createBranchResult(resultBranch.id, resultInput);
       expect(await store.createBranchResult(resultBranch.id, resultInput)).toEqual(result);
       resultId = result.id;
-      expect(await store.listNodes(resultBranch.id, { kinds: ["task_result"] })).toContainEqual(
-        expect.objectContaining({
-          sourceTaskIds: [completedTask.id],
-          sourceResultIds: [result.id]
-        })
-      );
 
       const mainlineBeforeMerge = await store.listEvents(mainlineId);
       expect(mainlineBeforeMerge.map((event) => event.type)).toEqual(["user_message"]);
@@ -255,46 +195,19 @@ describe("SQLite 运行时会话模型", () => {
       expect((await store.acceptNormalizedEvent(normalizedInput)).created).toBe(false);
       expect((await store.createBranch(activeBranchInput)).id).toBe(activeBranchId);
       expect((await store.transitionBranch(activeBranchId, activeBranchTransitionInput)).status).toBe("active");
-      expect((await store.createTask(activeBranchId, activeTaskInput)).id).toBe(activeTaskId);
-      expect((await store.transitionTask(activeTaskId, activeTaskTransitionInput)).status).toBe("running");
       expect((await store.createBranch(resultBranchInput)).id).toBe(resultBranchId);
-      expect((await store.createTask(resultBranchId, completedTaskInput)).id).toBe(completedTaskId);
-      expect((await store.transitionTask(completedTaskId, completedTaskTransitionInput)).status).toBe("completed");
       expect(await store.createBranchResult(resultBranchId, resultInput)).toEqual(result);
       expect((await store.listEvents(resultBranchId)).map((event) => event.id)).toEqual(branchHistoryBeforeMerge);
-      expect(await store.reconstructLineState(resultBranchId)).toMatchObject({
-        state: {
-          latestResult: {
-            id: result.id,
-            summary: "The main bottleneck is repeated Buffer concatenation."
-          }
-        }
-      });
 
       const recovery = await store.getRecoveryState(sessionId);
       expect(recovery.activeBranches.map((branch) => branch.id)).toContain(activeBranchId);
-      expect(recovery.unfinishedTasks).toContainEqual(
-        expect.objectContaining({ id: activeTaskId, branchId: activeBranchId, status: "running" })
-      );
       expect(recovery.unmergedResults).toContainEqual(
         expect.objectContaining({ id: resultId, branchId: resultBranchId, version: 1 })
       );
 
-      const taskTrace = await store.getTaskTrace(completedTaskId);
-      expect(taskTrace).toMatchObject({
-        task: { id: completedTaskId, branchId: resultBranchId, status: "completed" },
-        branch: { id: resultBranchId, sourceEventId: accepted.lineEvent.id },
-        mainline: { id: mainlineId, sessionId },
-        session: { id: sessionId },
-        branchSourceEvent: { id: accepted.lineEvent.id }
-      });
-      expect(taskTrace.events.map((event) => event.id)).toContain(toolEventId);
-      expect(taskTrace.results.map((branchResult) => branchResult.id)).toEqual([resultId]);
-
       const branchContextBeforeMerge = await store.getBranchContext(resultBranchId);
       expect(branchContextBeforeMerge.sourceEvent.id).toBe(accepted.lineEvent.id);
       expect(branchContextBeforeMerge.events.map((event) => event.id)).toEqual(branchHistoryBeforeMerge);
-      expect(branchContextBeforeMerge.tasks.map((task) => task.id)).toEqual([completedTaskId]);
       expect(branchContextBeforeMerge.results.map((branchResult) => branchResult.id)).toEqual([resultId]);
 
       const mergeInput = {
@@ -305,8 +218,8 @@ describe("SQLite 运行时会话模型", () => {
         idempotencyKey: "merge-result-1",
         createdAt: "2026-07-26T08:12:00.000Z"
       } as const;
-      const merge = await store.mergeBranchResult(resultBranchId, mainlineId, mergeInput);
-      expect(await store.mergeBranchResult(resultBranchId, mainlineId, mergeInput)).toEqual(merge);
+      const merge = await store.publishBranchResult(resultBranchId, mainlineId, mergeInput);
+      expect(await store.publishBranchResult(resultBranchId, mainlineId, mergeInput)).toEqual(merge);
 
       const mainlineAfterMerge = await store.listEvents(mainlineId);
       expect(mainlineAfterMerge.filter((event) => event.type === "branch_result")).toEqual([
@@ -330,20 +243,16 @@ describe("SQLite 运行时会话模型", () => {
       store = undefined;
       store = new SqliteRuntimeContextStore({ databasePath });
 
-      expect(await store.mergeBranchResult(resultBranchId, mainlineId, mergeInput)).toEqual(merge);
+      expect(await store.publishBranchResult(resultBranchId, mainlineId, mergeInput)).toEqual(merge);
       expect((await store.listEvents(mainlineId)).filter((event) => event.type === "branch_result")).toHaveLength(1);
       const restoredBranchHistory = await store.listEvents(resultBranchId);
+      expect(restoredBranchHistory).toContainEqual(
+        expect.objectContaining({ id: "event-tool-call", type: "tool_call" })
+      );
       expect(restoredBranchHistory.map((event) => event.id)).toEqual([
         ...branchHistoryBeforeMerge,
         "event-branch-merged-1"
       ]);
-      expect(restoredBranchHistory).toContainEqual(
-        expect.objectContaining({
-          id: toolEventId,
-          type: "tool_call",
-          taskId: completedTaskId
-        })
-      );
       expect(
         (await store.getRecoveryState(sessionId)).unmergedResults.map((branchResult) => branchResult.id)
       ).not.toContain(resultId);
@@ -502,14 +411,6 @@ describe("SQLite 运行时会话模型", () => {
       ).resolves.toMatchObject({ resultId: latestResult.id });
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
       expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
-      await expect(
-        store.createTask(branch.id, {
-          executor: "sub-agent",
-          input: { goal: "Follow up on the published refinements" },
-          idempotencyKey: "create-sqlite-follow-up-task"
-        })
-      ).resolves.toMatchObject({ status: "pending", branchId: branch.id });
-      expect(await store.listNodes(branch.id, { kinds: ["task_result"] })).toHaveLength(2);
 
       const archivedBranch = await store.createBranch({
         id: "sqlite-archived-result-branch",
@@ -536,13 +437,13 @@ describe("SQLite 运行时会话模型", () => {
       });
 
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([archivedResult]);
-      const archivedMerge = await store.mergeBranchResult(archivedBranch.id, accepted.mainline.id, {
+      const archivedMerge = await store.publishBranchResult(archivedBranch.id, accepted.mainline.id, {
         resultId: archivedResult.id,
         idempotencyKey: "merge-sqlite-archived-result",
         createdAt: "2026-07-26T10:07:00.000Z"
       });
       expect(
-        await store.mergeBranchResult(archivedBranch.id, accepted.mainline.id, {
+        await store.publishBranchResult(archivedBranch.id, accepted.mainline.id, {
           resultId: archivedResult.id
         })
       ).toEqual(archivedMerge);

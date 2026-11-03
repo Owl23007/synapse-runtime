@@ -82,7 +82,7 @@ describe("RuntimeCore 内置命令", () => {
         "/workspace info - 查看当前工作区",
         "/workspace use project:<id> - 切换到项目工作区",
         "/branches - 查看当前会话分支",
-        "/tasks - 查看当前会话任务",
+        "/tasks - 查看当前授权目标",
         "/memory <remember|list|delete> - 管理长期记忆"
       ].join("\n")
     );
@@ -115,18 +115,13 @@ describe("RuntimeCore 内置命令", () => {
       createdBy: "test",
       idempotencyKey: "branch-command-query"
     });
-    const task = await runtime.conversationStore.createTask(branch.id, {
-      executor: "repository-analyzer",
-      input: { path: "src/parser.ts" },
-      idempotencyKey: "task-command-query"
-    });
 
     await channel.emit(privateMessage("event-branches", "/branches"));
     await channel.emit(privateMessage("event-tasks", "/tasks"));
 
     expect(runCount).toBe(0);
     expect(sentText(channel.sent[1]?.message)).toContain(`- ${branch.id} [created] Inspect parser`);
-    expect(sentText(channel.sent[2]?.message)).toContain(`- ${task.id} [pending] executor=repository-analyzer`);
+    expect(sentText(channel.sent[2]?.message)).toBe("当前授权范围没有目标。");
   });
 
   it("默认返回持久记忆未启用消息", async () => {

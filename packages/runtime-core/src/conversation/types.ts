@@ -12,28 +12,7 @@ export type BranchStatus =
   | "failed"
   | "cancelled"
   | "archived";
-export type TaskStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
 export type BranchResultStatus = "completed" | "failed" | "cancelled";
-/**
- * 语义节点记录一次值得独立追踪的上下文变化
- */
-export type ConversationNodeKind =
-  | "topic_created"
-  | "focus_changed"
-  | "decision"
-  | "assumption_rejected"
-  | "question_opened"
-  | "question_resolved"
-  | "task_result"
-  | "context_resumed"
-  | "fork"
-  | "merge"
-  | (string & {});
-
-/**
- * 语义状态补丁采用 JSON Merge Patch 语义
- */
-export type ConversationStatePatch = Readonly<Record<string, unknown>>;
 
 export type LineEventType =
   | "user_message"
@@ -145,25 +124,7 @@ export interface LineEvent {
   readonly createdAt: string;
 }
 
-export interface ConversationTask {
-  readonly id: string;
-  readonly sessionId: string;
-  readonly branchId: string;
-  readonly status: TaskStatus;
-  readonly executor: string;
-  readonly workspaceId?: string;
-  readonly input: unknown;
-  readonly output?: unknown;
-  readonly error?: unknown;
-  readonly artifacts: readonly unknown[];
-  readonly idempotencyKey: string;
-  readonly sourceEventId?: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly startedAt?: string;
-  readonly finishedAt?: string;
-}
-
+/** 用于会话呈现的显式分支产出，独立于持久目标和上下文版本 */
 export interface BranchResult {
   readonly id: string;
   readonly sessionId: string;
@@ -174,13 +135,13 @@ export interface BranchResult {
   readonly artifacts: readonly unknown[];
   readonly citations: readonly unknown[];
   readonly nextActions: readonly string[];
-  readonly sourceTaskIds: readonly string[];
   readonly idempotencyKey: string;
   readonly sourceEventId?: string;
   readonly createdAt: string;
 }
 
-export interface BranchMerge {
+/** 分支产出显式发布到主线后的事实引用 */
+export interface BranchPublication {
   readonly id: string;
   readonly sessionId: string;
   readonly branchId: string;
@@ -190,67 +151,6 @@ export interface BranchMerge {
   readonly branchEventId: string;
   readonly idempotencyKey: string;
   readonly createdAt: string;
-}
-
-/**
- * 分支结果向主线发布后的持久化引用
- */
-export type BranchPublication = BranchMerge;
-
-/**
- * 不可变的会话语义节点
- */
-export interface ConversationNode {
-  readonly id: string;
-  readonly ordinal: number;
-  readonly sequence: number;
-  readonly sessionId: string;
-  readonly lineId: string;
-  readonly parentIds: readonly string[];
-  readonly kind: ConversationNodeKind;
-  readonly title: string;
-  readonly statePatch: ConversationStatePatch;
-  readonly sourceEventIds: readonly string[];
-  readonly sourceTaskIds: readonly string[];
-  readonly sourceResultIds: readonly string[];
-  readonly createdBy: string;
-  readonly idempotencyKey: string;
-  readonly createdAt: string;
-}
-
-/**
- * 指向某条语义路径最新节点的可移动引用
- */
-export interface ConversationLineHead {
-  readonly lineId: string;
-  readonly nodeId: string;
-  readonly updatedAt: string;
-}
-
-/**
- * 从语义节点派生的上下文检查点
- */
-export interface ConversationContextSnapshot {
-  readonly id: string;
-  readonly sessionId: string;
-  readonly lineId: string;
-  readonly nodeId: string;
-  readonly nodeOrdinal: number;
-  readonly state: Readonly<Record<string, unknown>>;
-  readonly idempotencyKey: string;
-  readonly createdAt: string;
-}
-
-/**
- * 按节点图重建得到的临时语义状态
- */
-export interface ReconstructedConversationState {
-  readonly sessionId: string;
-  readonly lineId: string;
-  readonly headNodeId?: string;
-  readonly snapshot?: ConversationContextSnapshot;
-  readonly state: Readonly<Record<string, unknown>>;
-  readonly appliedNodeIds: readonly string[];
 }
 
 export interface CreateSessionInput {
@@ -345,26 +245,6 @@ export interface TransitionBranchInput {
   readonly createdAt?: string;
 }
 
-export interface CreateTaskInput {
-  readonly id?: string;
-  readonly executor: string;
-  readonly workspaceId?: string;
-  readonly input: unknown;
-  readonly artifacts?: readonly unknown[];
-  readonly sourceEventId?: string;
-  readonly idempotencyKey: string;
-  readonly createdAt?: string;
-}
-
-export interface TransitionTaskInput {
-  readonly status: TaskStatus;
-  readonly output?: unknown;
-  readonly error?: unknown;
-  readonly artifacts?: readonly unknown[];
-  readonly idempotencyKey: string;
-  readonly createdAt?: string;
-}
-
 export interface CreateBranchResultInput {
   readonly id?: string;
   readonly version?: number;
@@ -373,61 +253,19 @@ export interface CreateBranchResultInput {
   readonly artifacts?: readonly unknown[];
   readonly citations?: readonly unknown[];
   readonly nextActions?: readonly string[];
-  readonly sourceTaskIds?: readonly string[];
   readonly sourceEventId?: string;
   readonly idempotencyKey: string;
   readonly createdAt?: string;
 }
 
-export interface MergeBranchResultInput {
+/** 发布既有分支产出的幂等请求 */
+export interface PublishBranchResultInput {
   readonly resultId?: string;
   readonly id?: string;
   readonly eventId?: string;
   readonly branchEventId?: string;
   readonly idempotencyKey?: string;
   readonly createdAt?: string;
-}
-
-/**
- * 发布分支结果时使用的输入
- */
-export type PublishBranchResultInput = MergeBranchResultInput;
-
-/**
- * 创建语义节点时使用的输入
- */
-export interface CreateConversationNodeInput {
-  readonly id?: string;
-  readonly parentIds?: readonly string[];
-  readonly kind: ConversationNodeKind;
-  readonly title: string;
-  readonly statePatch: ConversationStatePatch;
-  readonly sourceEventIds?: readonly string[];
-  readonly sourceTaskIds?: readonly string[];
-  readonly sourceResultIds?: readonly string[];
-  readonly createdBy: string;
-  readonly idempotencyKey: string;
-  readonly createdAt?: string;
-}
-
-/**
- * 创建上下文检查点时使用的输入
- */
-export interface CreateConversationContextSnapshotInput {
-  readonly id?: string;
-  readonly nodeId?: string;
-  readonly idempotencyKey: string;
-  readonly createdAt?: string;
-}
-
-/**
- * 查询语义节点时使用的筛选条件
- */
-export interface ListConversationNodesOptions {
-  readonly limit?: number;
-  readonly afterOrdinal?: number;
-  readonly beforeOrdinal?: number;
-  readonly kinds?: readonly ConversationNodeKind[];
 }
 
 export interface ListLinesOptions {
@@ -446,10 +284,7 @@ export interface ListBranchesOptions {
   readonly statuses?: readonly BranchStatus[];
 }
 
-export interface ListTasksOptions {
-  readonly statuses?: readonly TaskStatus[];
-}
-
+/** 当前会话分支的呈现事实，不包含执行任务或第二套语义状态 */
 export interface BranchContext {
   readonly session: ConversationSession;
   readonly mainline: ConversationMainline;
@@ -457,55 +292,39 @@ export interface BranchContext {
   readonly sourceEvent: LineEvent;
   readonly contextSnapshot?: unknown;
   readonly events: readonly LineEvent[];
-  readonly tasks: readonly ConversationTask[];
   readonly results: readonly BranchResult[];
 }
 
+/** 活动会话与未发布产出的查询视图，不驱动模型执行 */
 export interface ConversationRecoveryState {
   readonly sessions: readonly ConversationSession[];
   readonly mainlines: readonly ConversationMainline[];
   readonly activeBranches: readonly ConversationBranch[];
-  readonly unfinishedTasks: readonly ConversationTask[];
   readonly unmergedResults: readonly BranchResult[];
 }
 
-export interface TaskTrace {
-  readonly task: ConversationTask;
-  readonly branch: ConversationBranch;
-  readonly mainline: ConversationMainline;
-  readonly session: ConversationSession;
-  readonly sourceEvent?: LineEvent;
-  readonly branchSourceEvent: LineEvent;
-  readonly events: readonly LineEvent[];
-  readonly results: readonly BranchResult[];
-}
-
+/** 会话事件的来源和因果关系 */
 export interface EventTrace {
   readonly event: LineEvent;
   readonly line: ConversationLine;
   readonly session: ConversationSession;
   readonly branch?: ConversationBranch;
-  readonly task?: ConversationTask;
   readonly sourceEvent?: LineEvent;
   readonly causationChain: readonly LineEvent[];
   readonly relatedEvents: readonly LineEvent[];
 }
 
+/** 分支产出与显式发布事实的来源关系 */
 export interface BranchResultTrace {
   readonly result: BranchResult;
   readonly branch: ConversationBranch;
   readonly mainline: ConversationMainline;
   readonly session: ConversationSession;
   readonly sourceEvent?: LineEvent;
-  readonly tasks: readonly ConversationTask[];
   /**
    * 分支结果向主线发布后的引用
    */
   readonly publication?: BranchPublication;
-  /**
-   * 发布引用的兼容字段
-   */
-  readonly merge?: BranchMerge;
   readonly mainlineEvent?: LineEvent;
 }
 
@@ -516,8 +335,3 @@ export type ConversationStoreErrorCode =
   | "idempotency_conflict"
   | "ownership_mismatch"
   | "invalid_state_transition";
-
-/**
- * 保留旧类型入口的兼容导出
- */
-export type { ConversationStore } from "./store.js";

@@ -1,10 +1,5 @@
 import { redactConfig, type ChannelConfig, type RuntimeConfig } from "../../config/index.js";
-import {
-  TaskRunnerError,
-  type ConversationBranch,
-  type ConversationTask,
-  type MemoryAdminStore
-} from "@synapse/runtime-core";
+import type { ConversationBranch, MemoryAdminStore } from "@synapse/runtime-core";
 import type { Handler, Nova, NovaRequest, NovaResponse } from "nova-http";
 import type { RuntimeLogBuffer } from "../../logging.js";
 import type { RuntimeServerLogger, RuntimeServerStartResult } from "../../types.js";
@@ -18,12 +13,15 @@ import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerAssetRoutes, type AssetRouteDeps } from "./asset-routes.js";
 import { registerCapabilityRoutes, type CapabilityRouteDeps } from "./capability-routes.js";
 import { registerMountRoutes } from "./mount-routes.js";
+import { registerExecutionRoutes } from "./execution-routes.js";
+import type { ExecutionStore } from "@synapse/runtime-core/execution";
 import type { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import type { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly getExecutionStore?: () => ExecutionStore | undefined;
   readonly resources?: Omit<AssetRouteDeps, "app">;
   readonly capabilities?: Omit<CapabilityRouteDeps, "app">;
   readonly getWorkspace?: () => RuntimeWorkspace | undefined;
@@ -48,9 +46,6 @@ export interface AdminRouteDeps {
   readonly shutdownSignal: AbortSignal;
   readonly listBranches: (sessionId?: string) => Promise<readonly ConversationBranch[]>;
   readonly getBranch: (branchId: string) => Promise<ConversationBranch | undefined>;
-  readonly listTasks: (branchId?: string) => Promise<readonly ConversationTask[]>;
-  readonly getTask: (taskId: string) => Promise<ConversationTask | undefined>;
-  readonly cancelTask: (taskId: string) => Promise<ConversationTask>;
   readonly getMemoryStore?: () => MemoryAdminStore | undefined;
   readonly localize: (key: string, params?: Record<string, string>) => string;
 }
@@ -80,6 +75,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
     shutdownSignal: deps.shutdownSignal
   });
   registerWorkspaceRoutes(deps.app, deps.getWorkspace ?? (() => undefined));
+  registerExecutionRoutes(deps.app, deps.getExecutionStore ?? (() => undefined), deps.localize);
   if (deps.resources) registerAssetRoutes({ app: deps.app, ...deps.resources });
   if (deps.resources)
     registerMountRoutes(
@@ -182,61 +178,6 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
           ? { ok: false, error: "branch_not_found", message: deps.localize("admin.branch_not_found") }
           : { ok: true, branch }
       );
-    })
-  );
-  deps.app.get(
-    "/admin/tasks",
-    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
-      const branchId = request.query.get("branchId") ?? undefined;
-      // 主线也是会话线，但不拥有分支任务，先校验资源以免领域约束被误报为内部错误
-      if (branchId !== undefined && (!branchId.trim() || (await deps.getBranch(branchId)) === undefined)) {
-        sendJson(response, 404, {
-          ok: false,
-          error: "branch_not_found",
-          message: deps.localize("admin.branch_not_found")
-        });
-        return;
-      }
-      sendJson(response, 200, {
-        ok: true,
-        tasks: await deps.listTasks(branchId)
-      });
-    })
-  );
-  deps.app.get(
-    "/admin/tasks/:id",
-    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
-      const task = request.params.id === undefined ? undefined : await deps.getTask(request.params.id);
-      sendJson(
-        response,
-        task === undefined ? 404 : 200,
-        task === undefined
-          ? { ok: false, error: "task_not_found", message: deps.localize("admin.task_not_found") }
-          : { ok: true, task }
-      );
-    })
-  );
-  deps.app.post(
-    "/admin/tasks/:id/cancel",
-    asyncRoute(deps, async (request: NovaRequest, response: NovaResponse) => {
-      if (request.params.id === undefined) {
-        sendJson(response, 400, {
-          ok: false,
-          error: "missing_task_id",
-          message: deps.localize("admin.missing_task_id")
-        });
-        return;
-      }
-      try {
-        sendJson(response, 200, { ok: true, task: await deps.cancelTask(request.params.id) });
-      } catch (error) {
-        const notFound = error instanceof TaskRunnerError && error.code === "task_not_found";
-        sendJson(response, notFound ? 404 : 409, {
-          ok: false,
-          error: notFound ? "task_not_found" : "task_cancel_failed",
-          message: deps.localize(notFound ? "admin.task_not_found" : "admin.task_cancel_failed")
-        });
-      }
     })
   );
   deps.app.patch(

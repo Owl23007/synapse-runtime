@@ -72,8 +72,4 @@ CREATE TABLE asset_uploads (
   expires_at TEXT NOT NULL,
   UNIQUE(workspace_id, idempotency_key)
 );
-CREATE TABLE session_workspaces (
-  session_id TEXT PRIMARY KEY REFERENCES conversation_sessions(id),
-  workspace_id TEXT NOT NULL REFERENCES workspaces(id)
-);
 `;

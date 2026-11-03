@@ -40,19 +40,15 @@ import { promoteExplicitMemory } from "../memory/promotion.js";
 import type { RunRecorder } from "../trace/recorder.js";
 import type { RunTraceStore } from "../trace/types.js";
 import { RuntimeDelivery } from "./delivery.js";
-import { compactGraphToolResult, serializeError, stringifyAgentOutput } from "./event-records.js";
+import { serializeError, stringifyAgentOutput } from "./event-records.js";
 import { getText, summarizeEvent, textMessage } from "./message-utils.js";
 import { isFreshProcessState, recoveryStatusFromProcess, RuntimeRecovery } from "./recovery.js";
-import { RunContextGraph } from "./run-context-graph.js";
 import { RunCoordinator } from "./run-coordinator.js";
-import {
-  conversationStoreFromUnknown,
-  identityStoreFromUnknown,
-  memoryStoreFromUnknown,
-  transcriptStoreFromUnknown,
-  workspaceStoreFromUnknown
-} from "./store-resolution.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeEventScope, RuntimeTrace } from "./types.js";
+import type { ExecutionStore } from "../execution/store.js";
+import type { ExecutionIntent } from "../execution/types.js";
+import { allocateContext, trustedContextCost } from "../context/budget.js";
+import type { AcceptNormalizedEventInput } from "../conversation/types.js";
 
 /**
  * 对外运行门面，协调频道接收、上下文用例及独立的执行、交付和恢复流程
@@ -64,7 +60,6 @@ export class RuntimeCore {
   readonly #runs: RunTraceStore | undefined;
   readonly #channels: ChannelRegistry;
   readonly #conversation: ConversationRouter;
-  readonly #runGraph: RunContextGraph | undefined;
   readonly #tools: ToolRuntime;
   readonly #resources: RuntimeCoreOptions["resources"];
   readonly #sessionWorkspace: RuntimeCoreOptions["sessionWorkspace"];
@@ -100,20 +95,26 @@ export class RuntimeCore {
   readonly #removeToolObserver: () => void;
   #toolObserverRemoved = false;
   #disposePromise: Promise<void> | undefined;
+  readonly #execution: ExecutionStore | undefined;
+  readonly #getWorkspace: RuntimeCoreOptions["getWorkspace"];
+  readonly #maxContextChars: number;
+  readonly #scheduled = new Map<string, Promise<void>>();
+  #scheduler: ReturnType<typeof setInterval> | undefined;
 
   /**
    * 注入领域能力并组合内部业务用例，具体依赖由 App 装配
    */
   constructor(options: RuntimeCoreOptions) {
+    if (options.execution && (!options.runs || !options.getWorkspace))
+      throw new Error("Persistent execution requires run storage and a trusted workspace reader");
+    this.#execution = options.execution;
+    this.#getWorkspace = options.getWorkspace;
+    this.#maxContextChars = options.context?.maxTotalChars ?? 24_000;
     this.#runs = options.runs;
     this.#resources = options.resources;
     this.#sessionWorkspace = options.sessionWorkspace;
     this.#channels = options.channels;
     this.#conversation = options.conversation;
-    this.#runGraph =
-      options.context?.graph === undefined
-        ? undefined
-        : new RunContextGraph(options.context.graph, options.context.maxHistoryChars ?? 6000);
     this.#tools = options.tools;
     this.#logger = options.logger;
     this.#localize = options.localize ?? ((key) => key);
@@ -130,22 +131,9 @@ export class RuntimeCore {
       channelMaxMessages: options.context?.channelMaxMessages ?? 8
     };
     this.#providerByChannelId = options.context?.providerByChannelId ?? {};
-    /**
-     * 保留未显式注入持久化实现时的内存运行兼容行为
-     */
-    const defaultConversationStore = new InMemoryConversationStore();
-    this.#conversationStore =
-      options.context?.conversationStore ??
-      conversationStoreFromUnknown(options.context?.transcriptStore) ??
-      defaultConversationStore;
-    this.#transcriptStore =
-      options.context?.transcriptStore ??
-      transcriptStoreFromUnknown(this.#conversationStore) ??
-      new InMemoryTranscriptStore();
-    const memoryStore =
-      options.memory?.store ??
-      options.context?.memoryStore ??
-      memoryStoreFromUnknown(options.context?.conversationStore ?? options.context?.transcriptStore);
+    this.#conversationStore = options.context?.conversationStore ?? new InMemoryConversationStore();
+    this.#transcriptStore = options.context?.transcriptStore ?? new InMemoryTranscriptStore();
+    const memoryStore = options.memory?.store ?? options.context?.memoryStore;
     this.#memoryStore = this.#enableDurableMemory ? memoryStore : undefined;
     this.#contextAttributor =
       options.context?.attributor ??
@@ -154,16 +142,11 @@ export class RuntimeCore {
         transcriptStore: this.#transcriptStore
       });
     this.#eventProcessStore = options.context?.eventProcessStore ?? new InMemoryEventProcessStore();
-    const identityStore: IdentityStore | undefined =
-      options.context?.identityStore ??
-      identityStoreFromUnknown(options.context?.conversationStore ?? options.context?.transcriptStore);
+    const identityStore: IdentityStore | undefined = options.context?.identityStore;
     this.#identityResolver =
       options.context?.identityResolver ??
       new IdentityResolverLite(identityStore === undefined ? {} : { identityStore });
-    const workspaceStore =
-      options.context?.workspaceStore ??
-      workspaceStoreFromUnknown(options.context?.transcriptStore) ??
-      new InMemoryWorkspaceStore();
+    const workspaceStore = options.context?.workspaceStore ?? new InMemoryWorkspaceStore();
     this.#workspaceStore = workspaceStore;
     this.#workspaceResolver =
       options.context?.workspaceResolver ??
@@ -171,6 +154,7 @@ export class RuntimeCore {
         ...(workspaceStore === undefined ? {} : { workspaceStore })
       });
     this.#contextComposer = new ContextComposer({
+      ...(options.context?.graph ? { graph: options.context.graph } : {}),
       transcriptStore: this.#transcriptStore,
       conversationStore: this.#conversationStore,
       ...(this.#memoryStore === undefined ? {} : { memoryStore: this.#memoryStore }),
@@ -186,7 +170,9 @@ export class RuntimeCore {
       eventProcessStore: this.#eventProcessStore,
       runs: this.#runs,
       logger: this.#logger,
-      limits: options.limits
+      limits: options.limits,
+      execution: options.execution,
+      maxContextChars: this.#maxContextChars
     });
     this.#delivery = new RuntimeDelivery({
       agentId: options.agent.id,
@@ -197,7 +183,6 @@ export class RuntimeCore {
       transcriptStore: this.#transcriptStore,
       contextEnabled: this.#contextEnabled,
       responsePolicy: this.#responsePolicy,
-      runGraph: this.#runGraph,
       logger: this.#logger,
       recorders: this.#coordinator.recorders,
       controllers: this.#coordinator.controllers,
@@ -216,6 +201,62 @@ export class RuntimeCore {
       delivery: this.#delivery
     });
     this.#removeToolObserver = this.#tools.addObserver((event) => this.#recordToolRuntimeEvent(event));
+  }
+
+  /** 宿主就绪后启动有界持久调度，热重载和关闭先停止新领取 */
+  start(): void {
+    if (!this.#execution || this.#scheduler || this.#coordinator.disposed) return;
+    this.#execution.recover();
+    this.#scheduler = setInterval(() => this.#pump(), this.#execution.settings.pollIntervalMs);
+    this.#scheduler.unref();
+    this.#pump();
+  }
+
+  #pump(): void {
+    if (!this.#execution || this.#coordinator.disposed) return;
+    try {
+      this.#execution.tick();
+    } catch (error) {
+      this.#logger?.warn("Persistent scheduler could not advance", { error: String(error) });
+    }
+    try {
+      const capacity = this.#coordinator.executionStatus;
+      const available = Math.max(0, capacity.maxConcurrent - capacity.active);
+      for (const intent of this.#execution.pending(32).slice(0, available))
+        void this.#dispatchIntent(intent).catch((error) =>
+          this.#logger?.warn("Persistent execution postponed", { error: String(error) })
+        );
+    } catch (error) {
+      this.#logger?.warn("Persistent scheduler could not advance", { error: String(error) });
+    }
+  }
+
+  #dispatchIntent(intent: ExecutionIntent): Promise<void> {
+    const current = this.#scheduled.get(intent.id);
+    if (current) return current;
+    const operation = this.#coordinator.dispatch(async () => {
+      const claimed = this.#execution!.claim(intent.id);
+      if (!claimed) return;
+      try {
+        if (claimed.payload.scope)
+          await this.#runAgent(claimed.payload.request, claimed.payload.event, {
+            ...claimed.payload.scope,
+            runId: claimed.runId
+          });
+        else
+          await this.#coordinator.executeBackground(
+            claimed,
+            this.#compileInvocation,
+            this.#delivery,
+            this.#getWorkspace
+          );
+      } finally {
+        this.#execution!.finish(intent.id);
+      }
+    });
+    this.#scheduled.set(intent.id, operation);
+    void operation.finally(() => this.#scheduled.delete(intent.id)).catch(() => undefined);
+    return operation;
   }
 
   /**
@@ -260,6 +301,7 @@ export class RuntimeCore {
   }
 
   async #acceptNative(input: Parameters<RuntimeCore["submitNative"]>[0]) {
+    if (this.#execution) return this.#acceptNativeIntent(input);
     if (this.#coordinator.disposed || !this.#runs) throw new Error("Runtime unavailable");
     const session = await this.#conversationStore.getSession(input.sessionId);
     if (!session || session.locator?.platform !== "native") throw new Error("Native session required");
@@ -361,6 +403,8 @@ export class RuntimeCore {
    * 等待进行中的操作结束并释放工具观察器
    */
   dispose(): Promise<void> {
+    clearInterval(this.#scheduler);
+    this.#scheduler = undefined;
     this.#disposePromise ??= this.#coordinator.dispose().finally(() => this.#removeToolObserverOnce());
     return this.#disposePromise;
   }
@@ -390,7 +434,173 @@ export class RuntimeCore {
       return Promise.resolve();
     }
 
+    if (this.#execution) return this.#coordinator.track(this.#intakeChannel(event, providerOverride, targetLineId));
     return this.#coordinator.dispatch(() => this.#processChannelEvent(event, providerOverride, targetLineId));
+  }
+
+  async #acceptNativeIntent(input: Parameters<RuntimeCore["submitNative"]>[0]) {
+    if (this.#coordinator.disposed || !this.#runs) throw new Error("Runtime unavailable");
+    const session = await this.#conversationStore.getSession(input.sessionId);
+    if (!session || session.locator?.platform !== "native") throw new Error("Native session required");
+    const workspaceId = this.#sessionWorkspace?.(session.id);
+    if (!workspaceId || !this.#getWorkspace?.(workspaceId)) throw new Error("Session workspace unavailable");
+    if (input.attachments?.length) {
+      if (!this.#resources) throw new Error("Files are disabled");
+      await this.#resources.assets.validate(workspaceId, input.attachments);
+    }
+    const lineId = input.lineId ?? session.mainlineId;
+    const line = await this.#conversationStore.getLine(lineId);
+    if (!line || line.sessionId !== session.id) throw new Error("Invalid session line");
+    const eventId = `native:${session.id}:${input.idempotencyKey}`;
+    const previous = await this.#conversationStore.getNormalizedEvent(eventId);
+    const event: SynapseChannelEvent = {
+      id: eventId,
+      platform: "native",
+      channelId: "native",
+      eventType: "message.created",
+      origin: "incoming",
+      conversation: { id: session.locator.conversationId, kind: "private" },
+      sender: { id: "runtime-admin" },
+      message: { ...textMessage(input.text), ...(input.attachments?.length ? { assets: input.attachments } : {}) },
+      receivedAt: previous?.receivedAt ?? new Date().toISOString()
+    };
+    const request: AgentRequest = {
+      sessionId: session.id,
+      workspaceId,
+      lineId,
+      userId: "runtime-admin",
+      input: event.message!,
+      source: {
+        platform: "native",
+        provider: "native",
+        channelId: "native",
+        conversationId: event.conversation.id,
+        conversationKind: "private"
+      },
+      event,
+      contextPolicy: { includeHistory: true, maxMessages: 20 }
+    };
+    const active = this.#execution!.activeForSession(session.id, request.userId);
+    if (active && active.payload.request.lineId === lineId && active.payload.event.id !== event.id) {
+      this.#execution!.enqueueInput(
+        active.runId,
+        event.id,
+        input.text + (input.attachments?.length ? `\n附件引用：${JSON.stringify(input.attachments)}` : "")
+      );
+      return this.#runs.get(active.runId)!;
+    }
+    const grant = this.#execution!.issueGrant({
+      key: event.id,
+      workspaceId,
+      principalId: request.userId,
+      sessionId: session.id,
+      source: request.source
+    });
+    const { intent } = this.#execution!.acceptInput(
+      {
+        id: event.id,
+        sessionId: session.id,
+        workspaceId,
+        targetLineId: lineId,
+        platform: "native",
+        provider: "native",
+        channelId: "native",
+        conversationType: "private",
+        conversationId: event.conversation.id,
+        sourceEventId: event.id,
+        sourceEventType: event.eventType,
+        senderId: event.sender.id,
+        text: input.text,
+        message: event.message!,
+        receivedAt: event.receivedAt,
+        idempotencyKey: event.id,
+        lineEventType: "user_message"
+      },
+      (accepted) => ({
+        key: event.id,
+        grantId: grant.id,
+        payload: { request, event, scope: { provider: "native", accepted: { ...accepted, created: true } } }
+      }),
+      (acceptedIntent) => {
+        for (const attachment of input.attachments ?? [])
+          this.#resources!.assets.index.reference({
+            workspaceId,
+            assetId: attachment.assetId,
+            versionId: attachment.versionId,
+            refType: "run",
+            refId: acceptedIntent.runId
+          });
+      }
+    );
+    void this.#dispatchIntent(intent).catch((error) =>
+      this.#logger?.warn("Accepted native execution remains queued", { error: String(error) })
+    );
+    return this.#runs.get(intent.runId)!;
+  }
+
+  async #intakeChannel(event: SynapseChannelEvent, providerOverride?: string, targetLineId?: string): Promise<void> {
+    const execution = this.#execution!;
+    const provider = providerOverride ?? this.#providerByChannelId[event.channelId] ?? "unknown";
+    const enriched = await this.#enrichTriggerHints(event, provider);
+    const sessionId = buildSessionId(enriched, provider);
+    const sourceId = buildSourceEventId(enriched, provider);
+    const incoming =
+      (event.origin === undefined || event.origin === "incoming") && event.sender.id !== event.triggerHint?.selfUserId;
+    if (event.message && event.eventType === "message.created")
+      execution.observe({
+        id: sourceId,
+        sessionId,
+        principalId: event.sender.id,
+        contextEligible: incoming,
+        event: { ...enriched, raw: undefined }
+      });
+    const decision = this.#conversation.route(enriched);
+    if (!incoming || !decision.shouldRespond || !decision.request) {
+      this.#traces.push({
+        eventId: event.id,
+        status: "ignored",
+        reason: incoming ? decision.reason : "self_or_history"
+      });
+      if (this.#traces.length > 256) this.#traces.splice(0, this.#traces.length - 256);
+      return;
+    }
+    const actor = await this.#identityResolver.resolve(enriched, provider);
+    const session = await this.#conversationStore.getSession(sessionId);
+    const workspace = session?.workspaceId
+      ? this.#getWorkspace?.(session.workspaceId)
+      : await this.#workspaceResolver.resolve(enriched, actor);
+    if (!workspace) throw new Error("Session workspace unavailable");
+    if (this.#resources) await this.#resources.ingress.receiveMessage(enriched, provider);
+    const request: AgentRequest = {
+      ...decision.request,
+      sessionId,
+      workspaceId: workspace.id,
+      userId: actor.identity.id,
+      source: { ...decision.request.source, provider }
+    };
+    const active = execution.activeForSession(sessionId, actor.identity.id);
+    if (active && active.payload.event.id !== enriched.id && !targetLineId) {
+      execution.enqueueInput(active.runId, sourceId, `${enriched.sender.id}: ${getText(enriched.message)}`);
+      return;
+    }
+    const grant = execution.issueGrant({
+      key: sourceId,
+      workspaceId: workspace.id,
+      principalId: actor.identity.id,
+      sessionId,
+      source: request.source
+    });
+    const input = this.#normalizedInput(enriched, provider, targetLineId, workspace.id);
+    const { intent } = execution.acceptInput(input, (accepted) => ({
+      key: sourceId,
+      grantId: grant.id,
+      payload: {
+        request,
+        event: { ...enriched, raw: undefined },
+        scope: { provider, accepted: { ...accepted, created: true } }
+      }
+    }));
+    await this.#dispatchIntent(intent);
   }
 
   async #processChannelEvent(
@@ -543,13 +753,25 @@ export class RuntimeCore {
           error: error instanceof Error ? error.message : "Unknown identity error."
         });
       }
+      if (this.#execution)
+        actor = {
+          ...actor,
+          identity: {
+            ...actor.identity,
+            id: request.userId,
+            ...(event.platform === "native" ? ({ type: "owner", trustLevel: "owner" } as const) : {})
+          }
+        };
 
       try {
-        const nativeWorkspace = event.platform === "native" ? this.#sessionWorkspace?.(sessionId) : undefined;
-        workspace = nativeWorkspace
-          ? { id: nativeWorkspace, type: "personal", name: nativeWorkspace }
+        const fixedWorkspace = scope.accepted.session.workspaceId ?? this.#sessionWorkspace?.(sessionId);
+        workspace = fixedWorkspace
+          ? (this.#getWorkspace?.(fixedWorkspace) ??
+            (this.#execution ? undefined : await this.#workspaceResolver.resolve(event, actor)))
           : await this.#workspaceResolver.resolve(event, actor);
+        if (!workspace) throw new Error("Bound workspace unavailable");
       } catch (error) {
+        if (this.#execution) throw error;
         workspace = defaultWorkspace(event, actor);
         this.#logger?.warn("Runtime workspace resolve failed; falling back to default workspace.", {
           eventId: event.id,
@@ -562,7 +784,7 @@ export class RuntimeCore {
       enrichedRequest = {
         ...enrichedRequest,
         workspaceId: workspace.id,
-        userId: actor.identity.id,
+        userId: this.#execution ? request.userId : actor.identity.id,
         source: { ...enrichedRequest.source, provider }
       };
       const sourceEventId = buildSourceEventId(event, provider);
@@ -589,14 +811,6 @@ export class RuntimeCore {
       }
 
       if (processState?.status === "completed") {
-        if (trace?.status === "accepted")
-          this.#runs?.append(trace.id, {
-            key: "legacy-completed",
-            type: "run_interrupted",
-            status: "interrupted",
-            phase: "legacy",
-            data: { reason: "历史处理已完成，旧版本没有运行追踪，未重新执行" }
-          });
         this.#traces.push({ eventId: event.id, status: "ignored", reason: "duplicate_completed" });
         return;
       }
@@ -638,23 +852,31 @@ export class RuntimeCore {
       if (scope.runId !== undefined && this.#runs !== undefined) {
         recorder = this.#coordinator.beginRecording(scope.runId);
       }
+      const savedOutcome = scope.runId ? this.#execution?.result(scope.runId) : undefined;
+      if (savedOutcome && scope.runId) {
+        const intent = this.#execution!.forRun(scope.runId)!;
+        this.#execution!.validateIntent(intent);
+        if (savedOutcome.kind === "silent" || savedOutcome.kind === "waiting") {
+          recorder?.emit("execution_completed", { kind: savedOutcome.kind });
+          await this.#eventProcessStore.update(processStateId!, { status: "completed" });
+        } else
+          await this.#delivery.sendOutput({
+            event,
+            request: enrichedRequest,
+            runId: scope.runId,
+            output: savedOutcome.message,
+            workspace,
+            outputPolicy,
+            processStateId,
+            conversation: scope.accepted
+          });
+        return;
+      }
 
       if (branchId !== undefined) {
         let branch = await this.#conversationStore.getBranch(branchId);
         if (branch === undefined) {
           throw new Error(`Conversation branch "${branchId}" does not exist.`);
-        }
-        if (
-          branch.status === "completed" ||
-          branch.status === "merged" ||
-          branch.status === "failed" ||
-          branch.status === "cancelled"
-        ) {
-          branch = await this.#conversationStore.transitionBranch(branch.id, {
-            status: "inactive",
-            idempotencyKey: `runtime:branch-reopen:${scope.accepted.event.id}`,
-            createdAt: event.receivedAt
-          });
         }
         if (branch.status === "created" || branch.status === "blocked" || branch.status === "inactive") {
           await this.#conversationStore.transitionBranch(branch.id, {
@@ -671,18 +893,12 @@ export class RuntimeCore {
         enableDurableMemory: this.#enableDurableMemory,
         ...(this.#memoryStore === undefined ? {} : { memoryStore: this.#memoryStore }),
         workspaceStore: this.#workspaceStore,
+        tasks:
+          this.#execution && scope.runId
+            ? this.#execution.listTasks(this.#execution.authorize(this.#execution.forRun(scope.runId)!.grantId))
+            : [],
         sourceEventId: scope.accepted.event.id
       });
-      if (commandOutput === undefined) {
-        this.#runGraph?.begin(
-          sessionId,
-          lineId,
-          scope.accepted.lineEvent.id,
-          getText(request.input),
-          enrichedRequest.userId,
-          scope.runId
-        );
-      }
       if (
         await this.#recovery.resume({
           event,
@@ -807,10 +1023,57 @@ export class RuntimeCore {
         };
       }
 
-      const graphContext = this.#contextEnabled
-        ? this.#runGraph?.compose(sessionId, lineId, enrichedRequest.promptContext)
-        : undefined;
-      if (graphContext !== undefined) enrichedRequest = { ...enrichedRequest, promptContext: graphContext };
+      if (this.#execution) {
+        const seen = new Set([
+          event.id,
+          ...this.#execution
+            .observations(sessionId)
+            .filter((observed) => observed.id === event.id)
+            .map((observed) => observed.id)
+        ]);
+        const observed = this.#execution
+          .observations(sessionId)
+          .filter((item) => !seen.has(item.id))
+          .map((item) => ({
+            role: "user" as const,
+            content: `[${item.receivedAt}] ${item.sender.id}: ${getText(item.message)}`,
+            messageId: buildSourceEventId(item, provider),
+            sourceRef: `user:${buildSourceEventId(item, provider)}`,
+            actorId: item.sender.id,
+            createdAt: item.receivedAt
+          }));
+        const currentContext = enrichedRequest.promptContext ?? { messages: [], sections: [], metadata: {} };
+        const known = new Set(currentContext.messages.map((item) => item.sourceRef));
+        enrichedRequest = {
+          ...enrichedRequest,
+          promptContext: {
+            ...currentContext,
+            messages: [...observed.filter((item) => !known.has(item.sourceRef)), ...currentContext.messages]
+          }
+        };
+      }
+      if (enrichedRequest.promptContext) {
+        const budgeted = allocateContext(
+          enrichedRequest.promptContext,
+          this.#maxContextChars,
+          trustedContextCost(
+            enrichedRequest,
+            this.#tools.listForContext({
+              runId: scope.runId ?? "",
+              sessionId,
+              userId: enrichedRequest.userId,
+              workspaceId: workspace.id
+            })
+          )
+        );
+        enrichedRequest = {
+          ...enrichedRequest,
+          promptContext: {
+            ...budgeted.context,
+            metadata: { ...budgeted.context.metadata, contextManifest: JSON.stringify(budgeted.manifest) }
+          }
+        };
+      }
       recorder?.emit("context_resolved", {
         sessionId,
         lineId,
@@ -818,7 +1081,7 @@ export class RuntimeCore {
         invocation: enrichedRequest.invocation ?? null
       });
 
-      const run = await this.#coordinator.executeAgent({
+      let run = await this.#coordinator.executeAgent({
         request: enrichedRequest,
         event,
         scope,
@@ -826,6 +1089,21 @@ export class RuntimeCore {
         processStateId,
         replayToolCall: (toolCall) => this.#recovery.replayToolCall(toolCall)
       });
+
+      if (this.#execution && scope.runId && run.status === "succeeded") {
+        const outcome =
+          this.#execution.result(scope.runId) ??
+          run.outcome ??
+          (run.output ? { kind: "reply" as const, message: run.output } : { kind: "silent" as const });
+        this.#execution.saveResult(scope.runId, outcome);
+        if (outcome.kind === "reply" || outcome.kind === "notify") run = { ...run, output: outcome.message };
+        if (outcome.kind === "silent" || outcome.kind === "waiting") {
+          recorder?.emit("execution_completed", { kind: outcome.kind });
+          if (processStateId) await this.#eventProcessStore.update(processStateId, { status: "completed" });
+          this.#traces.push({ eventId: event.id, status: "succeeded", runId: scope.runId });
+          return;
+        }
+      }
 
       if (run.status === "succeeded" && run.output !== undefined) {
         if (processStateId !== undefined) {
@@ -912,6 +1190,7 @@ export class RuntimeCore {
       });
     } finally {
       this.#coordinator.finishRun(controlId, timer, recorder);
+      if (this.#traces.length > 256) this.#traces.splice(0, this.#traces.length - 256);
       if (locallyClaimedProcessId !== undefined) {
         this.#locallyClaimedProcesses.delete(locallyClaimedProcessId);
       }
@@ -947,12 +1226,22 @@ export class RuntimeCore {
     provider: string,
     targetLineId?: string
   ): Promise<AcceptedNormalizedEvent> {
+    return this.#conversationStore.acceptNormalizedEvent(this.#normalizedInput(event, provider, targetLineId));
+  }
+
+  #normalizedInput(
+    event: SynapseChannelEvent,
+    provider: string,
+    targetLineId?: string,
+    workspaceId?: string
+  ): AcceptNormalizedEventInput {
     const sessionId = buildSessionId(event, provider);
     const sourceEventId = buildSourceEventId(event, provider);
     const sourceMessageId = normalizeMessageId(event.message?.id);
 
-    return this.#conversationStore.acceptNormalizedEvent({
+    return {
       sessionId,
+      ...(workspaceId ? { workspaceId } : {}),
       ...(targetLineId === undefined ? {} : { targetLineId }),
       platform: event.platform,
       provider,
@@ -966,7 +1255,6 @@ export class RuntimeCore {
       text: getText(event.message),
       ...(event.message === undefined ? {} : { message: event.message, segments: event.message.segments }),
       ...(event.triggerHint === undefined ? {} : { triggerHint: event.triggerHint }),
-      ...(event.raw === undefined ? {} : { rawPayload: event.raw }),
       receivedAt: event.receivedAt,
       idempotencyKey: runtimeEventIdempotencyKey(event, provider, sourceEventId),
       lineEventType: lineEventTypeFromChannelEvent(event),
@@ -974,7 +1262,7 @@ export class RuntimeCore {
       sessionMetadata: {
         ...(event.conversation.title === undefined ? {} : { conversationTitle: event.conversation.title })
       }
-    });
+    };
   }
 
   async #recordContextAttribution(
@@ -1001,47 +1289,83 @@ export class RuntimeCore {
   }
 
   async #recordToolRuntimeEvent(event: ToolRuntimeEvent): Promise<void> {
-    const session = await this.#conversationStore.ensureSession({ sessionId: event.context.sessionId });
-    const lineId = event.context.lineId ?? session.mainlineId;
-    const isCall = event.type === "tool_call_started";
-    const toolCallEvent = isCall
-      ? undefined
-      : (await this.#conversationStore.listEvents(lineId, { types: ["tool_call"] })).find(
-          (candidate) => candidate.idempotencyKey === `tool:${event.context.callId}:tool_call_started`
+    const executionIntent = this.#execution?.forRun(event.context.runId);
+    if (executionIntent) {
+      if (event.type === "tool_call_started") {
+        this.#execution!.validateIntent(executionIntent);
+        if (this.#execution!.inputs(event.context.runId).length > 0)
+          throw new Error("Pending input must be adopted before a tool action");
+        this.#execution!.consume(event.context.runId, "tool");
+        const effect =
+          this.#tools.listForContext(event.context).find((tool) => tool.name === event.name)?.effect ?? "external";
+        this.#execution!.startOperation(event.context.runId, event.context.callId, event.name, event.input, effect);
+      } else if (this.#execution!.operation(event.context.callId)) {
+        const uncertain =
+          event.type === "tool_call_failed" &&
+          (event.outcome === "uncertain" ||
+            (event.error instanceof ToolCallRecoveryError && event.error.code === "outcome_uncertain"));
+        this.#execution!.receipt(
+          event.context.callId,
+          uncertain
+            ? "uncertain"
+            : event.type === "tool_call_succeeded"
+              ? "succeeded"
+              : event.type === "tool_call_blocked"
+                ? "blocked"
+                : "failed",
+          event.type === "tool_call_succeeded"
+            ? (event.output ?? null)
+            : event.type === "tool_call_failed"
+              ? serializeError(event.error)
+              : event.type === "tool_call_blocked"
+                ? event.reason
+                : null
         );
-    const causationEventId = toolCallEvent?.id ?? event.context.causationEventId;
+      }
+    }
+    const isCall = event.type === "tool_call_started";
     const resultPayload =
       event.type === "tool_call_succeeded"
         ? { status: "succeeded", ...(event.output === undefined ? {} : { output: event.output }) }
         : event.type === "tool_call_blocked"
           ? { status: "blocked", reason: event.reason }
           : event.type === "tool_call_failed"
-            ? { status: "failed", error: serializeError(event.error) }
+            ? { status: event.outcome === "uncertain" ? "uncertain" : "failed", error: serializeError(event.error) }
             : {};
+    if (event.context.sessionId) {
+      const session = await this.#conversationStore.ensureSession({ sessionId: event.context.sessionId });
+      const lineId = event.context.lineId ?? session.mainlineId;
+      const toolCallEvent = isCall
+        ? undefined
+        : (await this.#conversationStore.listEvents(lineId, { types: ["tool_call"] })).find(
+            (candidate) => candidate.idempotencyKey === `tool:${event.context.callId}:tool_call_started`
+          );
+      const causationEventId = toolCallEvent?.id ?? event.context.causationEventId;
 
-    await this.#conversationStore.appendEvent(lineId, {
-      sessionId: event.context.sessionId,
-      type: isCall ? "tool_call" : "tool_result",
-      idempotencyKey: `tool:${event.context.callId}:${event.type}`,
-      ...(event.context.causationEventId === undefined ? {} : { sourceEventId: event.context.causationEventId }),
-      ...(causationEventId === undefined ? {} : { causationEventId }),
-      correlationId: event.context.attemptId ?? event.context.runId,
-      ...(event.context.taskId === undefined ? {} : { taskId: event.context.taskId }),
-      actorId: event.context.userId,
-      payload: {
-        callId: event.context.callId,
-        name: event.name,
-        ...(event.input === undefined ? {} : { input: event.input }),
-        ...resultPayload,
-        ...(event.context.branchId === undefined ? {} : { branchId: event.context.branchId })
-      },
-      createdAt: event.occurredAt
-    });
+      await this.#conversationStore.appendEvent(lineId, {
+        sessionId: event.context.sessionId,
+        type: isCall ? "tool_call" : "tool_result",
+        idempotencyKey: `tool:${event.context.callId}:${event.type}`,
+        ...(event.context.causationEventId === undefined ? {} : { sourceEventId: event.context.causationEventId }),
+        ...(causationEventId === undefined ? {} : { causationEventId }),
+        correlationId: event.context.attemptId ?? event.context.runId,
+        ...(event.context.taskId === undefined || executionIntent ? {} : { taskId: event.context.taskId }),
+        actorId: event.context.userId,
+        payload: {
+          callId: event.context.callId,
+          name: event.name,
+          ...(event.input === undefined ? {} : { input: event.input }),
+          ...resultPayload,
+          ...(event.context.branchId === undefined ? {} : { branchId: event.context.branchId })
+        },
+        createdAt: event.occurredAt
+      });
+    }
     const recorder = this.#coordinator.recorders.get(event.context.runId);
     if (
       event.type === "tool_call_failed" &&
-      event.error instanceof ToolCallRecoveryError &&
-      event.error.code === "outcome_uncertain"
+      (event.outcome === "uncertain" ||
+        (event.error instanceof ToolCallRecoveryError && event.error.code === "outcome_uncertain"))
     )
       recorder?.fail("uncertain", "tool_outcome_uncertain", "工具执行已中止，外部结果未确认", "tool");
     recorder?.emit(event.type, {
@@ -1051,6 +1375,10 @@ export class RuntimeCore {
       ...resultPayload
     });
     if (event.type === "tool_call_succeeded" && event.output !== null && typeof event.output === "object") {
+      if (event.name === "context.commit") {
+        const commit = event.output as { id?: string; scopeId?: string; parents?: readonly string[] };
+        recorder?.emit("context_committed", { commitId: commit.id, scopeId: commit.scopeId, parents: commit.parents });
+      }
       const raw = event.output as Record<string, unknown>;
       const output =
         raw.schemaVersion === "runtime-tool-output/v1" &&
@@ -1080,20 +1408,6 @@ export class RuntimeCore {
       !["select", "discard"].includes(String((event.input as { operation?: unknown } | null)?.operation))
     )
       recorder?.emit("artifact_upload_started", { callId: event.context.callId, input: event.input });
-    if (!isCall && event.context.causationEventId !== undefined) {
-      this.#runGraph?.record(
-        event.context.sessionId,
-        event.context.causationEventId,
-        `graph-tool:${event.context.callId}`,
-        "tool_result",
-        {
-          name: event.name,
-          callId: event.context.callId,
-          // 工具输出只保留有界结构化结果，输入中的脚本留在执行审计而不重复注入模型上下文
-          ...compactGraphToolResult(resultPayload)
-        }
-      );
-    }
   }
 
   #removeToolObserverOnce(): void {

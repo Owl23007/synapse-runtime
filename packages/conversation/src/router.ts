@@ -44,6 +44,8 @@ export class ConversationRouter {
     }
 
     const policy = event.conversation.kind === "private" ? this.#options.privateTrigger : this.#options.groupTrigger;
+    if (event.sender.id === event.triggerHint?.selfUserId || policy.botUserIds?.includes(event.sender.id))
+      return { shouldRespond: false, reason: "self_message" };
     const evaluation = evaluateTrigger(event.message, policy, event);
 
     if (evaluation.trigger === undefined) {

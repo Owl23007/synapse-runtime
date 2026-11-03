@@ -27,11 +27,4 @@ export {
   type ContextAttributorLiteOptions,
   type InteractionNature
 } from "./attribution.js";
-export {
-  BranchContextProjector,
-  type BranchContextBudget,
-  type BranchContextManifest,
-  type BranchContextProjection,
-  type BranchContextProjectionInput,
-  type BranchContextProjectorOptions
-} from "./projection.js";
+export * from "./budget.js";

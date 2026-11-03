@@ -79,14 +79,14 @@ describe("运行时管理客户端", () => {
 
     await client.branches("session/1");
     await client.branch("branch/1");
-    await client.tasks("branch/1");
+    await client.tasks("workspace/1");
     await client.task("task/1");
-    await client.cancelTask("task/1");
+    await client.cancelTask("task/1", 3);
 
     expect(requests).toEqual([
       { url: "http://127.0.0.1:3766/admin/branches?sessionId=session%2F1", method: "GET" },
       { url: "http://127.0.0.1:3766/admin/branches/branch%2F1", method: "GET" },
-      { url: "http://127.0.0.1:3766/admin/tasks?branchId=branch%2F1", method: "GET" },
+      { url: "http://127.0.0.1:3766/admin/tasks?workspaceId=workspace%2F1", method: "GET" },
       { url: "http://127.0.0.1:3766/admin/tasks/task%2F1", method: "GET" },
       { url: "http://127.0.0.1:3766/admin/tasks/task%2F1/cancel", method: "POST" }
     ]);

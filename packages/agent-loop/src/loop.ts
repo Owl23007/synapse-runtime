@@ -43,6 +43,14 @@ export class ApiChatAgent implements Agent {
     const steps: AgentStep[] = [];
     const attachments: MessageSegment[] = [];
     let toolCallCount = 0;
+    const adoptedInputs = new Set<number>();
+    const appendInputs = (incoming: readonly { readonly id: number; readonly content: string }[] | undefined) => {
+      for (const item of incoming ?? [])
+        if (!adoptedInputs.has(item.id)) {
+          messages.push({ role: "user", content: item.content });
+          adoptedInputs.add(item.id);
+        }
+    };
     const visibleToolIds = new Set(request.invocation.capabilities.toolIds);
     const availableTools = (context?.tools.list() ?? [])
       .filter((tool) => visibleToolIds.has(tool.name))
@@ -73,6 +81,10 @@ export class ApiChatAgent implements Agent {
     try {
       for (let stepIndex = 1; stepIndex <= this.#maxSteps; stepIndex += 1) {
         context?.signal?.throwIfAborted();
+        // 补充信息在模型步骤边界加入，HTTP 生成期间不会注入或改写请求
+        // oxlint-disable-next-line no-await-in-loop
+        const incoming = await context?.checkpoint?.();
+        appendInputs(incoming);
         const modelStartedAt = new Date().toISOString();
         const modelCallId = `model-${stepIndex}`;
         const metadata = {
@@ -85,13 +97,15 @@ export class ApiChatAgent implements Agent {
           maxTokens: this.#maxOutputTokens,
           ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" as const })
         };
-        // 持久开始记录先于实际请求，断电后仍能解释未完成的模型调用
-        // oxlint-disable-next-line no-await-in-loop
-        await context?.observeModel?.({ ...metadata, type: "model_call_started", data: modelRequest });
         let result: ChatCompletionResult;
         try {
-          if (JSON.stringify(modelRequest).length > this.#maxInputChars)
-            throw new Error(`模型输入超过 ${this.#maxInputChars} 字符预算，未裁剪必要上下文，请缩小请求或调整预算`);
+          const maxInputChars = Math.min(this.#maxInputChars, context?.maxInputChars ?? this.#maxInputChars);
+          if (JSON.stringify(modelRequest).length > maxInputChars)
+            throw new Error(`模型输入超过 ${maxInputChars} 字符预算，未裁剪必要上下文，请缩小请求或调整预算`);
+          // 有界请求先持久开始记录，再调用 Provider，超限内容不会进入 Trace
+          // oxlint-disable-next-line no-await-in-loop
+          await context?.observeModel?.({ ...metadata, type: "model_call_started", data: modelRequest });
+          if (incoming?.length) context?.acknowledgeInputs?.(incoming.at(-1)!.id);
           // 模型步骤依赖前一步观察结果必须串行执行
           // oxlint-disable-next-line no-await-in-loop
           result = await this.#provider.complete({
@@ -170,6 +184,23 @@ export class ApiChatAgent implements Agent {
         });
         for (const toolCall of toolCalls) {
           context?.signal?.throwIfAborted();
+          // 用户修订先于未发起的副作用，补齐未执行的工具响应后交还模型重新判断
+          // oxlint-disable-next-line no-await-in-loop
+          const steering = await context?.checkpoint?.();
+          if (steering?.length) {
+            for (const pending of toolCalls.slice(toolCalls.indexOf(toolCall)))
+              messages.push({
+                role: "tool",
+                toolCallId: pending.id,
+                name: pending.name,
+                content: JSON.stringify({
+                  status: "blocked",
+                  reason: "New input arrived; reconsider before taking action"
+                })
+              });
+            appendInputs(steering);
+            break;
+          }
           toolCallCount += 1;
           if (toolCallCount > this.#maxToolCalls) {
             throw new Error(`Agent loop exceeded the tool call limit of ${this.#maxToolCalls}.`);
@@ -194,6 +225,18 @@ export class ApiChatAgent implements Agent {
             toolCallId: toolCall.id,
             name: toolCall.name
           });
+          const outcome = context?.getOutcome?.();
+          if (outcome)
+            return {
+              id: runId,
+              agentId: this.id,
+              sessionId: request.sessionId,
+              status: "succeeded",
+              input: request.input,
+              steps,
+              outcome,
+              ...("message" in outcome ? { output: outcome.message } : {})
+            };
         }
       }
       throw new Error(`Agent loop exceeded the model step limit of ${this.#maxSteps}.`);

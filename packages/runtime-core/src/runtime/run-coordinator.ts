@@ -8,6 +8,7 @@ import {
   type ToolRuntime
 } from "@synapse/runtime-tool-runtime";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { buildSourceEventId, type ConversationStore, type EventProcessStore } from "../context.js";
 import { RunRecorder } from "../trace/recorder.js";
 import type { RunTraceStore } from "../trace/types.js";
@@ -15,8 +16,14 @@ import { serializeError, stringifyAgentOutput } from "./event-records.js";
 import { ExecutionGate, withAbort } from "./execution-budget.js";
 import { getText, summarizeMessage } from "./message-utils.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeEventScope } from "./types.js";
+import type { ExecutionStore } from "../execution/store.js";
+import type { ExecutionIntent } from "../execution/types.js";
+import type { RuntimeDelivery } from "./delivery.js";
+import { allocateContext, trustedContextCost } from "../context/budget.js";
 
 interface CoordinatorOptions {
+  readonly execution?: ExecutionStore | undefined;
+  readonly maxContextChars?: number;
   readonly agent: Agent;
   readonly tools: ToolRuntime;
   readonly conversationStore: ConversationStore;
@@ -143,12 +150,19 @@ export class RunCoordinator {
     const recorder = scope.runId === undefined ? undefined : this.recorders.get(scope.runId);
     const attemptId = recorder?.attemptId ?? `agent-attempt-${randomUUID()}`;
     const context: AgentRuntimeContext = {
+      maxInputChars: this.options.maxContextChars ?? 24_000,
+      ...(this.options.execution ? this.executionContext(scope.runId!) : {}),
       signal: controller.signal,
       ...(scope.runId === undefined ? {} : { runId: scope.runId }),
       ...(recorder === undefined
         ? {}
         : {
-            observeModel: (modelEvent: import("@synapse/runtime-agent-core").AgentModelEvent) =>
+            observeModel: (modelEvent: import("@synapse/runtime-agent-core").AgentModelEvent) => {
+              const intent = scope.runId ? this.options.execution?.forRun(scope.runId) : undefined;
+              if (intent && modelEvent.type === "model_call_started") {
+                this.options.execution!.validateIntent(intent);
+                this.options.execution!.consume(intent.runId, "model");
+              }
               recorder!.emit(
                 modelEvent.type,
                 {
@@ -158,7 +172,8 @@ export class RunCoordinator {
                   ...(modelEvent.data as Record<string, unknown>)
                 },
                 modelEvent.durationMs
-              )
+              );
+            }
           }),
       tools: this.options.tools.withContext({
         signal: controller.signal,
@@ -184,7 +199,9 @@ export class RunCoordinator {
         causationEventId: scope.accepted.lineEvent.id,
         durableCallIdPrefix: scope.accepted.event.id,
         replayCall: async (toolCall) => {
-          const replay = await input.replayToolCall(toolCall);
+          const intent = scope.runId ? this.options.execution?.forRun(scope.runId) : undefined;
+          if (intent) this.options.execution!.validateIntent(intent);
+          const replay = intent ? await this.replayOperation(toolCall) : await input.replayToolCall(toolCall);
           if (replay.status !== "missing")
             recorder?.emit("tool_call_replayed", {
               callId: toolCall.context.callId,
@@ -329,6 +346,194 @@ export class RunCoordinator {
     });
 
     return run;
+  }
+
+  private executionContext(
+    runId: string
+  ): Pick<AgentRuntimeContext, "checkpoint" | "acknowledgeInputs" | "getOutcome"> {
+    const store = this.options.execution!;
+    let first = true;
+    return {
+      checkpoint: async () => {
+        const intent = store.forRun(runId);
+        if (!intent) throw new Error("Execution intent missing");
+        store.validateIntent(intent);
+        const inputs = store.inputs(runId, first);
+        first = false;
+        return inputs;
+      },
+      acknowledgeInputs: (through) => store.acknowledgeInputs(runId, through),
+      getOutcome: () => store.result(runId)
+    };
+  }
+
+  private async replayOperation(call: ToolCallReplayRequest): Promise<ToolCallReplayResolution> {
+    const operation = this.options.execution!.operation(call.context.callId);
+    if (!operation) return { status: "missing" };
+    if (
+      operation.runId !== call.context.runId ||
+      operation.name !== call.name ||
+      !isDeepStrictEqual(operation.input, call.input)
+    )
+      return { status: "conflict", reason: "Operation identity conflict" };
+    if (operation.state === "succeeded") return { status: "succeeded", output: operation.result };
+    if (operation.state === "blocked") return { status: "blocked", reason: String(operation.result) };
+    if (operation.state === "failed") return { status: "failed", error: operation.result };
+    if (operation.state === "started" && operation.effect !== "external") return { status: "missing" };
+    return { status: "started" };
+  }
+
+  /** 非交互执行使用同一 Agent 和工具循环，结果与交付仍独立持久化 */
+  async executeBackground(
+    intent: ExecutionIntent,
+    compile: RuntimeCoreOptions["compileInvocation"],
+    delivery: RuntimeDelivery,
+    getWorkspace: RuntimeCoreOptions["getWorkspace"]
+  ): Promise<void> {
+    const store = this.options.execution!;
+    const execution = this.beginRun(intent.runId);
+    if (!execution) return;
+    const recorder = this.beginRecording(intent.runId);
+    const { controller, timer } = execution;
+    try {
+      store.validateIntent(intent);
+      let outcome =
+        store.result(intent.runId) ??
+        (intent.payload.deliveryOfRunId ? store.result(intent.payload.deliveryOfRunId) : undefined);
+      if (!outcome) {
+        if (intent.payload.reminder !== undefined)
+          outcome = {
+            kind: "notify",
+            message: { type: "text", segments: [{ type: "text", text: intent.payload.reminder }] }
+          };
+        else {
+          let request: AgentRequest = { ...intent.payload.request, runId: intent.runId };
+          const grant = store.authorize(intent.grantId);
+          const task = intent.taskId ? store.getTask(intent.taskId, grant) : undefined;
+          const promptContext = {
+            messages: [],
+            metadata: { workspaceId: intent.workspaceId },
+            sections: [
+              {
+                id: "execution",
+                blocks: [
+                  {
+                    id: "trusted-scope",
+                    source: "runtime",
+                    stability: "turn" as const,
+                    required: true,
+                    priority: 100,
+                    content: JSON.stringify({
+                      workspace: getWorkspace?.(intent.workspaceId),
+                      task,
+                      policy: "后台执行默认静默；需要通知或等待时调用 runtime.finish；通知仅发送到已授权来源"
+                    })
+                  }
+                ]
+              }
+            ]
+          };
+          request = {
+            ...request,
+            promptContext
+          };
+          const invocation = await compile?.(request);
+          if (invocation) request = { ...request, invocation };
+          const budget = allocateContext(
+            promptContext,
+            this.options.maxContextChars ?? 24_000,
+            trustedContextCost(
+              request,
+              this.options.tools.listForContext({
+                runId: intent.runId,
+                sessionId: request.sessionId,
+                workspaceId: intent.workspaceId,
+                userId: grant.principalId
+              })
+            )
+          );
+          request = {
+            ...request,
+            promptContext: {
+              ...budget.context,
+              metadata: { ...budget.context.metadata, contextManifest: JSON.stringify(budget.manifest) }
+            }
+          };
+          const context: AgentRuntimeContext = {
+            maxInputChars: this.options.maxContextChars ?? 24_000,
+            ...this.executionContext(intent.runId),
+            signal: controller.signal,
+            runId: intent.runId,
+            observeModel: (event) => {
+              if (event.type === "model_call_started") {
+                store.validateIntent(intent);
+                store.consume(intent.runId, "model");
+              }
+              recorder?.emit(
+                event.type,
+                {
+                  modelCallId: event.modelCallId,
+                  providerId: event.providerId,
+                  ...(event.data as Record<string, unknown>)
+                },
+                event.durationMs
+              );
+            },
+            tools: this.options.tools.withContext({
+              runId: intent.runId,
+              sessionId: request.sessionId,
+              workspaceId: intent.workspaceId,
+              userId: grant.principalId,
+              source: grant.source,
+              signal: controller.signal,
+              timeoutMs: this.#toolTimeoutMs,
+              durableCallIdPrefix: intent.id,
+              ...(intent.taskId ? { taskId: intent.taskId } : {}),
+              replayCall: async (call) => {
+                store.validateIntent(intent);
+                const operation = store.operation(call.context.callId);
+                if (!operation) return { status: "missing" };
+                if (
+                  operation.runId !== intent.runId ||
+                  operation.name !== call.name ||
+                  !isDeepStrictEqual(operation.input, call.input)
+                )
+                  return { status: "conflict", reason: "Operation identity conflict" };
+                if (operation.state === "succeeded") return { status: "succeeded", output: operation.result };
+                if (operation.state === "blocked") return { status: "blocked", reason: String(operation.result) };
+                if (operation.state === "failed") return { status: "failed", error: operation.result };
+                if (operation.state === "started" && operation.effect !== "external") return { status: "missing" };
+                return { status: "started" };
+              }
+            }),
+            conversation: {
+              createBranch: async () => {
+                throw new Error("Background work requires an explicit context ref");
+              }
+            }
+          };
+          const run = await withAbort(this.options.agent.run(request, context), controller.signal);
+          if (run.status !== "succeeded") throw new Error(run.error ?? "Agent failed");
+          outcome = run.outcome ?? store.result(intent.runId) ?? { kind: "silent" };
+        }
+        if (!outcome) throw new Error("Execution outcome missing");
+      }
+      if (!outcome) throw new Error("Execution outcome missing");
+      store.saveResult(intent.runId, outcome);
+      store.validateIntent(intent);
+      if (outcome.kind === "silent" || outcome.kind === "waiting")
+        recorder?.emit("execution_completed", { kind: outcome.kind });
+      else await delivery.sendIntent(intent, outcome.message, store, controller.signal);
+    } catch (error) {
+      recorder?.fail(
+        error instanceof ToolCallRecoveryError ? "uncertain" : "failed",
+        "execution_failed",
+        String(error)
+      );
+      this.options.logger?.warn("Background execution stopped", { runId: intent.runId, error: String(error) });
+    } finally {
+      this.finishRun(intent.runId, timer, recorder);
+    }
   }
 }
 
