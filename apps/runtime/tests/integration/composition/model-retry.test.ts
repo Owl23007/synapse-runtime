@@ -44,6 +44,39 @@ function create(fetch: RuntimeFetch, maxModelCallsPerRun = 8) {
 }
 
 describe("模型暂时故障与安全 Attempt 重试", () => {
+  it("补充输入归档后，重试的模型请求仍只采用一次该来源", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const requests: { messages: { role: string; content: string }[] }[] = [];
+    const assembly = create(async (_url, init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      if (requests.length === 1) {
+        started();
+        await waiting;
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return Response.json({ choices: [{ message: { content: "已采用修订" } }] });
+    });
+    onTestFinished(() => release());
+    assembly.contextStore.createNativeSession({ id: "session", key: "session", title: "Retry" });
+    assembly.runtime.start();
+    const run = await assembly.runtime.submitNative({ sessionId: "session", text: "原始目标", idempotencyKey: "a" });
+    await ready;
+    expect(
+      (await assembly.runtime.submitNative({ sessionId: "session", text: "修订目标只读一次", idempotencyKey: "b" })).id
+    ).toBe(run.id);
+    release();
+    await vi.waitFor(() => expect(assembly.contextStore.runs.get(run.id)?.status).toBe("succeeded"), { timeout: 3000 });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.messages.filter((message) => message.content?.includes("修订目标只读一次"))).toHaveLength(1);
+  });
+
   it("首次 HTTP 503 沿用同一 Run 重试并只交付一次最终答复", async () => {
     let calls = 0;
     const assembly = create(async () => {

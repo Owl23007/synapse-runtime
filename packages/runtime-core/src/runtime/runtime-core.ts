@@ -1039,6 +1039,7 @@ export class RuntimeCore {
       }
 
       if (this.#execution) {
+        const inputSources = new Set(scope.runId ? this.#execution.inputSources(scope.runId) : []);
         const seen = new Set([
           event.id,
           ...this.#execution
@@ -1048,7 +1049,7 @@ export class RuntimeCore {
         ]);
         const observed = this.#execution
           .observations(sessionId)
-          .filter((item) => !seen.has(item.id))
+          .filter((item) => !seen.has(item.id) && !inputSources.has(buildSourceEventId(item, provider)))
           .map((item) => ({
             role: "user" as const,
             content: `[${item.receivedAt}] ${item.sender.id}: ${getText(item.message)}`,
@@ -1063,7 +1064,12 @@ export class RuntimeCore {
           ...enrichedRequest,
           promptContext: {
             ...currentContext,
-            messages: [...observed.filter((item) => !known.has(item.sourceRef)), ...currentContext.messages]
+            messages: [
+              ...observed.filter((item) => !known.has(item.sourceRef)),
+              ...currentContext.messages.filter(
+                (item) => !inputSources.has(item.sourceRef?.replace(/^user:/, "") ?? "")
+              )
+            ]
           }
         };
       }
