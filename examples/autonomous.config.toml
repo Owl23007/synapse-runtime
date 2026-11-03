@@ -1,0 +1,68 @@
+# 有限自主执行配置，可直接通过 config:check，不需要模型密钥
+[runtime]
+mode = "local"
+
+[runtime.limits]
+maxConcurrent = 2
+maxQueued = 32
+runTimeoutMs = 180000
+toolTimeoutMs = 60000
+shutdownGraceMs = 15000
+
+[autonomy]
+enabled = true
+pollIntervalMs = 1000
+maxPendingIntents = 64
+maxAttempts = 2
+maxRunsPerHour = 30
+maxRunsPerGrant = 12
+maxModelCallsPerRun = 8
+maxToolCallsPerRun = 16
+maxTasks = 16
+maxTaskDepth = 3
+maxSchedules = 8
+maxScheduleOccurrences = 12
+maxScheduleLifetimeHours = 72
+minScheduleIntervalMs = 300000
+maxContextCommits = 500
+maxRecordChars = 32000
+retentionHours = 168
+observationTtlMinutes = 30
+maxObservationsPerSession = 64
+maxDatabaseBytes = 536870912
+
+[context]
+enabled = true
+maxHistoryChars = 6000
+maxTotalChars = 24000
+timezone = "Asia/Shanghai"
+groupHistoryTtlMinutes = 30
+groupMaxMessages = 6
+
+[agentLoop]
+maxSteps = 8
+maxToolCalls = 16
+maxInputChars = 64000
+maxOutputTokens = 4096
+
+[agent]
+default = "echo"
+
+[locale]
+default = "zh-CN"
+catalogPath = "resources/locales.zh-CN.yaml"
+
+[prompts]
+enabled = true
+catalogPath = "resources/prompts.zh-CN.yaml"
+defaultPurpose = "reasoning.chat_reply"
+
+[agent.providers.echo]
+type = "echo"
+
+[conversation.groupTrigger]
+mode = "mention"
+botUserIds = []
+
+[conversation.privateTrigger]
+mode = "always"
