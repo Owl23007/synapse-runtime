@@ -22,6 +22,7 @@ const event: SynapseChannelEvent = {
 function createRuntimeTraceFixture(
   options: {
     modelFail?: boolean;
+    maxAttempts?: number;
     sendFail?: boolean;
     uploadStatus?: "succeeded" | "failed" | "uncertain";
     sendAllowed?: boolean;
@@ -34,6 +35,7 @@ function createRuntimeTraceFixture(
   let sends = 0;
   const config = parseConfigObject({
     runtime: { dataDir: directory },
+    autonomy: { maxAttempts: options.maxAttempts ?? 3 },
     conversation: { groupTrigger: { mode: "always" } },
     agent: {
       default: "model",
@@ -165,12 +167,14 @@ describe("生产运行追踪", () => {
     expect(testContext.counts).toEqual({ modelCalls: 1, sends: 1 });
   });
 
-  it("模型失败后的通知不把任务标记为成功", async () => {
-    const testContext = createRuntimeTraceFixture({ modelFail: true });
+  it("模型重试预算耗尽后的通知不把任务标记为成功", async () => {
+    const testContext = createRuntimeTraceFixture({ modelFail: true, maxAttempts: 1 });
     await testContext.result.runtime.handleChannelEvent(event, "napcat");
     const run = testContext.result.contextStore.runs.list().items[0]!;
     expect(run.status).toBe("failed");
     expect(run.error?.message).not.toContain("trace-canary-secret");
+    expect(testContext.result.contextStore.execution.forRun(run.id)?.attempts).toBe(1);
+    expect(testContext.counts.modelCalls).toBe(1);
     expect(testContext.result.contextStore.runs.events(run.id).map((item) => item.type)).toContain("response_sent");
   });
 

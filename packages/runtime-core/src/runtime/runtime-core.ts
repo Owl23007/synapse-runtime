@@ -1105,6 +1105,8 @@ export class RuntimeCore {
         replayToolCall: (toolCall) => this.#recovery.replayToolCall(toolCall)
       });
 
+      if (scope.runId && this.#execution?.forRun(scope.runId)?.state === "queued") return;
+
       if (this.#execution && scope.runId && run.status === "succeeded") {
         const outcome =
           this.#execution.result(scope.runId) ??

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS execution_intents (
  FOREIGN KEY(schedule_id, grant_id, workspace_id) REFERENCES agent_schedules(id, grant_id, workspace_id)
 );
 CREATE INDEX IF NOT EXISTS intent_queue ON execution_intents(state, ordinal);
+CREATE INDEX IF NOT EXISTS intent_due ON execution_intents(state, next_attempt_at, ordinal);
 CREATE INDEX IF NOT EXISTS intent_workspace_time ON execution_intents(workspace_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS task_single_writer ON execution_intents(task_id) WHERE state = 'claimed' AND task_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS schedule_occurrences (

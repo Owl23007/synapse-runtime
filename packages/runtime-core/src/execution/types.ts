@@ -68,6 +68,8 @@ export interface ExecutionIntent {
   readonly scheduleRevision?: number;
   readonly state: "queued" | "claimed" | "done" | "blocked";
   readonly attempts: number;
+  /** 持久退避到期前，即使手动派发也不能建立新 Attempt */
+  readonly availableAt: number;
   readonly createdAt: number;
   readonly payload: {
     readonly request: AgentRequest;

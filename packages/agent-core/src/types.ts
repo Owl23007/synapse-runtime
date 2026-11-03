@@ -1,6 +1,7 @@
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import type { SynapseMessage } from "@synapse/runtime-protocol";
 import type { ScopedToolRuntimeView } from "@synapse/runtime-tool-runtime";
+import type { ModelFailure } from "./model-error.js";
 
 export type AgentRunStatus = "queued" | "running" | "waiting_confirm" | "succeeded" | "failed";
 
@@ -15,6 +16,8 @@ export interface AgentStep {
 
 /** 一次智能体执行的结果，工作完成和对外发送分别表达 */
 export interface AgentRun {
+  /** 失败分类由提供商或可信 Agent 报告，不根据错误文本猜测重试 */
+  readonly failure?: ModelFailure;
   /** 工作结果不等于外部消息，静默和等待均可正常结束本次推理 */
   readonly outcome?: AgentOutcome;
   readonly id: string;
