@@ -222,7 +222,7 @@ export class RuntimeCore {
     try {
       const capacity = this.#coordinator.executionStatus;
       const available = Math.max(0, capacity.maxConcurrent - capacity.active);
-      for (const intent of this.#execution.pending(32).slice(0, available))
+      for (const intent of available > 0 ? this.#execution.runnable(Math.min(available, 200)) : [])
         void this.#dispatchIntent(intent).catch((error) =>
           this.#logger?.warn("Persistent execution postponed", { error: String(error) })
         );
@@ -480,57 +480,62 @@ export class RuntimeCore {
       event,
       contextPolicy: { includeHistory: true, maxMessages: 20 }
     };
+    const normalized = {
+      id: event.id,
+      sessionId: session.id,
+      workspaceId,
+      targetLineId: lineId,
+      platform: "native",
+      provider: "native",
+      channelId: "native",
+      conversationType: "private",
+      conversationId: event.conversation.id,
+      sourceEventId: event.id,
+      sourceEventType: event.eventType,
+      senderId: event.sender.id,
+      text: input.text,
+      message: event.message!,
+      receivedAt: event.receivedAt,
+      idempotencyKey: event.id,
+      lineEventType: "user_message" as const
+    };
+    const referenceAssets = (acceptedIntent: { runId: string }) => {
+      for (const attachment of input.attachments ?? [])
+        this.#resources!.assets.index.reference({
+          workspaceId,
+          assetId: attachment.assetId,
+          versionId: attachment.versionId,
+          refType: "run",
+          refId: acceptedIntent.runId
+        });
+    };
+    const replay = this.#execution!.inputRun(normalized.idempotencyKey);
+    if (replay) {
+      this.#execution!.acceptSupplement(replay.id, normalized, referenceAssets);
+      return replay;
+    }
     const active = this.#execution!.activeForSession(session.id, request.userId);
     if (active && active.payload.request.lineId === lineId && active.payload.event.id !== event.id) {
-      this.#execution!.enqueueInput(
-        active.runId,
-        event.id,
-        input.text + (input.attachments?.length ? `\n附件引用：${JSON.stringify(input.attachments)}` : "")
-      );
+      this.#execution!.acceptSupplement(active.runId, normalized, referenceAssets);
       return this.#runs.get(active.runId)!;
     }
-    const grant = this.#execution!.issueGrant({
-      key: event.id,
-      workspaceId,
-      principalId: request.userId,
-      sessionId: session.id,
-      source: request.source
-    });
     const { intent } = this.#execution!.acceptInput(
-      {
-        id: event.id,
-        sessionId: session.id,
-        workspaceId,
-        targetLineId: lineId,
-        platform: "native",
-        provider: "native",
-        channelId: "native",
-        conversationType: "private",
-        conversationId: event.conversation.id,
-        sourceEventId: event.id,
-        sourceEventType: event.eventType,
-        senderId: event.sender.id,
-        text: input.text,
-        message: event.message!,
-        receivedAt: event.receivedAt,
-        idempotencyKey: event.id,
-        lineEventType: "user_message"
+      normalized,
+      (accepted) => {
+        const grant = this.#execution!.issueGrant({
+          key: event.id,
+          workspaceId,
+          principalId: request.userId,
+          sessionId: session.id,
+          source: request.source
+        });
+        return {
+          key: event.id,
+          grantId: grant.id,
+          payload: { request, event, scope: { provider: "native", accepted: { ...accepted, created: true } } }
+        };
       },
-      (accepted) => ({
-        key: event.id,
-        grantId: grant.id,
-        payload: { request, event, scope: { provider: "native", accepted: { ...accepted, created: true } } }
-      }),
-      (acceptedIntent) => {
-        for (const attachment of input.attachments ?? [])
-          this.#resources!.assets.index.reference({
-            workspaceId,
-            assetId: attachment.assetId,
-            versionId: attachment.versionId,
-            refType: "run",
-            refId: acceptedIntent.runId
-          });
-      }
+      referenceAssets
     );
     void this.#dispatchIntent(intent).catch((error) =>
       this.#logger?.warn("Accepted native execution remains queued", { error: String(error) })
@@ -578,28 +583,38 @@ export class RuntimeCore {
       userId: actor.identity.id,
       source: { ...decision.request.source, provider }
     };
-    const active = execution.activeForSession(sessionId, actor.identity.id);
-    if (active && active.payload.event.id !== enriched.id && !targetLineId) {
-      execution.enqueueInput(active.runId, sourceId, `${enriched.sender.id}: ${getText(enriched.message)}`);
+    const input = this.#normalizedInput(enriched, provider, targetLineId, workspace.id);
+    const replay = execution.inputRun(input.idempotencyKey);
+    if (replay) {
+      execution.acceptSupplement(replay.id, { ...input, ...(replay.lineId ? { targetLineId: replay.lineId } : {}) });
       return;
     }
-    const grant = execution.issueGrant({
-      key: sourceId,
-      workspaceId: workspace.id,
-      principalId: actor.identity.id,
-      sessionId,
-      source: request.source
+    const active = execution.activeForSession(sessionId, actor.identity.id);
+    if (active && active.payload.event.id !== enriched.id && !targetLineId) {
+      execution.acceptSupplement(active.runId, {
+        ...input,
+        targetLineId: active.payload.scope!.accepted.lineEvent.lineId
+      });
+      return;
+    }
+    const { intent } = execution.acceptInput(input, (accepted) => {
+      const grant = execution.issueGrant({
+        key: sourceId,
+        workspaceId: workspace.id,
+        principalId: actor.identity.id,
+        sessionId,
+        source: request.source
+      });
+      return {
+        key: sourceId,
+        grantId: grant.id,
+        payload: {
+          request,
+          event: { ...enriched, raw: undefined },
+          scope: { provider, accepted: { ...accepted, created: true } }
+        }
+      };
     });
-    const input = this.#normalizedInput(enriched, provider, targetLineId, workspace.id);
-    const { intent } = execution.acceptInput(input, (accepted) => ({
-      key: sourceId,
-      grantId: grant.id,
-      payload: {
-        request,
-        event: { ...enriched, raw: undefined },
-        scope: { provider, accepted: { ...accepted, created: true } }
-      }
-    }));
     await this.#dispatchIntent(intent);
   }
 

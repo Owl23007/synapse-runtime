@@ -199,7 +199,31 @@ export class SqliteRuntimeContextStore
         this.#db,
         this.runs,
         options.autonomy,
-        (input) => this.#conversation.acceptNormalizedEventSync(input),
+        (input) => {
+          const accepted = this.#conversation.acceptNormalizedEventSync(input);
+          const event = accepted.event;
+          if (accepted.lineEvent.type === "user_message")
+            this.#appendTranscriptSync({
+              sessionId: event.sessionId,
+              lineId: event.lineId,
+              normalizedEventId: event.id,
+              lineEventId: event.lineEventId,
+              platform: event.platform,
+              provider: event.provider,
+              channelId: event.channelId,
+              conversationType: event.conversationType as TranscriptAppendInput["conversationType"],
+              conversationId: event.conversationId,
+              sourceEventId: event.sourceEventId,
+              role: "user",
+              actorId: event.senderId,
+              text: event.text,
+              ...(event.message ? { message: event.message } : {}),
+              eventType: event.sourceEventType,
+              idempotencyKey: event.idempotencyKey,
+              createdAt: event.receivedAt
+            });
+          return accepted;
+        },
         this.#traceSecrets,
         (id) => this.#conversation.readAcceptedEvent(id)
       );
@@ -523,6 +547,10 @@ export class SqliteRuntimeContextStore
   }
 
   async append(input: TranscriptAppendInput): Promise<TranscriptMessage> {
+    return this.#appendTranscriptSync(input);
+  }
+
+  #appendTranscriptSync(input: TranscriptAppendInput): TranscriptMessage {
     const transaction = this.#db.transaction(() => {
       if (input.idempotencyKey !== undefined) {
         const idempotent = this.#db

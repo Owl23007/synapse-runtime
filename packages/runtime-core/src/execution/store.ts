@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import type { AgentRequest } from "@synapse/runtime-conversation";
 import { getTextContent, textMessage, type SynapseChannelEvent } from "@synapse/runtime-protocol";
 import { AutonomySettingsSchema, type AutonomySettings } from "../config.js";
-import type { RunTraceStore } from "../trace/types.js";
+import type { RunTraceStore, RunTrace } from "../trace/types.js";
 import type { ExecutionGrant, ExecutionIntent, OutputIntent, Schedule, ScheduleRule, Task } from "./types.js";
 import { EXECUTION_SCHEMA_SQL } from "./schema.js";
 import { nextScheduleTime } from "./time.js";
@@ -64,10 +64,15 @@ export class ExecutionStore {
       if (
         existing &&
         (db.prepare("SELECT version FROM execution_schema").all() as { version: number }[]).some(
-          (row) => row.version !== 1
+          (row) => ![1, 2].includes(row.version)
         )
       )
         throw new Error("Unsupported execution schema");
+      if (existing && (db.prepare("SELECT version FROM execution_schema").get() as { version: number }).version === 1) {
+        db.exec(
+          "ALTER TABLE execution_intents ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0; DROP TABLE execution_schema"
+        );
+      }
       db.exec(EXECUTION_SCHEMA_SQL);
       const oldBindings = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'session_workspaces'").get();
       if (oldBindings) {
@@ -110,12 +115,66 @@ export class ExecutionStore {
         this.checkRecord(input.message ?? textMessage(input.text));
         const accepted = this.acceptEvent!(input);
         const intent = this.accept(build(accepted));
+        this.db
+          .prepare("INSERT OR IGNORE INTO execution_input_receipts VALUES (?, ?)")
+          .run(accepted.event.id, intent.runId);
+        if (this.inputRun(input.idempotencyKey)?.id !== intent.runId) throw new Error("Input run identity conflict");
         const projection: unknown = afterAccept?.(intent);
         if (projection && typeof (projection as PromiseLike<unknown>).then === "function")
           throw new Error("Input projections must be synchronous");
         return { accepted, intent };
       })
       .immediate();
+  }
+
+  /** 补充消息先成为规范事实，再在同一事务关联 Inbox 和附件，重投仍返回原 Run */
+  acceptSupplement(
+    runId: string,
+    input: AcceptNormalizedEventInput,
+    afterAccept?: (receipt: { runId: string }) => void
+  ): RunTrace {
+    if (!this.acceptEvent) throw new Error("Atomic input store required");
+    return this.db
+      .transaction(() => {
+        this.assertCapacity();
+        this.checkRecord(input.message ?? textMessage(input.text));
+        const accepted = this.acceptEvent!(input);
+        const previous = this.inputRun(input.idempotencyKey);
+        if (previous && previous.id !== runId) throw new Error("Supplement already belongs to another run");
+        const run = previous ?? this.runs.get(runId);
+        const intent = this.forRun(runId);
+        if (
+          !run ||
+          input.sessionId !== run.sessionId ||
+          input.workspaceId !== run.workspaceId ||
+          accepted.event.lineId !== run.lineId
+        )
+          throw new Error("Supplement scope mismatch");
+        if (!previous) {
+          if (!intent) throw new Error("Execution intent missing");
+          this.validateIntent(intent);
+          const grant = this.authorize(intent.grantId);
+          const assets = accepted.event.message?.assets;
+          const content = `${grant.source.conversationKind === "group" ? `${accepted.event.senderId}: ` : ""}${accepted.event.text}${assets?.length ? `\n附件引用：${JSON.stringify(assets)}` : ""}`;
+          this.enqueueInput(runId, accepted.event.id, content);
+          this.db.prepare("INSERT INTO execution_input_receipts VALUES (?, ?)").run(accepted.event.id, runId);
+        }
+        const projection: unknown = afterAccept?.({ runId });
+        if (projection && typeof (projection as PromiseLike<unknown>).then === "function")
+          throw new Error("Input projections must be synchronous");
+        return run;
+      })
+      .immediate();
+  }
+
+  /** 精确定位规范补充消息所属的运行，完成后的重投也不创建新执行 */
+  inputRun(inputKey: string): RunTrace | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT i.run_id FROM execution_input_receipts i JOIN normalized_events e ON e.id = i.event_id WHERE e.idempotency_key = ?"
+      )
+      .get(inputKey) as { run_id: string } | undefined;
+    return row ? this.runs.get(row.run_id) : undefined;
   }
 
   /** 接受新工作前预留收尾空间，满额时拒绝增长并保留未决回执 */
@@ -336,6 +395,22 @@ export class ExecutionStore {
       this.db
         .prepare("SELECT id FROM execution_intents WHERE state = 'queued' ORDER BY ordinal LIMIT ?")
         .all(limit) as { id: string }[]
+    ).map((row) => this.getIntent(row.id)!);
+  }
+
+  /** 每个空闲目标只提出最早候选，阻塞目标不占用其他目标的调度名额 */
+  runnable(limit: number, now = Date.now()): readonly ExecutionIntent[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("Invalid intent page");
+    return (
+      this.db
+        .prepare(`SELECT i.id FROM execution_intents i
+      WHERE i.state = 'queued' AND i.next_attempt_at <= ? AND (
+        i.task_id IS NULL OR (
+          NOT EXISTS (SELECT 1 FROM execution_intents running WHERE running.task_id = i.task_id AND running.state = 'claimed')
+          AND NOT EXISTS (SELECT 1 FROM execution_intents earlier WHERE earlier.task_id = i.task_id AND earlier.state = 'queued' AND earlier.next_attempt_at <= ? AND earlier.ordinal < i.ordinal)
+        )
+      ) ORDER BY i.ordinal LIMIT ?`)
+        .all(now, now, limit) as { id: string }[]
     ).map((row) => this.getIntent(row.id)!);
   }
 
@@ -1065,16 +1140,17 @@ export class ExecutionStore {
     this.checkText(content);
     const intent = this.forRun(runId);
     if (!intent || !["queued", "claimed"].includes(intent.state)) throw new Error("Run is not accepting input");
-    const count = this.db.prepare("SELECT count(*) AS count FROM execution_inbox WHERE run_id = ?").get(runId) as {
-      count: number;
-    };
-    if (count.count >= 64) throw new Error("Inbox quota exhausted");
     const prior = this.db
       .prepare("SELECT content FROM execution_inbox WHERE run_id = ? AND event_key = ?")
       .get(runId, eventKey) as { content: string } | undefined;
     if (prior && prior.content !== content) throw new Error("Inbox identity conflict");
+    if (prior) return;
+    const count = this.db.prepare("SELECT count(*) AS count FROM execution_inbox WHERE run_id = ?").get(runId) as {
+      count: number;
+    };
+    if (count.count >= 64) throw new Error("Inbox quota exhausted");
     this.db
-      .prepare("INSERT OR IGNORE INTO execution_inbox(run_id,event_key,content,created_at) VALUES (?, ?, ?, ?)")
+      .prepare("INSERT INTO execution_inbox(run_id,event_key,content,created_at) VALUES (?, ?, ?, ?)")
       .run(runId, eventKey, content, Date.now());
   }
 
