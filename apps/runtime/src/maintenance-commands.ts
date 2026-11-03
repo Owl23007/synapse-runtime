@@ -9,6 +9,7 @@ export async function runMaintenanceCommand(args: readonly string[]): Promise<un
     strict: true,
     options: {
       "data-dir": { type: "string" },
+      "skills-dir": { type: "string" },
       output: { type: "string" },
       backup: { type: "string" },
       help: { type: "boolean" }
@@ -17,16 +18,20 @@ export async function runMaintenanceCommand(args: readonly string[]): Promise<un
   if (values.help)
     return {
       usage: [
-        "synapse-maintenance backup --data-dir <已停止的运行目录> --output <全新备份目录>",
+        "synapse-maintenance backup --data-dir <已停止的运行目录> [--skills-dir <Skill 存储目录>] --output <全新备份目录>",
         "synapse-maintenance verify --backup <备份目录>",
-        "synapse-maintenance restore --backup <备份目录> --data-dir <全新运行目录>"
+        "synapse-maintenance restore --backup <备份目录> --data-dir <全新运行目录> [--skills-dir <全新 Skill 目录>]"
       ]
     };
   const command = positionals[0];
   if (positionals.length !== 1 || !["backup", "verify", "restore"].includes(command ?? ""))
     throw new Error("请指定 backup、verify 或 restore，使用 --help 查看参数");
   const allowed =
-    command === "backup" ? ["data-dir", "output"] : command === "restore" ? ["backup", "data-dir"] : ["backup"];
+    command === "backup"
+      ? ["data-dir", "skills-dir", "output"]
+      : command === "restore"
+        ? ["backup", "data-dir", "skills-dir"]
+        : ["backup"];
   for (const key of Object.keys(values)) if (!allowed.includes(key)) throw new Error(`该命令不接受 --${key}`);
   const required = (key: "data-dir" | "output" | "backup"): string => {
     const value = values[key];
@@ -35,9 +40,17 @@ export async function runMaintenanceCommand(args: readonly string[]): Promise<un
   };
   const manifest =
     command === "backup"
-      ? await backupRuntimeData({ dataDir: required("data-dir"), destination: required("output") })
+      ? await backupRuntimeData({
+          dataDir: required("data-dir"),
+          destination: required("output"),
+          ...(values["skills-dir"] ? { skillsDirectory: values["skills-dir"] } : {})
+        })
       : command === "restore"
-        ? await restoreRuntimeData({ backupDir: required("backup"), dataDir: required("data-dir") })
+        ? await restoreRuntimeData({
+            backupDir: required("backup"),
+            dataDir: required("data-dir"),
+            ...(values["skills-dir"] ? { skillsDirectory: values["skills-dir"] } : {})
+          })
         : await verifyRuntimeBackup(required("backup"));
   return {
     ok: true,
