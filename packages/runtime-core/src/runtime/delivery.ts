@@ -21,7 +21,7 @@ import {
 } from "../context.js";
 import type { ResponsePolicy } from "../output/index.js";
 import type { RunRecorder } from "../trace/recorder.js";
-import { compactGraphToolResult, recordPayload, stringifyAgentOutput } from "./event-records.js";
+import { stringifyAgentOutput } from "./event-records.js";
 import { withAbort } from "./execution-budget.js";
 import {
   channelSendPermission,
@@ -30,8 +30,9 @@ import {
   targetFromEvent,
   withReplyContext
 } from "./message-utils.js";
-import type { RunContextGraph } from "./run-context-graph.js";
 import type { RuntimeCoreLogger, RuntimeCoreOptions, RuntimeTrace } from "./types.js";
+import type { ExecutionIntent } from "../execution/types.js";
+import type { ExecutionStore } from "../execution/store.js";
 
 interface DeliveryOptions {
   readonly agentId: string;
@@ -42,7 +43,6 @@ interface DeliveryOptions {
   readonly transcriptStore: TranscriptStore;
   readonly contextEnabled: boolean;
   readonly responsePolicy: ResponsePolicy;
-  readonly runGraph: RunContextGraph | undefined;
   readonly logger: RuntimeCoreLogger | undefined;
   readonly recorders: ReadonlyMap<string, RunRecorder>;
   readonly controllers: ReadonlyMap<string, AbortController>;
@@ -57,6 +57,96 @@ interface DeliveryOptions {
 export class RuntimeDelivery {
   /** 只依赖领域能力和应用注入的交付端口 */
   constructor(private readonly options: DeliveryOptions) {}
+
+  /** 后台结果使用授权中的固定目标，操作回执先于终态，未知发送不会自动重试 */
+  async sendIntent(
+    intent: ExecutionIntent,
+    message: SynapseMessage,
+    store: ExecutionStore,
+    signal: AbortSignal
+  ): Promise<void> {
+    store.validateIntent(intent);
+    const grant = store.authorize(intent.grantId);
+    const recorder = this.options.recorders.get(intent.runId);
+    const id = `delivery:${intent.id}`;
+    const previous = store.operation(id);
+    if (previous?.state === "succeeded") {
+      recorder?.emit("response_sent", previous.result);
+      return;
+    }
+    if (previous && !(previous.state === "started" && previous.effect !== "external")) {
+      recorder?.fail("uncertain", "delivery_reconciliation_required", "先核对已有交付操作，未重新发送");
+      return;
+    }
+    const event = intent.payload.event;
+    const target = targetFromEvent(event);
+    if (event.platform !== "native") {
+      const permission = await this.options.tools.decidePermission({
+        action: channelSendPermission(event.platform, target),
+        resource: `${event.platform}:${grant.source.channelId}:${grant.source.conversationId}`,
+        subject: grant.principalId
+      });
+      if (permission.decision !== "allow") {
+        recorder?.fail("blocked", "notification_denied", permission.reason ?? "通知未授权");
+        return;
+      }
+    }
+    signal.throwIfAborted();
+    store.validateIntent(intent);
+    if (event.platform === "native") {
+      if (!grant.sessionId) throw new Error("Native notification requires an authorized session");
+      const session = await this.options.conversationStore.getSession(grant.sessionId);
+      if (!session || session.workspaceId !== grant.workspaceId) throw new Error("Notification session scope invalid");
+      await this.options.conversationStore.appendEvent(session.mainlineId, {
+        type: "assistant_message",
+        idempotencyKey: id,
+        actorId: this.options.agentId,
+        correlationId: intent.runId,
+        payload: { message, text: getText(message), runId: intent.runId }
+      });
+      store.startOperation(intent.runId, id, "delivery", message, "transactional");
+      store.receipt(id, "succeeded", { destination: "native" });
+      recorder?.emit("response_sent", { destination: "native" });
+      return;
+    }
+    const channel = this.options.channels.get(grant.source.channelId);
+    if (!channel) throw new Error("Authorized channel unavailable");
+    // 自主通知首版只接受文本，工件需要走当前交互的受控选择和交付链路
+    if (message.segments.some((segment) => segment.type !== "text"))
+      throw new Error("Autonomous notification supports text only");
+    store.startOperation(intent.runId, id, "delivery", message);
+    recorder?.emit("response_sending", { target, output: message });
+    try {
+      const operation = executeChannelAction(
+        channel,
+        messageSendAction({
+          actionId: id,
+          channelId: grant.source.channelId,
+          target,
+          message,
+          conversation: event.conversation,
+          idempotencyKey: id
+        })
+      );
+      const receipt = await withAbort(operation, signal);
+      store.receipt(
+        id,
+        receipt.status === "succeeded" ? "succeeded" : receipt.status === "uncertain" ? "uncertain" : "failed",
+        receipt
+      );
+      recorder?.emit(
+        receipt.status === "succeeded"
+          ? "response_sent"
+          : receipt.status === "uncertain"
+            ? "response_send_uncertain"
+            : "response_send_failed",
+        receipt
+      );
+    } catch (error) {
+      store.receipt(id, "uncertain", { message: "发送结果未确认" });
+      recorder?.emit("response_send_uncertain", { message: String(error) });
+    }
+  }
   /** 仅依据持久成功事实判断是否已交付 */
   async findSuccessfulDelivery(
     conversation: AcceptedNormalizedEvent,
@@ -84,39 +174,6 @@ export class RuntimeDelivery {
       this.options.controllers.get(input.runId) ?? this.options.controllers.get(`event:${input.conversation.event.id}`)
     )?.signal;
     signal?.throwIfAborted();
-    if (this.options.runGraph !== undefined) {
-      const results = await this.options.conversationStore.listEvents(input.conversation.lineEvent.lineId, {
-        types: ["tool_result"]
-      });
-      for (const result of results) {
-        if (result.sourceEventId !== input.conversation.lineEvent.id) continue;
-        const payload = recordPayload(result);
-        if (typeof payload?.callId !== "string") continue;
-        this.options.runGraph.record(
-          input.conversation.session.id,
-          input.conversation.lineEvent.id,
-          `graph-tool:${payload.callId}`,
-          "tool_result",
-          {
-            name: payload.name,
-            callId: payload.callId,
-            ...compactGraphToolResult(payload)
-          }
-        );
-      }
-    }
-    const publishedCommit = this.options.runGraph?.finish(
-      input.conversation.session.id,
-      input.conversation.lineEvent.lineId,
-      input.conversation.lineEvent.id,
-      getText(input.output)
-    );
-    this.options.recorders.get(input.runId)?.emit("context_committed", {
-      sessionId: input.conversation.session.id,
-      ...(publishedCommit === undefined ? {} : { commitId: publishedCommit.id, parents: publishedCommit.parents }),
-      refName: `run:${input.conversation.lineEvent.id}`,
-      lineRef: `line:${input.conversation.lineEvent.lineId}`
-    });
     const channel = this.options.channels.get(input.event.channelId);
     const selectedOutput = this.options.selectMessage?.(input.conversation.session.id, input.output) ?? input.output;
     if (input.workspace)
@@ -170,10 +227,6 @@ export class RuntimeDelivery {
         });
       this.options.traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
       return;
-    }
-
-    if (input.conversation.lineEvent.lineId !== input.conversation.mainline.id) {
-      await this.#publishBranchOutput(input.conversation, assistantEvent, output);
     }
 
     const target = targetFromEvent(input.event);
@@ -411,35 +464,6 @@ export class RuntimeDelivery {
     }
 
     this.options.traces.push({ eventId: input.event.id, status: "succeeded", runId: input.runId });
-  }
-
-  /**
-   * 分支只提供隔离上下文，必须先发布结构化结果到主线再交付
-   * 两次写入沿用事件级幂等键，恢复可以补齐投影而不重复发布
-   */
-  async #publishBranchOutput(
-    conversation: AcceptedNormalizedEvent,
-    assistantEvent: LineEvent,
-    output: SynapseMessage
-  ): Promise<void> {
-    const branchId = conversation.lineEvent.lineId;
-    const result = await this.options.conversationStore.createBranchResult(branchId, {
-      status: "completed",
-      summary: getText(output).trim() || "Assistant response.",
-      artifacts: [
-        {
-          kind: "assistant_output",
-          message: output,
-          text: getText(output)
-        }
-      ],
-      sourceEventId: assistantEvent.id,
-      idempotencyKey: `runtime:branch-output:${conversation.event.id}`
-    });
-    await this.options.conversationStore.publishBranchResult(branchId, conversation.mainline.id, {
-      resultId: result.id,
-      idempotencyKey: `runtime:branch-output:${conversation.event.id}:publish`
-    });
   }
 
   /** 保留 Line 交付事实先于 Run 投影的持久顺序 */

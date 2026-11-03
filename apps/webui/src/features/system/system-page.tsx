@@ -27,7 +27,9 @@ export function System({
   const runtime = record(status.runtime);
   const execution = record(runtime.execution);
   const channels = Array.isArray(status.channels) ? status.channels.map(record) : [];
-  const tasks = Array.isArray(data.value?.tasks.tasks) ? data.value.tasks.tasks.map(record) : [];
+  const tasks = Array.isArray(data.value?.tasks.tasks)
+    ? data.value.tasks.tasks.map(record).filter((task) => ["open", "paused"].includes(String(task.status)))
+    : [];
   const act = async (id: string, operation: () => Promise<unknown>, success: string) => {
     setBusy(id);
     try {
@@ -113,23 +115,19 @@ export function System({
                 tasks.map((task) => (
                   <div className="system-row" key={String(task.id)}>
                     <div>
-                      <strong>{String(task.executor ?? task.id)}</strong>
+                      <strong>{String(task.goal ?? task.id)}</strong>
                       <small>
                         {String(task.status)} · {String(task.id)}
                       </small>
                     </div>
-                    {typeof task.sessionId === "string" && (
-                      <a
-                        className="button"
-                        href={`#/workspace?session=${encodeURIComponent(task.sessionId)}&line=${encodeURIComponent(String(task.branchId ?? ""))}`}
-                      >
-                        打开分支 ↗
-                      </a>
-                    )}
                     <button
                       disabled={!!busy}
                       onClick={() =>
-                        void act(String(task.id), () => client.cancelTask(String(task.id)), "已请求取消任务")
+                        void act(
+                          String(task.id),
+                          () => client.cancelTask(String(task.id), Number(task.revision)),
+                          "已取消目标"
+                        )
                       }
                     >
                       取消任务

@@ -5,6 +5,7 @@ import {
   agentLoopConfig,
   conversationConfig,
   contextConfig,
+  autonomyConfig,
   filesConfig,
   capabilitiesConfig,
   mcpConfig,
@@ -74,6 +75,7 @@ export function createApplicationConfigManager(sources: readonly ConfigSource[])
   manager.register(agentConfig);
   manager.register(conversationConfig);
   manager.register(contextConfig);
+  manager.register(autonomyConfig);
   manager.register(filesConfig);
   manager.register(capabilitiesConfig);
   manager.register(mcpConfig);
@@ -98,6 +100,7 @@ export function readApplicationConfig(manager: ConfigManager): RuntimeConfig {
     agent: manager.get(agentConfig),
     conversation: manager.get(conversationConfig),
     context: manager.get(contextConfig),
+    autonomy: manager.get(autonomyConfig),
     files: manager.get(filesConfig),
     capabilities: manager.get(capabilitiesConfig),
     mcp: manager.get(mcpConfig),

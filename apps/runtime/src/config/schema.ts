@@ -14,6 +14,7 @@ export const RuntimeConfigSchema = z
     server: schemas.ServerSettingsSchema.prefault({}),
     admin: schemas.AdminSettingsSchema.prefault({}),
     context: schemas.RuntimeContextSettingsSchema.prefault({}),
+    autonomy: schemas.AutonomySettingsSchema.prefault({}),
     locale: schemas.LocaleSettingsSchema.prefault({}),
     prompts: schemas.PromptBundleSettingsSchema.prefault({}),
     presentation: schemas.PresentationSettingsSchema.prefault({}),

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AcceptNormalizedEventInput, ConversationStore } from "../../src/conversation/types.js";
+import type { AcceptNormalizedEventInput } from "../../src/conversation/types.js";
+import type { ConversationStore } from "../../src/conversation/store.js";
 
 /** 会话存储契约测试的资源所有者 */
 export interface ConversationStoreContractHarness {
@@ -99,46 +100,13 @@ export function registerConversationStoreContract(name: string, createHarness: C
         idempotencyKey: "tool-result-1",
         payload: { raw: "large intermediate output" }
       });
-      const task = await store.createTask(branch.id, {
-        executor: "repository-analyzer",
-        input: { path: "src/parser.ts" },
-        sourceEventId: toolEvent.id,
-        idempotencyKey: "task-request-1"
-      });
-      await store.transitionTask(task.id, {
-        status: "running",
-        idempotencyKey: "task-running-1"
-      });
-      await store.transitionTask(task.id, {
-        status: "completed",
-        output: { bottleneck: "buffer concatenation" },
-        artifacts: [{ path: "report.md" }],
-        idempotencyKey: "task-completed-1"
-      });
       const result = await store.createBranchResult(branch.id, {
         status: "completed",
         summary: "Repeated buffer concatenation is the bottleneck.",
         artifacts: [{ path: "report.md" }],
         citations: [{ eventId: toolEvent.id }],
         nextActions: ["Use segmented buffers"],
-        sourceTaskIds: [task.id],
         idempotencyKey: "result-1"
-      });
-      const resultNodes = await store.listNodes(branch.id, { kinds: ["task_result"] });
-      expect(resultNodes).toContainEqual(
-        expect.objectContaining({
-          sourceEventIds: [expect.any(String)],
-          sourceTaskIds: [task.id],
-          sourceResultIds: [result.id]
-        })
-      );
-      expect(await store.reconstructLineState(branch.id)).toMatchObject({
-        state: {
-          latestResult: {
-            id: result.id,
-            summary: "Repeated buffer concatenation is the bottleneck."
-          }
-        }
       });
 
       const branchEventsBeforeMerge = await store.listEvents(branch.id);
@@ -149,7 +117,7 @@ export function registerConversationStoreContract(name: string, createHarness: C
       const firstMerge = await store.publishBranchResult(branch.id, accepted.mainline.id, {
         resultId: result.id
       });
-      const duplicateMerge = await store.mergeBranchResult(branch.id, accepted.mainline.id, {
+      const duplicateMerge = await store.publishBranchResult(branch.id, accepted.mainline.id, {
         resultId: result.id
       });
       const mainlineEvents = await store.listEvents(accepted.mainline.id);
@@ -169,120 +137,77 @@ export function registerConversationStoreContract(name: string, createHarness: C
         status: "active",
         mergedAt: expect.any(String)
       });
-      await expect(
-        store.createTask(branch.id, {
-          executor: "repository-analyzer",
-          input: { path: "src/parser.ts", focus: "validate the proposed fix" },
-          idempotencyKey: "task-follow-up-after-publication"
-        })
-      ).resolves.toMatchObject({ status: "pending", branchId: branch.id });
       expect((await store.getBranchContext(branch.id)).events).toEqual(await store.listEvents(branch.id));
     });
 
-    it("恢复未完成工作并将任务追溯至分支来源与会话", async () => {
+    it("恢复交互分支并按事件因果关系追溯来源", async () => {
       const { store } = harness;
       const accepted = await store.acceptNormalizedEvent(normalizedInput());
       const branch = await store.createBranch({
         sessionId: accepted.session.id,
         sourceEventId: accepted.lineEvent.id,
-        title: "Background search",
+        title: "Research",
         goal: "Collect references",
-        reason: "Can run independently",
+        reason: "explicit fork",
         createdBy: "user",
-        idempotencyKey: "branch-request-2"
+        idempotencyKey: "trace-branch"
       });
-      await store.transitionBranch(branch.id, {
-        status: "active",
-        idempotencyKey: "branch-active-2"
+      const evidence = await store.appendEvent(branch.id, {
+        type: "tool_result",
+        idempotencyKey: "evidence",
+        sourceEventId: accepted.lineEvent.id,
+        payload: { receipt: "confirmed" }
       });
-      const task = await store.createTask(branch.id, {
-        executor: "search",
-        input: { query: "append-only event streams" },
-        idempotencyKey: "task-request-2"
-      });
-      await store.transitionTask(task.id, {
-        status: "running",
-        idempotencyKey: "task-running-2"
-      });
-
       const recovery = await store.getRecoveryState(accepted.session.id);
-      const trace = await store.getTaskTrace(task.id);
-
       expect(recovery.activeBranches.map((item) => item.id)).toEqual([branch.id]);
-      expect(recovery.unfinishedTasks.map((item) => item.id)).toEqual([task.id]);
-      expect(trace).toMatchObject({
-        task: { id: task.id },
+      expect(await store.getEventTrace(evidence.id)).toMatchObject({
+        event: { id: evidence.id },
         branch: { id: branch.id },
-        mainline: { id: accepted.mainline.id },
         session: { id: accepted.session.id },
-        branchSourceEvent: { id: accepted.lineEvent.id }
+        sourceEvent: { id: accepted.lineEvent.id }
       });
     });
 
-    it("写入结果前要求引用任务存在并保持分支生命周期独立", async () => {
+    it("结果来源必须属于当前分支，拒绝写入不留下事件", async () => {
       const { store } = harness;
       const accepted = await store.acceptNormalizedEvent(normalizedInput());
       const branch = await store.createBranch({
         sessionId: accepted.session.id,
         sourceEventId: accepted.lineEvent.id,
-        title: "Guard task ownership",
-        goal: "Keep unfinished work isolated",
-        reason: "Exercise task lifecycle guards",
-        createdBy: "agent",
-        idempotencyKey: "branch-task-guards"
+        title: "Research",
+        goal: "Collect references",
+        reason: "explicit fork",
+        createdBy: "user",
+        idempotencyKey: "ownership-branch"
       });
-      await store.transitionBranch(branch.id, {
-        status: "active",
-        idempotencyKey: "branch-task-guards-active"
-      });
-      const task = await store.createTask(branch.id, {
-        executor: "repository-analyzer",
-        input: { path: "packages/runtime-core" },
-        idempotencyKey: "task-guards-create"
-      });
-      const eventsBeforeRejectedWrites = await store.listEvents(branch.id);
-
+      const before = await store.listEvents(branch.id);
       await expect(
         store.createBranchResult(branch.id, {
           status: "completed",
-          summary: "This result is premature.",
-          sourceTaskIds: [task.id],
-          idempotencyKey: "result-guards-premature"
-        })
-      ).rejects.toMatchObject({ code: "invalid_state_transition" });
-      await expect(
-        store.transitionBranch(branch.id, {
-          status: "completed",
-          idempotencyKey: "branch-task-guards-premature-complete"
-        })
-      ).rejects.toMatchObject({ code: "invalid_state_transition" });
-      await expect(
-        store.appendEvent(accepted.mainline.id, {
-          type: "tool_result",
-          taskId: task.id,
-          idempotencyKey: "mainline-task-event-rejected",
-          payload: { output: "must stay on the branch" }
+          summary: "premature",
+          sourceEventId: accepted.lineEvent.id,
+          idempotencyKey: "invalid-result"
         })
       ).rejects.toMatchObject({ code: "ownership_mismatch" });
-
-      expect(await store.listEvents(branch.id)).toEqual(eventsBeforeRejectedWrites);
-      expect(await store.listEvents(accepted.mainline.id)).toEqual([accepted.lineEvent]);
-      await expect(store.getBranch(branch.id)).resolves.toMatchObject({ status: "active" });
-      await expect(store.getTask(task.id)).resolves.toMatchObject({ status: "pending" });
-
-      await store.transitionTask(task.id, {
-        status: "cancelled",
-        idempotencyKey: "task-guards-cancel"
+      expect(await store.listEvents(branch.id)).toEqual(before);
+      expect(await store.listBranchResults(branch.id)).toEqual([]);
+      const evidence = await store.appendEvent(branch.id, {
+        type: "tool_result",
+        payload: { confirmed: true },
+        idempotencyKey: "owned-evidence"
       });
-      await expect(
-        store.createBranchResult(branch.id, {
-          status: "completed",
-          summary: "All branch tasks are now terminal.",
-          sourceTaskIds: [task.id],
-          idempotencyKey: "result-guards-completed"
-        })
-      ).resolves.toMatchObject({ version: 1, status: "completed" });
-      await expect(store.getBranch(branch.id)).resolves.toMatchObject({ status: "active" });
+      const input = {
+        status: "completed" as const,
+        summary: "confirmed",
+        sourceEventId: evidence.id,
+        idempotencyKey: "owned-result"
+      };
+      const result = await store.createBranchResult(branch.id, input);
+      expect(await store.createBranchResult(branch.id, input)).toEqual(result);
+      await expect(store.createBranchResult(branch.id, { ...input, summary: "changed" })).rejects.toMatchObject({
+        code: "idempotency_conflict"
+      });
+      expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
     });
 
     it("独立恢复并发布各个已完成分支结果", async () => {
@@ -329,7 +254,6 @@ export function registerConversationStoreContract(name: string, createHarness: C
       ).resolves.toMatchObject({ resultId: latestResult.id });
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
       expect(await store.getBranch(branch.id)).toMatchObject({ status: "created" });
-      expect(await store.listNodes(branch.id, { kinds: ["task_result"] })).toHaveLength(2);
     });
 
     it("发布失败与取消结果且不关闭分支", async () => {
@@ -396,11 +320,11 @@ export function registerConversationStoreContract(name: string, createHarness: C
       });
 
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([result]);
-      const merge = await store.mergeBranchResult(branch.id, accepted.mainline.id, {
+      const merge = await store.publishBranchResult(branch.id, accepted.mainline.id, {
         resultId: result.id,
         idempotencyKey: "merge-archived-result"
       });
-      expect(await store.mergeBranchResult(branch.id, accepted.mainline.id, { resultId: result.id })).toEqual(merge);
+      expect(await store.publishBranchResult(branch.id, accepted.mainline.id, { resultId: result.id })).toEqual(merge);
       expect((await store.getRecoveryState(accepted.session.id)).unmergedResults).toEqual([]);
       expect(await store.getBranch(branch.id)).toMatchObject({
         status: "archived",

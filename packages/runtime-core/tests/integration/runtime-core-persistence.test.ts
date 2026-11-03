@@ -175,6 +175,9 @@ describe("RuntimeCore SQLite 持久化与重启", () => {
         context: {
           providerByChannelId: { "qq-local": "napcat" },
           transcriptStore: firstStore,
+          conversationStore: firstStore,
+          workspaceStore: firstStore,
+          identityStore: firstStore,
           eventProcessStore: firstStore
         }
       });
@@ -194,6 +197,9 @@ describe("RuntimeCore SQLite 持久化与重启", () => {
         context: {
           providerByChannelId: { "qq-local": "napcat" },
           transcriptStore: secondStore,
+          conversationStore: secondStore,
+          workspaceStore: secondStore,
+          identityStore: secondStore,
           eventProcessStore: secondStore
         }
       });

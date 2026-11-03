@@ -7,39 +7,26 @@ import type {
   AcceptedNormalizedEvent,
   AppendLineEventInput,
   BranchContext,
-  BranchMerge,
+  BranchPublication,
   BranchResult,
   BranchResultTrace,
   ConversationBranch,
-  ConversationContextSnapshot,
   ConversationLine,
-  ConversationLineHead,
   ConversationMainline,
-  ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
-  ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
-  CreateConversationContextSnapshotInput,
-  CreateConversationNodeInput,
   CreateSessionInput,
-  CreateTaskInput,
   EventTrace,
   LineEvent,
   ListBranchesOptions,
-  ListConversationNodesOptions,
   ListLineEventsOptions,
   ListLinesOptions,
-  ListTasksOptions,
-  MergeBranchResultInput,
   NormalizedEvent,
   PublishBranchResultInput,
-  ReconstructedConversationState,
-  TaskTrace,
   TransitionBranchInput,
-  TransitionSessionInput,
-  TransitionTaskInput
+  TransitionSessionInput
 } from "../../conversation/types.js";
 import type { ConversationStore } from "../../conversation/store.js";
 import { eventProcessKey, normalizeMessageId } from "../../context/session.js";
@@ -74,7 +61,7 @@ import type {
 import { SqliteConversationRepository } from "./conversation-store.js";
 import { openRuntimeDatabase, closeRuntimeDatabase } from "./database.js";
 import { SqliteContextGraphRepository } from "./context-graph-store.js";
-import type { ContextGraph } from "../../context-graph/index.js";
+import type { ContextGraph, CommitInput, Commit } from "../../context-graph/index.js";
 import { SqliteRunTraceStore } from "../../trace/sqlite-store.js";
 import type { RunTraceStore, RecoverToolOutput } from "../../trace/types.js";
 import { redactTrace } from "../../trace/redact.js";
@@ -82,6 +69,8 @@ import { acquireDirectoryLease } from "./directory-lease.js";
 import { recoverToolOutputs } from "./recover-tools.js";
 import { SqliteAssetStore } from "./asset-store.js";
 import { SqliteCapabilityStore } from "./capability-store.js";
+import { ExecutionStore } from "../../execution/store.js";
+import type { AutonomySettings } from "../../config.js";
 
 function validateInspectionPage(limit: number, cursor: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(cursor) || cursor < 0)
@@ -92,6 +81,8 @@ function validateInspectionPage(limit: number, cursor: number): void {
  * SQLite 运行时上下文存储配置
  */
 export interface SqliteRuntimeContextStoreOptions {
+  /** 持久执行、数据保留与存储增长上限 */
+  readonly autonomy?: Partial<AutonomySettings>;
   readonly databasePath: string;
   /** 生产实例与离线维护必须独占目录，普通检查连接不获取该锁 */
   readonly exclusiveOwner?: boolean;
@@ -187,6 +178,8 @@ export class SqliteRuntimeContextStore
   readonly assets: SqliteAssetStore;
   /** 安装快照和工作区授权与运行依赖共享事务边界 */
   readonly capabilities: SqliteCapabilityStore;
+  /** 与运行追踪共享连接的持久执行和目标边界 */
+  readonly execution: ExecutionStore;
   readonly #traceSecrets: readonly string[];
   readonly #releaseLease: (() => void) | undefined;
 
@@ -202,6 +195,14 @@ export class SqliteRuntimeContextStore
       this.runs = new SqliteRunTraceStore(this.#db, options.traceSecrets);
       this.assets = new SqliteAssetStore(this.#db);
       this.capabilities = new SqliteCapabilityStore(this.#db);
+      this.execution = new ExecutionStore(
+        this.#db,
+        this.runs,
+        options.autonomy,
+        (input) => this.#conversation.acceptNormalizedEventSync(input),
+        this.#traceSecrets,
+        (id) => this.#conversation.readAcceptedEvent(id)
+      );
     } catch (error) {
       database?.close();
       this.#releaseLease?.();
@@ -212,10 +213,88 @@ export class SqliteRuntimeContextStore
   /** 在接收请求前核对宿主回执并收敛遗留运行，全程不会执行工具 */
   recoverRuns(resolveToolOutput?: RecoverToolOutput): void {
     if (resolveToolOutput !== undefined) recoverToolOutputs(this.#db, this.runs, this.#conversation, resolveToolOutput);
+    this.execution.reconcile();
     this.runs.recover();
+    this.execution.recover();
   }
 
   /** Native 会话显式绑定现有工作区，避免会话 ID 成为另一套资源域 */
+  createNativeSession(input: { id: string; key: string; title: string; workspaceId?: string }): ConversationSession {
+    return this.#db
+      .transaction(() => {
+        this.execution.assertCapacity();
+        const workspaceId = input.workspaceId ?? "personal:runtime-admin";
+        if (input.workspaceId) this.assets.requireWorkspace(workspaceId);
+        else {
+          const now = new Date().toISOString();
+          this.#db
+            .prepare(
+              "INSERT OR IGNORE INTO workspaces(id,type,name,created_at,updated_at) VALUES (?, 'personal', 'Native', ?, ?)"
+            )
+            .run(workspaceId, now, now);
+        }
+        const session = this.#conversation.createSessionSync({
+          id: input.id,
+          workspaceId,
+          locator: {
+            platform: "native",
+            provider: "native",
+            channelId: "native",
+            conversationType: "private",
+            conversationId: input.id
+          },
+          metadata: { title: input.title },
+          idempotencyKey: input.key
+        });
+        this.contextGraph.commit({
+          scopeId: session.id,
+          refName: `line:${session.mainlineId}`,
+          expectedVersion: null,
+          idempotencyKey: `session:${session.id}:root`,
+          type: "session",
+          content: { title: input.title, lineId: session.mainlineId }
+        });
+        return session;
+      })
+      .immediate();
+  }
+
+  /** 上下文融合与呈现投影同事务提交，不再生成第二套语义 Head */
+  commitSnapshot(input: CommitInput): Commit {
+    return this.execution.commitContext(input.scopeId, input.idempotencyKey, () => this.contextGraph.commit(input));
+  }
+
+  /** 上下文融合与呈现投影同事务提交，不再生成第二套语义 Head */
+  commitContextResult(
+    input: CommitInput & { readonly additionalParents: readonly string[] },
+    mainlineId: string,
+    branchId: string,
+    summary: string
+  ): Commit {
+    return this.#db
+      .transaction(() => {
+        this.execution.assertCapacity();
+        if (
+          !this.#db
+            .prepare(
+              "SELECT 1 FROM conversation_lines main JOIN conversation_lines branch ON branch.session_id = main.session_id WHERE main.id = ? AND main.kind = 'mainline' AND branch.id = ? AND branch.kind = 'branch' AND main.session_id = ?"
+            )
+            .get(mainlineId, branchId, input.scopeId)
+        )
+          throw new Error("Context publication scope mismatch");
+        const commit = this.contextGraph.merge(input);
+        this.#conversation.appendEventSync(mainlineId, {
+          type: "branch_result",
+          idempotencyKey: `context-publication:${input.idempotencyKey}`,
+          actorId: "runtime-admin",
+          payload: { branchId, summary, contextCommitId: commit.id }
+        });
+        return commit;
+      })
+      .immediate();
+  }
+
+  /** 显式绑定只能填充尚未绑定的会话，既有会话的工作区不可变 */
   async bindSessionWorkspace(sessionId: string, workspaceId?: string): Promise<string> {
     const existing = this.sessionWorkspace(sessionId);
     if (existing) {
@@ -233,17 +312,26 @@ export class SqliteRuntimeContextStore
           identityId: "runtime-admin",
           defaultWorkspace: { id: "personal:runtime-admin", type: "personal", name: "Native" }
         });
-    this.#db.prepare("INSERT INTO session_workspaces VALUES (?, ?)").run(sessionId, workspace.id);
+    this.#db
+      .prepare("UPDATE conversation_sessions SET workspace_id = ? WHERE id = ? AND workspace_id IS NULL")
+      .run(workspace.id, sessionId);
     return workspace.id;
   }
 
   /** 可信会话工作区映射只能由宿主创建或读取 */
   sessionWorkspace(sessionId: string): string | undefined {
     return (
-      this.#db.prepare("SELECT workspace_id AS id FROM session_workspaces WHERE session_id = ?").get(sessionId) as
+      this.#db.prepare("SELECT workspace_id AS id FROM conversation_sessions WHERE id = ?").get(sessionId) as
         | { id: string }
         | undefined
     )?.id;
+  }
+
+  /** 始终读取真实工作区类型和名称，模型与会话映射均不能伪造 */
+  getWorkspace(id: string): WorkspaceRef | undefined {
+    return this.#db.prepare("SELECT id, type, name FROM workspaces WHERE id = ? AND deleted_at IS NULL").get(id) as
+      | WorkspaceRef
+      | undefined;
   }
 
   /** 管理端列出持久工作区供 Files 和能力授权选择 */
@@ -395,22 +483,6 @@ export class SqliteRuntimeContextStore
     return this.#conversation.listEvents(lineId, options);
   }
 
-  createTask(branchId: string, input: CreateTaskInput): Promise<ConversationTask> {
-    return this.#conversation.createTask(branchId, input);
-  }
-
-  getTask(taskId: string): Promise<ConversationTask | undefined> {
-    return this.#conversation.getTask(taskId);
-  }
-
-  listTasks(branchId: string, options?: ListTasksOptions): Promise<readonly ConversationTask[]> {
-    return this.#conversation.listTasks(branchId, options);
-  }
-
-  transitionTask(taskId: string, input: TransitionTaskInput): Promise<ConversationTask> {
-    return this.#conversation.transitionTask(taskId, input);
-  }
-
   createBranchResult(branchId: string, input: CreateBranchResultInput): Promise<BranchResult> {
     return this.#conversation.createBranchResult(branchId, input);
   }
@@ -426,43 +498,12 @@ export class SqliteRuntimeContextStore
   /**
    * 将阶段结果发布到主线并保留原分支生命周期
    */
-  publishBranchResult(branchId: string, mainlineId: string, input?: PublishBranchResultInput): Promise<BranchMerge> {
+  publishBranchResult(
+    branchId: string,
+    mainlineId: string,
+    input?: PublishBranchResultInput
+  ): Promise<BranchPublication> {
     return this.#conversation.publishBranchResult(branchId, mainlineId, input);
-  }
-
-  mergeBranchResult(branchId: string, mainlineId: string, input?: MergeBranchResultInput): Promise<BranchMerge> {
-    return this.#conversation.mergeBranchResult(branchId, mainlineId, input);
-  }
-
-  createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
-    return this.#conversation.createNode(lineId, input);
-  }
-
-  getNode(nodeId: string): Promise<ConversationNode | undefined> {
-    return this.#conversation.getNode(nodeId);
-  }
-
-  listNodes(lineId: string, options?: ListConversationNodesOptions): Promise<readonly ConversationNode[]> {
-    return this.#conversation.listNodes(lineId, options);
-  }
-
-  getLineHead(lineId: string): Promise<ConversationLineHead | undefined> {
-    return this.#conversation.getLineHead(lineId);
-  }
-
-  createContextSnapshot(
-    lineId: string,
-    input: CreateConversationContextSnapshotInput
-  ): Promise<ConversationContextSnapshot> {
-    return this.#conversation.createContextSnapshot(lineId, input);
-  }
-
-  getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined> {
-    return this.#conversation.getLatestContextSnapshot(lineId);
-  }
-
-  reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState> {
-    return this.#conversation.reconstructLineState(lineId, headNodeId);
   }
 
   getBranchContext(branchId: string): Promise<BranchContext> {
@@ -471,10 +512,6 @@ export class SqliteRuntimeContextStore
 
   getRecoveryState(sessionId?: string): Promise<ConversationRecoveryState> {
     return this.#conversation.getRecoveryState(sessionId);
-  }
-
-  getTaskTrace(taskId: string): Promise<TaskTrace> {
-    return this.#conversation.getTaskTrace(taskId);
   }
 
   getEventTrace(eventId: string): Promise<EventTrace> {

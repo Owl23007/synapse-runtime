@@ -215,33 +215,6 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_line_event_causation
   ON line_events(causation_event_id);
 
-  CREATE TABLE IF NOT EXISTS conversation_tasks (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    branch_line_id TEXT NOT NULL,
-    workspace_id TEXT,
-    executor TEXT NOT NULL,
-    status TEXT NOT NULL
-      CHECK(status IN ('pending', 'running', 'blocked', 'completed', 'failed', 'cancelled')),
-    input_json TEXT NOT NULL,
-    output_json TEXT,
-    error_json TEXT,
-    artifacts_json TEXT NOT NULL,
-    create_request_id TEXT NOT NULL,
-    source_event_id TEXT,
-    created_at TEXT NOT NULL,
-    started_at TEXT,
-    finished_at TEXT,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES conversation_sessions(id),
-    FOREIGN KEY(branch_line_id) REFERENCES conversation_lines(id),
-    FOREIGN KEY(source_event_id) REFERENCES line_events(id),
-    UNIQUE(branch_line_id, create_request_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_conversation_task_recovery
-  ON conversation_tasks(session_id, status, updated_at);
-
   CREATE TABLE IF NOT EXISTS branch_results (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -263,14 +236,6 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
     UNIQUE(branch_line_id, create_request_id)
   );
 
-  CREATE TABLE IF NOT EXISTS branch_result_tasks (
-    result_id TEXT NOT NULL,
-    task_id TEXT NOT NULL,
-    PRIMARY KEY(result_id, task_id),
-    FOREIGN KEY(result_id) REFERENCES branch_results(id),
-    FOREIGN KEY(task_id) REFERENCES conversation_tasks(id)
-  );
-
   CREATE TABLE IF NOT EXISTS branch_merges (
     id TEXT PRIMARY KEY,
     result_id TEXT NOT NULL,
@@ -290,57 +255,6 @@ export const RUNTIME_CONTEXT_SCHEMA_SQL = `
     UNIQUE(mainline_event_id),
     UNIQUE(branch_event_id)
   );
-
-  CREATE TABLE IF NOT EXISTS conversation_nodes (
-    ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE,
-    session_id TEXT NOT NULL,
-    line_id TEXT NOT NULL,
-    sequence INTEGER NOT NULL,
-    parent_ids_json TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    title TEXT NOT NULL,
-    state_patch_json TEXT NOT NULL,
-    source_event_ids_json TEXT NOT NULL,
-    source_task_ids_json TEXT NOT NULL,
-    source_result_ids_json TEXT NOT NULL,
-    created_by TEXT NOT NULL,
-    create_request_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES conversation_sessions(id),
-    FOREIGN KEY(line_id) REFERENCES conversation_lines(id),
-    UNIQUE(line_id, sequence),
-    UNIQUE(line_id, create_request_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_conversation_node_line_ordinal
-  ON conversation_nodes(line_id, ordinal);
-
-  CREATE TABLE IF NOT EXISTS conversation_line_heads (
-    line_id TEXT PRIMARY KEY,
-    node_id TEXT NOT NULL UNIQUE,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(line_id) REFERENCES conversation_lines(id),
-    FOREIGN KEY(node_id) REFERENCES conversation_nodes(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS conversation_context_snapshots (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    line_id TEXT NOT NULL,
-    node_id TEXT NOT NULL,
-    node_ordinal INTEGER NOT NULL,
-    state_json TEXT NOT NULL,
-    create_request_id TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES conversation_sessions(id),
-    FOREIGN KEY(line_id) REFERENCES conversation_lines(id),
-    FOREIGN KEY(node_id) REFERENCES conversation_nodes(id),
-    UNIQUE(line_id, create_request_id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_conversation_snapshot_line_node
-  ON conversation_context_snapshots(line_id, node_ordinal DESC);
 
   CREATE TABLE IF NOT EXISTS conversation_messages (
     id TEXT PRIMARY KEY,

@@ -121,6 +121,7 @@ function createWebSearchTool(options: NormalizedWebToolOptions): Tool {
   );
   return {
     name: "web.search",
+    effect: "read",
     description: "搜索互联网并返回标题、链接和摘要，结果属于不受信任的外部信息",
     inputSchema: WEB_SEARCH_SCHEMA,
     permission: {
@@ -159,6 +160,7 @@ function createWebSearchTool(options: NormalizedWebToolOptions): Tool {
 function createWebFetchTool(options: NormalizedWebToolOptions): Tool {
   return {
     name: "web.fetch",
+    effect: "read",
     description: "读取公开网页并提取有限长度的文本，网页内容属于不受信任的外部信息",
     inputSchema: WEB_FETCH_SCHEMA,
     permission(input) {

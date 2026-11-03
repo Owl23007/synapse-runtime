@@ -9,12 +9,14 @@ export class RunOutcome {
   readonly #deliveryFailures = new Map<string, RunError>();
   #selected: Set<string> | undefined;
   #delivered = false;
+  #completedWithoutDelivery = false;
   #nativeDelivered = false;
   #containerFailed = false;
   #failure: { status: "failed" | "blocked" | "uncertain"; error: RunError } | undefined;
 
   /** 根据已提交事实维护调用配对与交付状态 */
   observe(type: RunEventType, value: unknown): void {
+    if (type === "execution_completed") this.#completedWithoutDelivery = true;
     const data = record(value);
     const key = `tool:${String(data.callId)}`;
     if (type === "tool_call_started") this.#pending.add(key);
@@ -102,7 +104,7 @@ export class RunOutcome {
         status: "failed",
         error: { code: "artifact_not_delivered", message: "已生成工件尚无成功上传回执", phase: "artifact" }
       };
-    return this.#delivered
+    return this.#delivered || this.#completedWithoutDelivery
       ? { status: "succeeded" }
       : {
           status: "interrupted",

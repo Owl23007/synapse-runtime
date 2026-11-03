@@ -20,6 +20,7 @@ export function createAssetTools(assets: AssetService, mounts?: ReadonlyMounts):
   return [
     {
       name: "asset.search",
+      effect: "read",
       description: "搜索当前工作区文件，仅返回元数据；不会下载文件。多个同名候选时请用户确认",
       inputSchema: z.toJSONSchema(search),
       permission: { action: "asset.read", resource: "workspace:assets" },
@@ -31,6 +32,7 @@ export function createAssetTools(assets: AssetService, mounts?: ReadonlyMounts):
     },
     {
       name: "asset.read",
+      effect: "read",
       description:
         "读取当前工作区文件的确定版本，首次读取按需下载并固定 Run 引用；文本按 offset/maxChars 分页，二进制返回类型和版本信息",
       inputSchema: z.toJSONSchema(read),
@@ -69,6 +71,7 @@ export function createAssetTools(assets: AssetService, mounts?: ReadonlyMounts):
       ? [
           {
             name: "asset.mount_read",
+            effect: "read",
             description:
               "将管理员配置的只读挂载文件固定为当前 Run 的资源版本；随后可用 asset.read 分页读取。只接受挂载 ID 与相对路径",
             inputSchema: z.toJSONSchema(mountInput),

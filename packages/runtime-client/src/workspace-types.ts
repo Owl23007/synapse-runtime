@@ -1,5 +1,7 @@
 /** 工作区会话元数据，频道定位与展示名称独立于消息正文 */
 export interface WorkspaceSession {
+  /** 创建时固定的资源工作区，不随身份默认绑定变化 */
+  readonly workspaceId?: string;
   readonly id: string;
   readonly mainlineId: string;
   readonly status: string;

@@ -13,7 +13,10 @@ export interface AgentStep {
   readonly detail?: string;
 }
 
+/** 一次智能体执行的结果，工作完成和对外发送分别表达 */
 export interface AgentRun {
+  /** 工作结果不等于外部消息，静默和等待均可正常结束本次推理 */
+  readonly outcome?: AgentOutcome;
   readonly id: string;
   readonly agentId: string;
   readonly sessionId: string;
@@ -26,6 +29,14 @@ export interface AgentRun {
 
 /** 运行时绑定的身份、工具与模型观察入口 */
 export interface AgentRuntimeContext {
+  /** 宿主全局请求预算覆盖提示词、候选、工具定义及后续工具结果 */
+  readonly maxInputChars?: number;
+  /** 由宿主持久化的结束意图，循环在工具安全边界读取 */
+  readonly getOutcome?: () => AgentOutcome | undefined;
+  /** 每次模型请求和副作用前消费持久补充信息并检查当前授权 */
+  readonly checkpoint?: () => Promise<readonly { readonly id: number; readonly content: string }[]>;
+  /** 下一模型请求已采用补充信息后确认消费 */
+  readonly acknowledgeInputs?: (through: number) => void;
   /** 宿主运行截止或退出信号，取消后不得发起新的模型与工具动作 */
   readonly signal?: AbortSignal;
   /** 逻辑运行标识由宿主决定，恢复时保持不变 */
@@ -35,6 +46,12 @@ export interface AgentRuntimeContext {
   readonly tools: ScopedToolRuntimeView;
   readonly conversation: AgentConversationRuntime;
 }
+
+/** 与 Run 状态独立的结果表达，通知目标只能使用宿主绑定来源 */
+export type AgentOutcome =
+  | { readonly kind: "silent" }
+  | { readonly kind: "waiting"; readonly scheduleId: string }
+  | { readonly kind: "reply" | "notify"; readonly message: SynapseMessage };
 
 /** 单轮模型请求与结果事件，不包含 Provider 凭据或 HTTP Header */
 export interface AgentModelEvent {

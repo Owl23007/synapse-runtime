@@ -43,6 +43,9 @@ export function registerWorkspaceRoutes(app: Nova, getWorkspace: () => RuntimeWo
   route("post", "/admin/sessions/:id/fork", (workspace, request) =>
     workspace.fork(request.params.id ?? "", readJsonBody(request))
   );
+  route("post", "/admin/sessions/:id/context", (workspace, request) =>
+    workspace.commit(request.params.id ?? "", readJsonBody(request))
+  );
   route("post", "/admin/sessions/:id/merge", (workspace, request) =>
     workspace.merge(request.params.id ?? "", readJsonBody(request))
   );

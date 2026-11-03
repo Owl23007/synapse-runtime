@@ -285,9 +285,14 @@ describe("群聊 DAG 容器工件闭环", () => {
       const dag = modelRequests[3]!.messages.find(
         (message) => message.role === "system" && message.content.includes('"commits"')
       );
-      expect(dag?.content).toContain(artifactId);
-      expect(dag?.content).toContain("qq-file-1");
-      expect(dag?.content).not.toContain("from pathlib");
+      expect(dag).toBeUndefined();
+      const durableResults = await result.contextStore.listEvents(
+        result.contextStore.runs.list().items.at(-1)!.lineId!,
+        { types: ["tool_result"] }
+      );
+      expect(JSON.stringify(durableResults)).toContain(artifactId);
+      expect(JSON.stringify(durableResults)).toContain("qq-file-1");
+      expect(JSON.stringify(modelRequests[3]!.messages)).not.toContain("from pathlib");
       expect(uploads).toBe(1);
       expect(result.runtime.traces.at(-1)?.status).toBe("succeeded");
     } finally {

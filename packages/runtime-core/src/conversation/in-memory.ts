@@ -5,59 +5,39 @@ import type {
   AcceptedNormalizedEvent,
   AppendLineEventInput,
   BranchContext,
-  BranchMerge,
+  BranchPublication,
   BranchResult,
   BranchResultTrace,
   BranchStatus,
   ConversationBranch,
-  ConversationContextSnapshot,
   ConversationLine,
-  ConversationLineHead,
   ConversationMainline,
-  ConversationNode,
   ConversationRecoveryState,
   ConversationSession,
-  ConversationTask,
   CreateBranchInput,
   CreateBranchResultInput,
-  CreateConversationContextSnapshotInput,
-  CreateConversationNodeInput,
   CreateSessionInput,
-  CreateTaskInput,
   EventTrace,
   LineEvent,
   ListBranchesOptions,
-  ListConversationNodesOptions,
   ListLineEventsOptions,
   ListLinesOptions,
-  ListTasksOptions,
-  MergeBranchResultInput,
   NormalizedEvent,
   PublishBranchResultInput,
-  ReconstructedConversationState,
-  TaskTrace,
   TransitionBranchInput,
-  TransitionSessionInput,
-  TransitionTaskInput
+  TransitionSessionInput
 } from "./types.js";
 import type { ConversationStore } from "./store.js";
 import { ConversationStoreError } from "./errors.js";
 import { collectRelatedEvents } from "./trace.js";
-import { applyConversationStatePatch } from "./state.js";
 import {
   ACTIVE_BRANCH_STATUSES,
   assertBranchCanCreateResult,
-  assertBranchCanCreateTask,
   assertWritableSession,
-  BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS,
   invalidTransition,
   isBranchTransitionAllowed,
   isSessionTransitionAllowed,
-  isTaskTransitionAllowed,
-  isTerminalTaskStatus,
-  payloadContainsTaskId,
-  SESSION_ARCHIVABLE_BRANCH_STATUSES,
-  UNFINISHED_TASK_STATUSES
+  SESSION_ARCHIVABLE_BRANCH_STATUSES
 } from "./rules.js";
 import {
   sessionIdFromInput,
@@ -65,13 +45,9 @@ import {
   validateAppendLineEventInput,
   validateCreateBranchInput,
   validateCreateBranchResultInput,
-  validateCreateConversationNodeInput,
   validateCreateSessionInput,
-  validateCreateTaskInput,
   validateIdempotencyKey,
-  validateListConversationNodesOptions,
-  validateListOptions,
-  validateNonEmpty
+  validateListOptions
 } from "./in-memory-validation.js";
 
 interface IdempotentRecord<T> {
@@ -91,18 +67,11 @@ export class InMemoryConversationStore implements ConversationStore {
   readonly #eventIdsByLine = new Map<string, string[]>();
   readonly #normalizedEvents = new Map<string, NormalizedEvent>();
   readonly #normalizedEventIdsBySession = new Map<string, string[]>();
-  readonly #tasks = new Map<string, ConversationTask>();
-  readonly #taskIdsByBranch = new Map<string, string[]>();
   readonly #results = new Map<string, BranchResult>();
   readonly #resultIdsByBranch = new Map<string, string[]>();
   readonly #resultEventIds = new Map<string, string>();
-  readonly #merges = new Map<string, BranchMerge>();
-  readonly #mergesByResult = new Map<string, BranchMerge>();
-  readonly #nodes = new Map<string, ConversationNode>();
-  readonly #nodeIdsByLine = new Map<string, string[]>();
-  readonly #lineHeads = new Map<string, ConversationLineHead>();
-  readonly #snapshots = new Map<string, ConversationContextSnapshot>();
-  readonly #snapshotIdsByLine = new Map<string, string[]>();
+  readonly #merges = new Map<string, BranchPublication>();
+  readonly #mergesByResult = new Map<string, BranchPublication>();
 
   readonly #sessionCreateOps = new Map<string, IdempotentRecord<ConversationSession>>();
   readonly #sessionCreateSignatures = new Map<string, unknown>();
@@ -112,15 +81,10 @@ export class InMemoryConversationStore implements ConversationStore {
   readonly #branchCreateOps = new Map<string, IdempotentRecord<ConversationBranch>>();
   readonly #branchTransitionOps = new Map<string, IdempotentRecord<ConversationBranch>>();
   readonly #eventAppendOps = new Map<string, IdempotentRecord<LineEvent>>();
-  readonly #taskCreateOps = new Map<string, IdempotentRecord<ConversationTask>>();
-  readonly #taskTransitionOps = new Map<string, IdempotentRecord<ConversationTask>>();
   readonly #resultCreateOps = new Map<string, IdempotentRecord<BranchResult>>();
-  readonly #mergeOps = new Map<string, IdempotentRecord<BranchMerge>>();
-  readonly #nodeCreateOps = new Map<string, IdempotentRecord<ConversationNode>>();
-  readonly #snapshotCreateOps = new Map<string, IdempotentRecord<ConversationContextSnapshot>>();
+  readonly #mergeOps = new Map<string, IdempotentRecord<BranchPublication>>();
 
   #nextOrdinal = 1;
-  #nextNodeOrdinal = 1;
 
   async acceptNormalizedEvent(input: AcceptNormalizedEventInput): Promise<AcceptedNormalizedEvent> {
     validateAcceptNormalizedEventInput(input);
@@ -400,7 +364,6 @@ export class InMemoryConversationStore implements ConversationStore {
     };
     this.#lines.set(branch.id, cloneValue(branch));
     this.#eventIdsByLine.set(branch.id, []);
-    this.#taskIdsByBranch.set(branch.id, []);
     this.#resultIdsByBranch.set(branch.id, []);
     this.#appendEventInternal(branch.id, {
       type: "branch_created",
@@ -454,14 +417,11 @@ export class InMemoryConversationStore implements ConversationStore {
     if (safeInput.status === "merged") {
       throw new ConversationStoreError(
         "invalid_state_transition",
-        `Branch "${branch.id}" can enter "merged" only through mergeBranchResult().`
+        `Branch "${branch.id}" can enter "merged" only through publishBranchResult().`
       );
     }
     if (!isBranchTransitionAllowed(branch.status, safeInput.status)) {
       throw invalidTransition("branch", branch.id, branch.status, safeInput.status);
-    }
-    if (BRANCH_STATUSES_REQUIRING_TERMINAL_TASKS.has(safeInput.status)) {
-      this.#assertBranchTasksTerminal(branch.id, `transition to "${safeInput.status}"`);
     }
 
     const at = safeInput.createdAt ?? new Date().toISOString();
@@ -511,139 +471,6 @@ export class InMemoryConversationStore implements ConversationStore {
     return cloneValue(events);
   }
 
-  async createTask(branchId: string, input: CreateTaskInput): Promise<ConversationTask> {
-    validateCreateTaskInput(input);
-    const safeInput = cloneValue(input);
-    const signature = cloneValue(safeInput);
-    const operationKey = scopedKey(branchId, safeInput.idempotencyKey);
-    const existingOperation = this.#taskCreateOps.get(operationKey);
-    if (existingOperation !== undefined) {
-      assertSameRequest(existingOperation.signature, signature, "task creation", safeInput.idempotencyKey);
-      return cloneValue(existingOperation.value);
-    }
-
-    const branch = this.#requiredBranch(branchId);
-    assertBranchCanCreateTask(branch);
-    if (safeInput.sourceEventId !== undefined) {
-      const sourceEvent = this.#requiredEvent(safeInput.sourceEventId);
-      if (sourceEvent.sessionId !== branch.sessionId || sourceEvent.lineId !== branch.id) {
-        throw ownershipMismatch(`Task source event "${sourceEvent.id}" must belong to branch "${branch.id}".`);
-      }
-    }
-
-    const taskId = safeInput.id ?? `task-${randomUUID()}`;
-    if (this.#tasks.has(taskId)) {
-      throw conflict(`Task "${taskId}" already exists.`);
-    }
-
-    const now = safeInput.createdAt ?? new Date().toISOString();
-    const task: ConversationTask = {
-      id: taskId,
-      sessionId: branch.sessionId,
-      branchId: branch.id,
-      status: "pending",
-      executor: safeInput.executor,
-      ...(safeInput.workspaceId === undefined ? {} : { workspaceId: safeInput.workspaceId }),
-      input: safeInput.input,
-      artifacts: safeInput.artifacts ?? [],
-      idempotencyKey: safeInput.idempotencyKey,
-      ...(safeInput.sourceEventId === undefined ? {} : { sourceEventId: safeInput.sourceEventId }),
-      createdAt: now,
-      updatedAt: now
-    };
-    this.#tasks.set(task.id, cloneValue(task));
-    appendIndex(this.#taskIdsByBranch, branch.id, task.id);
-    const causationEventId = safeInput.sourceEventId ?? last(this.#eventIdsByLine.get(branch.id));
-    this.#appendEventInternal(branch.id, {
-      type: "task_created",
-      idempotencyKey: `internal:task-created:${task.id}`,
-      ...(safeInput.sourceEventId === undefined ? {} : { sourceEventId: safeInput.sourceEventId }),
-      ...(causationEventId === undefined ? {} : { causationEventId }),
-      correlationId: branch.id,
-      taskId: task.id,
-      payload: {
-        taskId: task.id,
-        executor: task.executor,
-        ...(task.workspaceId === undefined ? {} : { workspaceId: task.workspaceId }),
-        input: task.input,
-        artifacts: task.artifacts
-      },
-      createdAt: now
-    });
-    this.#taskCreateOps.set(operationKey, { signature, value: cloneValue(task) });
-    return cloneValue(task);
-  }
-
-  async getTask(taskId: string): Promise<ConversationTask | undefined> {
-    return cloneOptional(this.#tasks.get(taskId));
-  }
-
-  async listTasks(branchId: string, options: ListTasksOptions = {}): Promise<readonly ConversationTask[]> {
-    this.#requiredBranch(branchId);
-    const statuses = options.statuses === undefined ? undefined : new Set(options.statuses);
-    return cloneValue(
-      (this.#taskIdsByBranch.get(branchId) ?? [])
-        .map((taskId) => required(this.#tasks, taskId, "task"))
-        .filter((task) => statuses === undefined || statuses.has(task.status))
-    );
-  }
-
-  async transitionTask(taskId: string, input: TransitionTaskInput): Promise<ConversationTask> {
-    validateIdempotencyKey(input.idempotencyKey);
-    const safeInput = cloneValue(input);
-    const signature = cloneValue(safeInput);
-    const operationKey = scopedKey(taskId, safeInput.idempotencyKey);
-    const existingOperation = this.#taskTransitionOps.get(operationKey);
-    if (existingOperation !== undefined) {
-      assertSameRequest(existingOperation.signature, signature, "task transition", safeInput.idempotencyKey);
-      return cloneValue(existingOperation.value);
-    }
-
-    const task = this.#requiredTask(taskId);
-    if (!isTaskTransitionAllowed(task.status, safeInput.status)) {
-      throw invalidTransition("task", task.id, task.status, safeInput.status);
-    }
-    const branch = this.#requiredBranch(task.branchId);
-    if (branch.status === "merged" || branch.status === "archived" || branch.status === "cancelled") {
-      throw new ConversationStoreError(
-        "invalid_state_transition",
-        `Task "${task.id}" cannot transition while branch "${branch.id}" is "${branch.status}".`
-      );
-    }
-
-    const at = safeInput.createdAt ?? new Date().toISOString();
-    const next: ConversationTask = {
-      ...task,
-      status: safeInput.status,
-      ...(safeInput.output === undefined ? {} : { output: safeInput.output }),
-      ...(safeInput.error === undefined ? {} : { error: safeInput.error }),
-      ...(safeInput.artifacts === undefined ? {} : { artifacts: safeInput.artifacts }),
-      updatedAt: at,
-      ...(safeInput.status === "running" && task.startedAt === undefined ? { startedAt: at } : {}),
-      ...(isTerminalTaskStatus(safeInput.status) && task.finishedAt === undefined ? { finishedAt: at } : {})
-    };
-    const causationEventId = last(this.#eventIdsByLine.get(branch.id));
-    this.#appendEventInternal(branch.id, {
-      type: "task_status_changed",
-      idempotencyKey: `internal:task-status:${task.id}:${safeInput.idempotencyKey}`,
-      ...(causationEventId === undefined ? {} : { causationEventId }),
-      correlationId: branch.id,
-      taskId: task.id,
-      payload: {
-        taskId: task.id,
-        fromStatus: task.status,
-        toStatus: safeInput.status,
-        ...(safeInput.output === undefined ? {} : { output: safeInput.output }),
-        ...(safeInput.error === undefined ? {} : { error: safeInput.error }),
-        ...(safeInput.artifacts === undefined ? {} : { artifacts: safeInput.artifacts })
-      },
-      createdAt: at
-    });
-    this.#tasks.set(task.id, cloneValue(next));
-    this.#taskTransitionOps.set(operationKey, { signature, value: cloneValue(next) });
-    return cloneValue(next);
-  }
-
   async createBranchResult(branchId: string, input: CreateBranchResultInput): Promise<BranchResult> {
     validateCreateBranchResultInput(input);
     const safeInput = cloneValue(input);
@@ -652,31 +479,11 @@ export class InMemoryConversationStore implements ConversationStore {
     const existingOperation = this.#resultCreateOps.get(operationKey);
     if (existingOperation !== undefined) {
       assertSameRequest(existingOperation.signature, signature, "branch result creation", safeInput.idempotencyKey);
-      await this.#ensureResultNode(
-        existingOperation.value,
-        required(this.#resultEventIds, existingOperation.value.id, "branch result event")
-      );
       return cloneValue(existingOperation.value);
     }
 
     const branch = this.#requiredBranch(branchId);
     assertBranchCanCreateResult(branch, safeInput.status);
-    const sourceTaskIds = [...new Set(safeInput.sourceTaskIds ?? [])];
-    if (sourceTaskIds.length !== (safeInput.sourceTaskIds?.length ?? 0)) {
-      throw validationError("sourceTaskIds must not contain duplicates.");
-    }
-    for (const taskId of sourceTaskIds) {
-      const task = this.#requiredTask(taskId);
-      if (task.sessionId !== branch.sessionId || task.branchId !== branch.id) {
-        throw ownershipMismatch(`Result task "${task.id}" must belong to branch "${branch.id}".`);
-      }
-      if (!isTerminalTaskStatus(task.status)) {
-        throw new ConversationStoreError(
-          "invalid_state_transition",
-          `Result task "${task.id}" must be terminal before its output can be recorded.`
-        );
-      }
-    }
     if (safeInput.sourceEventId !== undefined) {
       const sourceEvent = this.#requiredEvent(safeInput.sourceEventId);
       if (sourceEvent.sessionId !== branch.sessionId || sourceEvent.lineId !== branch.id) {
@@ -708,7 +515,6 @@ export class InMemoryConversationStore implements ConversationStore {
       artifacts: safeInput.artifacts ?? [],
       citations: safeInput.citations ?? [],
       nextActions: safeInput.nextActions ?? [],
-      sourceTaskIds,
       idempotencyKey: safeInput.idempotencyKey,
       ...(safeInput.sourceEventId === undefined ? {} : { sourceEventId: safeInput.sourceEventId }),
       createdAt: now
@@ -731,15 +537,13 @@ export class InMemoryConversationStore implements ConversationStore {
         summary: result.summary,
         artifacts: result.artifacts,
         citations: result.citations,
-        nextActions: result.nextActions,
-        sourceTaskIds: result.sourceTaskIds
+        nextActions: result.nextActions
       },
       createdAt: now
     });
     this.#resultEventIds.set(result.id, resultEvent.id);
 
     this.#resultCreateOps.set(operationKey, { signature, value: cloneValue(result) });
-    await this.#ensureResultNode(result, resultEvent.id);
     return cloneValue(result);
   }
 
@@ -763,7 +567,7 @@ export class InMemoryConversationStore implements ConversationStore {
     branchId: string,
     mainlineId: string,
     input: PublishBranchResultInput = {}
-  ): Promise<BranchMerge> {
+  ): Promise<BranchPublication> {
     const safeInput = cloneValue(input);
     const branch = this.#requiredBranch(branchId);
     const mainline = this.#requiredMainlineById(mainlineId);
@@ -828,8 +632,7 @@ export class InMemoryConversationStore implements ConversationStore {
         summary: result.summary,
         artifacts: result.artifacts,
         citations: result.citations,
-        nextActions: result.nextActions,
-        sourceTaskIds: result.sourceTaskIds
+        nextActions: result.nextActions
       },
       createdAt: now
     });
@@ -852,7 +655,7 @@ export class InMemoryConversationStore implements ConversationStore {
       },
       { allowArchivedLine: branch.status === "archived" }
     );
-    const merge: BranchMerge = {
+    const merge: BranchPublication = {
       id: mergeId,
       sessionId: branch.sessionId,
       branchId: branch.id,
@@ -871,181 +674,6 @@ export class InMemoryConversationStore implements ConversationStore {
     return cloneValue(merge);
   }
 
-  async mergeBranchResult(
-    branchId: string,
-    mainlineId: string,
-    input: MergeBranchResultInput = {}
-  ): Promise<BranchMerge> {
-    return this.publishBranchResult(branchId, mainlineId, input);
-  }
-
-  async createNode(lineId: string, input: CreateConversationNodeInput): Promise<ConversationNode> {
-    validateCreateConversationNodeInput(input);
-    const safeInput = cloneValue(input);
-    const signature = cloneValue(safeInput);
-    const operationKey = scopedKey(lineId, safeInput.idempotencyKey);
-    const existingOperation = this.#nodeCreateOps.get(operationKey);
-    if (existingOperation !== undefined) {
-      assertSameRequest(existingOperation.signature, signature, "conversation node creation", safeInput.idempotencyKey);
-      return cloneValue(existingOperation.value);
-    }
-
-    const line = this.#requiredLine(lineId);
-    const parentIds =
-      safeInput.parentIds === undefined
-        ? this.#lineHeads.get(line.id) === undefined
-          ? []
-          : [this.#lineHeads.get(line.id)!.nodeId]
-        : uniqueIds(safeInput.parentIds, "parentIds");
-    for (const parentId of parentIds) {
-      const parent = this.#requiredNode(parentId);
-      if (parent.sessionId !== line.sessionId) {
-        throw ownershipMismatch(`Conversation node parent "${parent.id}" must belong to session "${line.sessionId}".`);
-      }
-    }
-    const sourceEventIds = uniqueIds(safeInput.sourceEventIds ?? [], "sourceEventIds");
-    for (const eventId of sourceEventIds) {
-      const event = this.#requiredEvent(eventId);
-      if (event.sessionId !== line.sessionId) {
-        throw ownershipMismatch(
-          `Conversation node source event "${event.id}" must belong to session "${line.sessionId}".`
-        );
-      }
-    }
-    const sourceTaskIds = uniqueIds(safeInput.sourceTaskIds ?? [], "sourceTaskIds");
-    for (const taskId of sourceTaskIds) {
-      const task = this.#requiredTask(taskId);
-      if (task.sessionId !== line.sessionId) {
-        throw ownershipMismatch(
-          `Conversation node source task "${task.id}" must belong to session "${line.sessionId}".`
-        );
-      }
-    }
-    const sourceResultIds = uniqueIds(safeInput.sourceResultIds ?? [], "sourceResultIds");
-    for (const resultId of sourceResultIds) {
-      const result = required(this.#results, resultId, "branch result");
-      if (result.sessionId !== line.sessionId) {
-        throw ownershipMismatch(
-          `Conversation node source result "${result.id}" must belong to session "${line.sessionId}".`
-        );
-      }
-    }
-
-    const nodeId = safeInput.id ?? `conversation-node-${randomUUID()}`;
-    if (this.#nodes.has(nodeId)) {
-      throw conflict(`Conversation node "${nodeId}" already exists.`);
-    }
-    const createdAt = safeInput.createdAt ?? new Date().toISOString();
-    const node: ConversationNode = {
-      id: nodeId,
-      ordinal: this.#nextNodeOrdinal,
-      sequence: (this.#nodeIdsByLine.get(line.id)?.length ?? 0) + 1,
-      sessionId: line.sessionId,
-      lineId: line.id,
-      parentIds,
-      kind: safeInput.kind,
-      title: safeInput.title,
-      statePatch: safeInput.statePatch,
-      sourceEventIds,
-      sourceTaskIds,
-      sourceResultIds,
-      createdBy: safeInput.createdBy,
-      idempotencyKey: safeInput.idempotencyKey,
-      createdAt
-    };
-    this.#nextNodeOrdinal += 1;
-    this.#nodes.set(node.id, cloneValue(node));
-    appendIndex(this.#nodeIdsByLine, line.id, node.id);
-    this.#lineHeads.set(line.id, {
-      lineId: line.id,
-      nodeId: node.id,
-      updatedAt: createdAt
-    });
-    this.#nodeCreateOps.set(operationKey, { signature, value: cloneValue(node) });
-    return cloneValue(node);
-  }
-
-  async getNode(nodeId: string): Promise<ConversationNode | undefined> {
-    return cloneOptional(this.#nodes.get(nodeId));
-  }
-
-  async listNodes(lineId: string, options: ListConversationNodesOptions = {}): Promise<readonly ConversationNode[]> {
-    validateListConversationNodesOptions(options);
-    this.#requiredLine(lineId);
-    const kinds = options.kinds === undefined ? undefined : new Set(options.kinds);
-    const matches = (this.#nodeIdsByLine.get(lineId) ?? [])
-      .map((nodeId) => required(this.#nodes, nodeId, "conversation node"))
-      .filter((node) => options.afterOrdinal === undefined || node.ordinal > options.afterOrdinal)
-      .filter((node) => options.beforeOrdinal === undefined || node.ordinal < options.beforeOrdinal)
-      .filter((node) => kinds === undefined || kinds.has(node.kind));
-    return cloneValue(options.limit === undefined ? matches : matches.slice(-options.limit));
-  }
-
-  async getLineHead(lineId: string): Promise<ConversationLineHead | undefined> {
-    this.#requiredLine(lineId);
-    return cloneOptional(this.#lineHeads.get(lineId));
-  }
-
-  async createContextSnapshot(
-    lineId: string,
-    input: CreateConversationContextSnapshotInput
-  ): Promise<ConversationContextSnapshot> {
-    validateIdempotencyKey(input.idempotencyKey);
-    const safeInput = cloneValue(input);
-    const operationKey = scopedKey(lineId, safeInput.idempotencyKey);
-    const currentHead = this.#lineHeads.get(lineId);
-    const nodeId = safeInput.nodeId ?? currentHead?.nodeId;
-    if (nodeId === undefined) {
-      throw validationError(`Line "${lineId}" has no semantic node to snapshot.`);
-    }
-    const signature = { ...safeInput, nodeId };
-    const existingOperation = this.#snapshotCreateOps.get(operationKey);
-    if (existingOperation !== undefined) {
-      assertSameRequest(
-        existingOperation.signature,
-        signature,
-        "conversation context snapshot creation",
-        safeInput.idempotencyKey
-      );
-      return cloneValue(existingOperation.value);
-    }
-
-    const line = this.#requiredLine(lineId);
-    const node = this.#requiredNode(nodeId);
-    if (node.sessionId !== line.sessionId || node.lineId !== line.id) {
-      throw ownershipMismatch(`Snapshot node "${node.id}" must belong to line "${line.id}".`);
-    }
-    const reconstructed = this.#reconstructLineState(line.id, node.id);
-    const snapshotId = safeInput.id ?? `conversation-snapshot-${randomUUID()}`;
-    if (this.#snapshots.has(snapshotId)) {
-      throw conflict(`Conversation context snapshot "${snapshotId}" already exists.`);
-    }
-    const snapshot: ConversationContextSnapshot = {
-      id: snapshotId,
-      sessionId: line.sessionId,
-      lineId: line.id,
-      nodeId: node.id,
-      nodeOrdinal: node.ordinal,
-      state: reconstructed.state,
-      idempotencyKey: safeInput.idempotencyKey,
-      createdAt: safeInput.createdAt ?? new Date().toISOString()
-    };
-    this.#snapshots.set(snapshot.id, cloneValue(snapshot));
-    appendIndex(this.#snapshotIdsByLine, line.id, snapshot.id);
-    this.#snapshotCreateOps.set(operationKey, { signature, value: cloneValue(snapshot) });
-    return cloneValue(snapshot);
-  }
-
-  async getLatestContextSnapshot(lineId: string): Promise<ConversationContextSnapshot | undefined> {
-    this.#requiredLine(lineId);
-    const id = last(this.#snapshotIdsByLine.get(lineId));
-    return id === undefined ? undefined : cloneValue(required(this.#snapshots, id, "conversation context snapshot"));
-  }
-
-  async reconstructLineState(lineId: string, headNodeId?: string): Promise<ReconstructedConversationState> {
-    return cloneValue(this.#reconstructLineState(lineId, headNodeId));
-  }
-
   async getBranchContext(branchId: string): Promise<BranchContext> {
     const branch = this.#requiredBranch(branchId);
     const session = this.#requiredSession(branch.sessionId);
@@ -1058,7 +686,6 @@ export class InMemoryConversationStore implements ConversationStore {
       sourceEvent,
       ...(branch.contextSnapshot === undefined ? {} : { contextSnapshot: branch.contextSnapshot }),
       events: (this.#eventIdsByLine.get(branch.id) ?? []).map((id) => required(this.#events, id, "line event")),
-      tasks: (this.#taskIdsByBranch.get(branch.id) ?? []).map((id) => required(this.#tasks, id, "task")),
       results: (this.#resultIdsByBranch.get(branch.id) ?? []).map((id) => required(this.#results, id, "branch result"))
     };
     return cloneValue(context);
@@ -1078,9 +705,6 @@ export class InMemoryConversationStore implements ConversationStore {
       (line): line is ConversationBranch =>
         line.kind === "branch" && activeSessionIds.has(line.sessionId) && ACTIVE_BRANCH_STATUSES.has(line.status)
     );
-    const unfinishedTasks = [...this.#tasks.values()].filter(
-      (task) => activeSessionIds.has(task.sessionId) && UNFINISHED_TASK_STATUSES.has(task.status)
-    );
     const unmergedResults = [...this.#results.values()].filter((result) => {
       const branch = this.#lines.get(result.branchId);
       return (
@@ -1092,33 +716,7 @@ export class InMemoryConversationStore implements ConversationStore {
         !this.#mergesByResult.has(result.id)
       );
     });
-    return cloneValue({ sessions, mainlines, activeBranches, unfinishedTasks, unmergedResults });
-  }
-
-  async getTaskTrace(taskId: string): Promise<TaskTrace> {
-    const task = this.#requiredTask(taskId);
-    const branch = this.#requiredBranch(task.branchId);
-    const session = this.#requiredSession(task.sessionId);
-    const mainline = this.#requiredMainline(session);
-    const sourceEvent =
-      task.sourceEventId === undefined ? undefined : required(this.#events, task.sourceEventId, "line event");
-    const branchSourceEvent = this.#requiredEvent(branch.sourceEventId);
-    const events = [...this.#events.values()].filter(
-      (event) =>
-        event.sessionId === task.sessionId &&
-        (event.taskId === task.id || (event.payload !== undefined && payloadContainsTaskId(event.payload, task.id)))
-    );
-    const results = [...this.#results.values()].filter((result) => result.sourceTaskIds.includes(task.id));
-    return cloneValue({
-      task,
-      branch,
-      mainline,
-      session,
-      ...(sourceEvent === undefined ? {} : { sourceEvent }),
-      branchSourceEvent,
-      events,
-      results
-    });
+    return cloneValue({ sessions, mainlines, activeBranches, unmergedResults });
   }
 
   async getEventTrace(eventId: string): Promise<EventTrace> {
@@ -1126,7 +724,6 @@ export class InMemoryConversationStore implements ConversationStore {
     const line = this.#requiredLine(event.lineId);
     const session = this.#requiredSession(event.sessionId);
     const branch = line.kind === "branch" ? line : undefined;
-    const task = event.taskId === undefined ? undefined : this.#requiredTask(event.taskId);
     const sourceEvent = event.sourceEventId === undefined ? undefined : this.#events.get(event.sourceEventId);
     const causationChain = this.#causationChain(event);
     const relatedEvents = collectRelatedEvents(
@@ -1139,7 +736,6 @@ export class InMemoryConversationStore implements ConversationStore {
       line,
       session,
       ...(branch === undefined ? {} : { branch }),
-      ...(task === undefined ? {} : { task }),
       ...(sourceEvent === undefined ? {} : { sourceEvent }),
       causationChain,
       relatedEvents
@@ -1153,7 +749,6 @@ export class InMemoryConversationStore implements ConversationStore {
     const mainline = this.#requiredMainline(session);
     const sourceEvent =
       result.sourceEventId === undefined ? undefined : required(this.#events, result.sourceEventId, "line event");
-    const tasks = result.sourceTaskIds.map((taskId) => this.#requiredTask(taskId));
     const merge = this.#mergesByResult.get(result.id);
     const mainlineEvent = merge === undefined ? undefined : required(this.#events, merge.mainlineEventId, "line event");
     return cloneValue({
@@ -1162,8 +757,7 @@ export class InMemoryConversationStore implements ConversationStore {
       mainline,
       session,
       ...(sourceEvent === undefined ? {} : { sourceEvent }),
-      tasks,
-      ...(merge === undefined ? {} : { publication: merge, merge }),
+      ...(merge === undefined ? {} : { publication: merge }),
       ...(mainlineEvent === undefined ? {} : { mainlineEvent })
     });
   }
@@ -1289,15 +883,6 @@ export class InMemoryConversationStore implements ConversationStore {
         );
       }
     }
-    if (safeInput.taskId !== undefined) {
-      const task = this.#requiredTask(safeInput.taskId);
-      if (task.sessionId !== line.sessionId) {
-        throw ownershipMismatch(`Task "${task.id}" and line "${line.id}" must belong to the same session.`);
-      }
-      if (line.kind !== "branch" || task.branchId !== line.id) {
-        throw ownershipMismatch(`Task "${task.id}" events must be appended to branch "${task.branchId}".`);
-      }
-    }
 
     const eventId = safeInput.id ?? `event-${randomUUID()}`;
     if (this.#events.has(eventId)) {
@@ -1371,113 +956,17 @@ export class InMemoryConversationStore implements ConversationStore {
     return required(this.#results, resultId, "branch result");
   }
 
-  async #ensureResultNode(result: BranchResult, resultEventId: string): Promise<void> {
-    await this.createNode(result.branchId, {
-      id: `conversation-node:result:${result.id}`,
-      kind: "task_result",
-      title: `记录分支结果 v${result.version}`,
-      statePatch: {
-        latestResult: {
-          id: result.id,
-          version: result.version,
-          status: result.status,
-          summary: result.summary,
-          nextActions: result.nextActions,
-          sourceTaskIds: result.sourceTaskIds,
-          createdAt: result.createdAt
-        }
-      },
-      sourceEventIds: [resultEventId],
-      sourceTaskIds: result.sourceTaskIds,
-      sourceResultIds: [result.id],
-      createdBy: "system",
-      idempotencyKey: `branch-result:${result.id}:semantic-node`,
-      createdAt: result.createdAt
-    });
-  }
-
-  #assertBranchTasksTerminal(branchId: string, action: string): void {
-    const unfinishedTasks = (this.#taskIdsByBranch.get(branchId) ?? [])
-      .map((taskId) => this.#requiredTask(taskId))
-      .filter((task) => !isTerminalTaskStatus(task.status));
-    if (unfinishedTasks.length !== 0) {
-      throw new ConversationStoreError(
-        "invalid_state_transition",
-        `Branch "${branchId}" cannot ${action} while tasks are unfinished: ${unfinishedTasks
-          .map((task) => task.id)
-          .join(", ")}.`
-      );
-    }
-  }
-
   #assertSessionCanArchive(sessionId: string): void {
-    const unfinishedTask = [...this.#tasks.values()].find(
-      (task) => task.sessionId === sessionId && !isTerminalTaskStatus(task.status)
-    );
     const openBranch = [...this.#lines.values()].find(
       (line): line is ConversationBranch =>
         line.kind === "branch" && line.sessionId === sessionId && !SESSION_ARCHIVABLE_BRANCH_STATUSES.has(line.status)
     );
-    if (unfinishedTask !== undefined || openBranch !== undefined) {
+    if (openBranch !== undefined) {
       throw new ConversationStoreError(
         "invalid_state_transition",
         `Session "${sessionId}" cannot be archived while branches or tasks are unfinished.`
       );
     }
-  }
-
-  #reconstructLineState(lineId: string, headNodeId?: string): ReconstructedConversationState {
-    const line = this.#requiredLine(lineId);
-    const resolvedHeadId = headNodeId ?? this.#lineHeads.get(line.id)?.nodeId;
-    if (resolvedHeadId === undefined) {
-      return {
-        sessionId: line.sessionId,
-        lineId: line.id,
-        state: {},
-        appliedNodeIds: []
-      };
-    }
-    const head = this.#requiredNode(resolvedHeadId);
-    if (head.lineId !== line.id) {
-      throw ownershipMismatch(`Conversation node "${head.id}" is not a head candidate for line "${line.id}".`);
-    }
-
-    const ancestry = this.#collectNodeAncestry(head);
-    const ancestryIds = new Set(ancestry.map((node) => node.id));
-    const snapshot = [...this.#snapshots.values()]
-      .filter((candidate) => ancestryIds.has(candidate.nodeId))
-      .toSorted((left, right) => right.nodeOrdinal - left.nodeOrdinal)[0];
-    let state: Readonly<Record<string, unknown>> = snapshot?.state ?? {};
-    const nodesToApply = ancestry.filter((node) => snapshot === undefined || node.ordinal > snapshot.nodeOrdinal);
-    for (const node of nodesToApply) {
-      state = applyConversationStatePatch(state, node.statePatch);
-    }
-
-    return {
-      sessionId: line.sessionId,
-      lineId: line.id,
-      headNodeId: head.id,
-      ...(snapshot === undefined ? {} : { snapshot }),
-      state,
-      appliedNodeIds: nodesToApply.map((node) => node.id)
-    };
-  }
-
-  #collectNodeAncestry(head: ConversationNode): readonly ConversationNode[] {
-    const visited = new Set<string>();
-    const visit = (node: ConversationNode): void => {
-      if (visited.has(node.id)) {
-        return;
-      }
-      for (const parentId of node.parentIds) {
-        visit(this.#requiredNode(parentId));
-      }
-      visited.add(node.id);
-    };
-    visit(head);
-    return [...visited]
-      .map((nodeId) => this.#requiredNode(nodeId))
-      .toSorted((left, right) => left.ordinal - right.ordinal);
   }
 
   #requiredSession(sessionId: string): ConversationSession {
@@ -1510,14 +999,6 @@ export class InMemoryConversationStore implements ConversationStore {
 
   #requiredEvent(eventId: string): LineEvent {
     return required(this.#events, eventId, "line event");
-  }
-
-  #requiredTask(taskId: string): ConversationTask {
-    return required(this.#tasks, taskId, "task");
-  }
-
-  #requiredNode(nodeId: string): ConversationNode {
-    return required(this.#nodes, nodeId, "conversation node");
   }
 }
 
@@ -1629,17 +1110,6 @@ function appendIndex(map: Map<string, string[]>, key: string, id: string): void 
   } else {
     values.push(id);
   }
-}
-
-function uniqueIds(values: readonly string[], name: string): readonly string[] {
-  const unique = [...new Set(values)];
-  if (unique.length !== values.length) {
-    throw validationError(`${name} must not contain duplicates.`);
-  }
-  for (const value of unique) {
-    validateNonEmpty(name, value);
-  }
-  return unique;
 }
 
 function last<T>(values: readonly T[] | undefined): T | undefined {

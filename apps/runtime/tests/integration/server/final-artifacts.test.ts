@@ -133,9 +133,9 @@ describe("最终产物交付闭环", () => {
       expect(events.filter((event) => event.type === "artifact_upload_succeeded")).toHaveLength(1);
       expect(events.some((event) => event.type === "artifact_selection_changed")).toBe(true);
       const artifacts = new ArtifactStore(join(directory, "artifacts"), config.container);
-      expect(artifacts.list(run.sessionId).items).toHaveLength(3);
-      expect(artifacts.describe(run.sessionId, ids[3]!).disposition).toBe("discarded");
-      expect(artifacts.selection(run.sessionId, run.id).selectedIds).toEqual([ids[2]]);
+      expect(artifacts.list(run.sessionId!).items).toHaveLength(3);
+      expect(artifacts.describe(run.sessionId!, ids[3]!).disposition).toBe("discarded");
+      expect(artifacts.selection(run.sessionId!, run.id).selectedIds).toEqual([ids[2]]);
     } finally {
       await instance.runtime.dispose();
       instance.contextStore.close();

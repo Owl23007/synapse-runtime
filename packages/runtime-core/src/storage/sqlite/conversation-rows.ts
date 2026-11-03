@@ -1,11 +1,4 @@
-import type {
-  BranchResult,
-  ConversationLine,
-  ConversationNode,
-  ConversationSession,
-  ConversationTask,
-  LineEventType
-} from "../../conversation/types.js";
+import type { BranchResult, ConversationLine, ConversationSession, LineEventType } from "../../conversation/types.js";
 
 export interface SessionRow {
   readonly id: string;
@@ -86,25 +79,6 @@ export interface LineEventRow {
   readonly created_at: string;
 }
 
-export interface TaskRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly branch_line_id: string;
-  readonly workspace_id: string | null;
-  readonly executor: string;
-  readonly status: ConversationTask["status"];
-  readonly input_json: string;
-  readonly output_json: string | null;
-  readonly error_json: string | null;
-  readonly artifacts_json: string;
-  readonly create_request_id: string;
-  readonly source_event_id: string | null;
-  readonly created_at: string;
-  readonly started_at: string | null;
-  readonly finished_at: string | null;
-  readonly updated_at: string;
-}
-
 export interface ResultRow {
   readonly id: string;
   readonly session_id: string;
@@ -130,33 +104,4 @@ export interface MergeRow {
   readonly branch_event_id: string;
   readonly create_request_id: string;
   readonly merged_at: string;
-}
-
-export interface NodeRow {
-  readonly ordinal: number;
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly sequence: number;
-  readonly parent_ids_json: string;
-  readonly kind: ConversationNode["kind"];
-  readonly title: string;
-  readonly state_patch_json: string;
-  readonly source_event_ids_json: string;
-  readonly source_task_ids_json: string;
-  readonly source_result_ids_json: string;
-  readonly created_by: string;
-  readonly create_request_id: string;
-  readonly created_at: string;
-}
-
-export interface SnapshotRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly line_id: string;
-  readonly node_id: string;
-  readonly node_ordinal: number;
-  readonly state_json: string;
-  readonly create_request_id: string;
-  readonly created_at: string;
 }

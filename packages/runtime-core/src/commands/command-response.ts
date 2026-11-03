@@ -3,6 +3,7 @@ import type { ConversationStore } from "../conversation/index.js";
 import type { RuntimeActor, WorkspaceRef } from "../context/types.js";
 import type { WorkspaceStore } from "../context/workspace.js";
 import type { MemoryStore } from "../memory/types.js";
+import type { Task } from "../execution/types.js";
 
 interface CommandContext {
   readonly text: string;
@@ -15,6 +16,7 @@ interface CommandContext {
     readonly memoryStore?: MemoryStore;
     readonly workspaceStore?: WorkspaceStore;
     readonly sourceEventId?: string;
+    readonly tasks?: readonly Task[];
   };
 }
 
@@ -90,15 +92,17 @@ const commands: readonly CommandDefinition[] = [
   },
   {
     usage: "/tasks",
-    description: "查看当前会话任务",
+    description: "查看当前授权目标",
     matches: (text) => text === "/tasks",
-    execute: async ({ conversationStore, sessionId }) => {
-      const branches = await conversationStore.listBranches(sessionId);
-      const tasks = (await Promise.all(branches.map((branch) => conversationStore.listTasks(branch.id)))).flat();
+    execute: ({ options }) => {
+      const tasks = options.tasks ?? [];
       return textResponse(
         tasks.length === 0
-          ? "当前会话没有任务。"
-          : ["任务：", ...tasks.map((task) => `- ${task.id} [${task.status}] executor=${task.executor}`)].join("\n")
+          ? "当前授权范围没有目标。"
+          : [
+              "目标：",
+              ...tasks.map((task) => `- ${task.id} [${task.status}] revision=${task.revision} ${task.goal}`)
+            ].join("\n")
       );
     }
   },
@@ -129,6 +133,7 @@ export async function commandResponse(
     readonly memoryStore?: MemoryStore;
     readonly workspaceStore?: WorkspaceStore;
     readonly sourceEventId?: string;
+    readonly tasks?: readonly Task[];
   } = {}
 ): Promise<SynapseMessage | undefined> {
   const text = event.message === undefined ? "" : getTextContent(event.message).trim();

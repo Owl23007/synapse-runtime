@@ -29,16 +29,13 @@ describe("RuntimeAssembly 资源所有权", () => {
       await pending;
       await disposeRuntime();
     });
-    const tasks = vi.spyOn(assembly.taskRunner, "dispose");
     try {
       const first = assembly.dispose();
       expect(assembly.dispose()).toBe(first);
       expect(close).not.toHaveBeenCalled();
-      expect(tasks).not.toHaveBeenCalled();
       expect(() => create()).toThrow();
       release();
       await first;
-      expect(tasks).toHaveBeenCalledOnce();
       expect(close).toHaveBeenCalledOnce();
       expect(assembly.closed).toBe(true);
       await create().dispose();

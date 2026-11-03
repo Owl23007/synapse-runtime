@@ -4,23 +4,23 @@ import type {
   PromptContextMessage,
   PromptContextSection
 } from "@synapse/runtime-conversation";
-import { getTextContent, type SynapseChannelEvent, type SynapseMessage } from "@synapse/runtime-protocol";
+import type { SynapseChannelEvent, SynapseMessage } from "@synapse/runtime-protocol";
 import type { LineEvent } from "../conversation/types.js";
 import type { ConversationStore } from "../conversation/store.js";
 import type { OutputPolicy } from "../output/policy.js";
 import type { TranscriptStore } from "../transcript/types.js";
 import { trimHistory, isWithinHistoryTtl } from "./history.js";
-import { BranchContextProjector } from "./projection.js";
 import { formatZonedTimestamp } from "./time.js";
 import type { RuntimeActor, WorkspaceRef } from "./types.js";
 import type { MemoryStore } from "../memory/types.js";
+import type { ContextGraph } from "../context-graph/index.js";
 
 export interface ContextComposerOptions {
+  /** 分支只采用显式选定版本的完整快照，不回溯执行轨迹 */
+  readonly graph?: ContextGraph;
   readonly transcriptStore: TranscriptStore;
   readonly memoryStore?: MemoryStore;
   readonly conversationStore?: ConversationStore;
-  /** 用于临时重建分支上下文的投影器 */
-  readonly contextProjector?: BranchContextProjector;
   readonly maxHistoryChars?: number;
   readonly timezone?: string;
   readonly strategy?: string;
@@ -28,10 +28,10 @@ export interface ContextComposerOptions {
 }
 
 export class ContextComposer {
+  readonly #graph: ContextGraph | undefined;
   readonly #transcriptStore: TranscriptStore;
   readonly #memoryStore: MemoryStore | undefined;
   readonly #conversationStore: ConversationStore | undefined;
-  readonly #contextProjector: BranchContextProjector | undefined;
   readonly #maxHistoryChars: number;
   readonly #timezone: string;
   readonly #strategy: string;
@@ -41,19 +41,11 @@ export class ContextComposer {
    * 创建上下文组合器
    */
   constructor(options: ContextComposerOptions) {
+    this.#graph = options.graph;
     this.#transcriptStore = options.transcriptStore;
     this.#memoryStore = options.memoryStore;
     this.#conversationStore = options.conversationStore;
     this.#maxHistoryChars = options.maxHistoryChars ?? 6000;
-    this.#contextProjector =
-      options.contextProjector ??
-      (options.conversationStore === undefined
-        ? undefined
-        : new BranchContextProjector({
-            conversationStore: options.conversationStore,
-            transcriptStore: options.transcriptStore,
-            defaultMaxChars: this.#maxHistoryChars
-          }));
     this.#timezone = options.timezone ?? "UTC";
     this.#strategy = options.strategy ?? "default";
     this.#cacheEnabled = options.cacheEnabled ?? true;
@@ -92,8 +84,10 @@ export class ContextComposer {
         .filter((message) => isWithinHistoryTtl(message.createdAt, referenceMs, input.historyTtlMinutes))
         .map((message): PromptContextMessage => ({
           role: message.role,
-          content: `[${message.createdAt}] ${message.text}`,
+          content: `[${message.createdAt}] ${input.event.conversation.kind === "group" ? `${message.actorId ?? message.role}: ` : ""}${message.text}`,
           messageId: message.id,
+          sourceRef: `${message.role}:${message.sourceEventId ?? message.id}`,
+          ...(message.actorId ? { actorId: message.actorId } : {}),
           createdAt: message.createdAt
         })),
       this.#maxHistoryChars
@@ -188,21 +182,30 @@ export class ContextComposer {
       return undefined;
     }
 
-    if (input.branchId !== undefined && this.#contextProjector !== undefined) {
-      const projection = await this.#contextProjector.project({
-        branchId: input.branchId,
-        currentInput: getTextContent(input.currentInput),
-        maxChars: this.#maxHistoryChars,
-        recentMessageLimit: input.maxMessages
+    if (input.branchId !== undefined) {
+      const branch = await this.#conversationStore.getBranch(input.branchId);
+      if (!branch || branch.sessionId !== input.sessionId) throw new Error("Unauthorized context branch");
+      const source =
+        branch.contextSnapshot && typeof branch.contextSnapshot === "object"
+          ? (branch.contextSnapshot as Record<string, unknown>).contextCommitId
+          : undefined;
+      const checkpoint = typeof source === "string" ? this.#graph?.getCommit(input.sessionId, source) : undefined;
+      return JSON.stringify({
+        kind: "branch",
+        id: branch.id,
+        title: branch.title,
+        goal: branch.goal,
+        reason: branch.reason,
+        contextSnapshot: checkpoint ? { commitId: checkpoint.id, content: checkpoint.content } : branch.contextSnapshot
       });
-      return projection.contextText;
     }
 
     const state = await this.#mainlineState(input.lineId, input.maxMessages);
     if (state === undefined) {
       return undefined;
     }
-    return truncatePromptJson(state, this.#maxHistoryChars);
+    const serialized = JSON.stringify(state);
+    return serialized.length <= this.#maxHistoryChars ? serialized : undefined;
   }
 
   async #mainlineState(lineId: string, maxMessages: number): Promise<unknown | undefined> {
@@ -321,14 +324,4 @@ function eventForPrompt(event: LineEvent): unknown {
     ...(event.actorId === undefined ? {} : { actorId: event.actorId }),
     ...(event.payload === undefined ? {} : { payload: event.payload })
   };
-}
-
-function truncatePromptJson(value: unknown, maxChars: number): string {
-  const serialized = JSON.stringify(value, (_key, candidate: unknown) =>
-    typeof candidate === "bigint" ? candidate.toString() : candidate
-  );
-  if (serialized.length <= maxChars) {
-    return serialized;
-  }
-  return `${serialized.slice(0, Math.max(0, maxChars - 16))}…[truncated]`;
 }

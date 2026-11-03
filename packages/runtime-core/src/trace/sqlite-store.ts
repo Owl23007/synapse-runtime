@@ -51,17 +51,23 @@ export class SqliteRunTraceStore implements RunTraceStore {
     db.transaction(() => {
       db.exec("CREATE TABLE IF NOT EXISTS run_trace_migrations (version INTEGER PRIMARY KEY)");
       const versions = db.prepare("SELECT version FROM run_trace_migrations").all() as { version: number }[];
-      if (versions.some(({ version }) => version !== 1)) throw new Error("Unsupported run trace schema version");
+      if (versions.some(({ version }) => ![1, 2].includes(version)))
+        throw new Error("Unsupported run trace schema version");
+      if (versions.some(({ version }) => version === 1)) {
+        db.exec(
+          "ALTER TABLE run_traces RENAME COLUMN session_id TO scope_key; UPDATE run_traces SET scope_key = json_array('session', scope_key); UPDATE run_trace_migrations SET version = 2 WHERE version = 1"
+        );
+      }
       if (versions.length !== 0) return;
       db.exec(`
         CREATE TABLE run_traces (
           ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
-          source_event_id TEXT NOT NULL, session_id TEXT NOT NULL, channel_id TEXT NOT NULL,
+          source_event_id TEXT NOT NULL, scope_key TEXT NOT NULL, channel_id TEXT NOT NULL,
           status TEXT NOT NULL, started_at TEXT NOT NULL, record TEXT NOT NULL,
-          UNIQUE(session_id, channel_id, source_event_id)
+          UNIQUE(scope_key, channel_id, source_event_id)
         );
         CREATE INDEX run_traces_status ON run_traces(status, ordinal);
-        CREATE INDEX run_traces_session ON run_traces(session_id, ordinal);
+        CREATE INDEX run_traces_session ON run_traces(scope_key, ordinal);
         CREATE INDEX run_traces_channel ON run_traces(channel_id, ordinal);
         CREATE INDEX run_traces_time ON run_traces(started_at, ordinal);
         CREATE TABLE run_events (
@@ -69,19 +75,23 @@ export class SqliteRunTraceStore implements RunTraceStore {
           seq INTEGER NOT NULL, event_key TEXT NOT NULL, record TEXT NOT NULL, request TEXT NOT NULL,
           UNIQUE(run_id, seq), UNIQUE(run_id, event_key)
         );
-        INSERT INTO run_trace_migrations VALUES (1);
+        INSERT INTO run_trace_migrations VALUES (2);
       `);
     }).immediate();
   }
 
   /** 同一规范化事件仅创建一次运行，接受事件与运行行原子写入 */
   accept(input: AcceptRunInput): RunTrace {
-    for (const field of [input.sourceEventId, input.sessionId, input.channelId]) validateId(field);
+    for (const field of [input.sourceEventId, input.channelId]) validateId(field);
+    if (!input.sessionId && !input.workspaceId) throw new Error("Run requires a session or workspace");
+    if (input.sessionId !== undefined) validateId(input.sessionId);
+    if (input.workspaceId !== undefined) validateId(input.workspaceId);
+    const scopeKey = JSON.stringify(input.sessionId ? ["session", input.sessionId] : ["workspace", input.workspaceId]);
     return this.db
       .transaction(() => {
         const row = this.db
-          .prepare("SELECT record FROM run_traces WHERE session_id = ? AND channel_id = ? AND source_event_id = ?")
-          .get(input.sessionId, input.channelId, input.sourceEventId) as RunRow | undefined;
+          .prepare("SELECT record FROM run_traces WHERE scope_key = ? AND channel_id = ? AND source_event_id = ?")
+          .get(scopeKey, input.channelId, input.sourceEventId) as RunRow | undefined;
         if (row) {
           const previous = JSON.parse(row.record) as RunTrace;
           if (previous.lineId !== input.lineId || previous.branchId !== input.branchId)
@@ -89,7 +99,7 @@ export class SqliteRunTraceStore implements RunTraceStore {
           return previous;
         }
         const id = `run-${createHash("sha256")
-          .update(JSON.stringify([input.sessionId, input.channelId, input.sourceEventId]))
+          .update(JSON.stringify([scopeKey, input.channelId, input.sourceEventId]))
           .digest("hex")}`;
         const now = new Date().toISOString();
         const run: RunTrace = {
@@ -105,9 +115,9 @@ export class SqliteRunTraceStore implements RunTraceStore {
         };
         this.db
           .prepare(
-            "INSERT INTO run_traces(id, source_event_id, session_id, channel_id, status, started_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO run_traces(id, source_event_id, scope_key, channel_id, status, started_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)"
           )
-          .run(id, input.sourceEventId, input.sessionId, input.channelId, run.status, now, JSON.stringify(run));
+          .run(id, input.sourceEventId, scopeKey, input.channelId, run.status, now, JSON.stringify(run));
         this.append(id, { key: "accepted", type: "run_accepted" });
         return this.get(id)!;
       })
@@ -193,7 +203,7 @@ export class SqliteRunTraceStore implements RunTraceStore {
     if (input.status !== undefined && !STATES.has(input.status)) throw new Error("Invalid run status");
     for (const [column, value] of [
       ["status", input.status],
-      ["session_id", input.sessionId],
+      ["scope_key", input.sessionId ? JSON.stringify(["session", input.sessionId]) : undefined],
       ["channel_id", input.channelId]
     ] as const) {
       if (value !== undefined) {

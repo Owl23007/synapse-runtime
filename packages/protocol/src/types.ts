@@ -142,6 +142,8 @@ export interface MessageReplyRef {
 
 /** 原生事件全集，不按当前接入平台的事件订阅范围裁剪 */
 export type ChannelEventType =
+  | "schedule.due"
+  | "task.wake"
   | "message.created"
   | "message.updated"
   | "message.deleted"
