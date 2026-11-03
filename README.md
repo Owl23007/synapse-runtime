@@ -40,6 +40,8 @@ cp -R examples/resources/. resources/
 cp .env.example .env
 ```
 
+`runtime.config.toml` 同时管理普通交互和自主执行。完整示例已包含 `[runtime.limits]`、`[autonomy]`、`[context]` 和 `[agentLoop]` 的有限预算，约束说明见[自主执行与数据维护](docs/autonomous-runtime.md)
+
 编辑 `.env`，填写所选示例引用的必填变量。完整示例引用 `QWEN_API_KEY`、`QQ_BOT_APP_ID` 与 `QQ_BOT_APP_SECRET`；频道禁用时仍会校验其配置。首次启动默认仅监听本机且不启用频道，填写凭据、端点和触发条件后再将需要的频道设为 `enabled = true`。接收远程 Webhook 时须显式调整 Gateway 监听地址与访问控制。
 
 群聊工件部署可将第一条复制命令的源文件改为 `examples/group-artifacts.config.toml`，其余资源复制步骤相同；填写 `MODEL_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`、`NAPCAT_WS_URL`、`NAPCAT_TOKEN` 和 `QQ_BOT_ID`，并预先构建示例指定的容器镜像。
