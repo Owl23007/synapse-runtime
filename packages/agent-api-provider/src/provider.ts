@@ -1,6 +1,7 @@
 import type { ChatCompletionProvider, ChatCompletionRequest, ChatCompletionResult } from "@synapse/runtime-agent-core";
 import type { FetchInitLike, FetchLike, FetchResponseLike, OpenAiCompatibleChatProviderOptions } from "./types.js";
 import { messageForProvider, parseToolCalls, parseUsage, toolChoiceForProvider } from "./protocol-mapper.js";
+import { ModelProviderError } from "@synapse/runtime-agent-core";
 interface ChatCompletionResponse {
   readonly choices?: readonly {
     readonly message?: {
@@ -61,7 +62,10 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
-    const timer = setTimeout(() => controller.abort(new Error("模型调用超时")), this.#timeoutMs);
+    const timer = setTimeout(
+      () => controller.abort(new ModelProviderError("模型调用超时", "timeout", true)),
+      this.#timeoutMs
+    );
     try {
       signal.throwIfAborted();
       return await new Promise<ChatCompletionResult>((resolve, reject) => {
@@ -107,21 +111,32 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
     if (serialized.length > this.#maxRequestChars)
       throw new Error(`模型请求超过 ${this.#maxRequestChars} 字符上限，未调用模型`);
     signal.throwIfAborted();
-    const response = await this.#fetch(`${this.#baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      signal,
-      method: "POST",
-      headers: {
-        ...this.#headers,
-        authorization: `Bearer ${this.#apiKey}`,
-        "content-type": "application/json"
-      },
-      body: serialized
-    });
-    const responseBody = (await response.json()) as ChatCompletionResponse;
+    let response: FetchResponseLike;
+    try {
+      response = await this.#fetch(`${this.#baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        signal,
+        method: "POST",
+        headers: {
+          ...this.#headers,
+          authorization: `Bearer ${this.#apiKey}`,
+          "content-type": "application/json"
+        },
+        body: serialized
+      });
+    } catch (error) {
+      signal.throwIfAborted();
+      throw new ModelProviderError(error instanceof Error ? error.message : "模型服务连接失败", "transport", true);
+    }
 
     if (!response.ok) {
-      throw new Error(`Chat completion failed with HTTP ${response.status}: ${safeJson(responseBody)}`);
+      const responseBody = await response.json().catch(() => null);
+      throw new ModelProviderError(
+        `Chat completion failed with HTTP ${response.status}: ${safeJson(responseBody)}`,
+        "http",
+        [408, 429].includes(response.status) || (response.status >= 500 && response.status <= 599)
+      );
     }
+    const responseBody = (await response.json()) as ChatCompletionResponse;
 
     const choice = responseBody.choices?.[0];
     const content = typeof choice?.message?.content === "string" ? choice.message.content : "";

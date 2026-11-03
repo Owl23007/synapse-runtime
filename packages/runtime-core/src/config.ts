@@ -8,6 +8,8 @@ export const AutonomySettingsSchema = z
     pollIntervalMs: z.number().int().min(100).max(60_000).default(1000),
     maxPendingIntents: z.number().int().min(1).max(10_000).default(128),
     maxAttempts: z.number().int().min(1).max(10).default(3),
+    retryBaseDelayMs: z.number().int().min(100).max(60_000).default(1000),
+    maxRetryDelayMs: z.number().int().min(100).max(3_600_000).default(60_000),
     maxRunsPerHour: z.number().int().min(1).max(10_000).default(60),
     maxRunsPerGrant: z.number().int().min(1).max(1000).default(24),
     maxModelCallsPerRun: z.number().int().min(1).max(64).default(8),
@@ -30,7 +32,11 @@ export const AutonomySettingsSchema = z
       .max(16 * 1024 * 1024 * 1024)
       .default(512 * 1024 * 1024)
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) => value.maxRetryDelayMs >= value.retryBaseDelayMs,
+    "maxRetryDelayMs must not be below retryBaseDelayMs"
+  );
 
 /** 已校验的自主执行与数据保留配置 */
 export type AutonomySettings = z.infer<typeof AutonomySettingsSchema>;

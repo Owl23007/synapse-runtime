@@ -12,6 +12,7 @@ import type {
 import type { AgentRequest, PromptContextBlock, PromptContextSection } from "@synapse/runtime-conversation";
 import { getTextContent, readToolOutput, textMessage, type MessageSegment } from "@synapse/runtime-protocol";
 import type { ApiChatAgentOptions } from "./types.js";
+import { ModelProviderError } from "@synapse/runtime-agent-core";
 /**
  * 在模型与工具之间循环执行，返回最终文本及工具确认的真实附件
  */
@@ -248,7 +249,8 @@ export class ApiChatAgent implements Agent {
         status: "failed",
         input: request.input,
         steps,
-        error: error instanceof Error ? error.message : "Unknown chat completion error."
+        error: error instanceof Error ? error.message : "Unknown chat completion error.",
+        ...(error instanceof ModelProviderError ? { failure: error.failure } : {})
       };
     }
   }

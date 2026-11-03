@@ -12,6 +12,7 @@ import type { AcceptNormalizedEventInput, AcceptedNormalizedEvent } from "../con
 import { redactTrace } from "../trace/redact.js";
 import { decodeJson } from "../storage/sqlite/json-codec.js";
 import { isDeepStrictEqual } from "node:util";
+import type { ModelFailure } from "@synapse/runtime-agent-core";
 
 type StoredIntent = Omit<ExecutionIntent, "payload"> & {
   format: 1;
@@ -319,6 +320,7 @@ export class ExecutionStore {
           workspaceId: grant.workspaceId,
           state: "queued",
           attempts: 0,
+          availableAt: 0,
           createdAt: now,
           ...(input.taskId ? { taskId: input.taskId, taskRevision: this.getTask(input.taskId, grant).revision } : {}),
           ...(input.scheduleId ? { scheduleId: input.scheduleId, scheduleRevision: input.scheduleRevision! } : {}),
@@ -363,9 +365,9 @@ export class ExecutionStore {
 
   /** 持久队列状态列覆盖快照，避免重复的状态来源 */
   getIntent(id: string): ExecutionIntent | undefined {
-    const row = this.db.prepare("SELECT record, state, attempts FROM execution_intents WHERE id = ?").get(id) as
-      | (Row & { state: ExecutionIntent["state"]; attempts: number })
-      | undefined;
+    const row = this.db
+      .prepare("SELECT record, state, attempts, next_attempt_at FROM execution_intents WHERE id = ?")
+      .get(id) as (Row & { state: ExecutionIntent["state"]; attempts: number; next_attempt_at: number }) | undefined;
     if (!row) return undefined;
     const stored = JSON.parse(row.record) as StoredIntent;
     if (stored.format !== 1) throw new Error("Unsupported execution envelope");
@@ -379,6 +381,7 @@ export class ExecutionStore {
       ...intent,
       state: row.state,
       attempts: row.attempts,
+      availableAt: row.next_attempt_at,
       payload: {
         ...payload,
         event,
@@ -419,7 +422,7 @@ export class ExecutionStore {
     return this.db
       .transaction(() => {
         const intent = this.getIntent(id);
-        if (!intent || intent.state !== "queued") return undefined;
+        if (!intent || intent.state !== "queued" || intent.availableAt > now) return undefined;
         try {
           this.validateIntent(intent, now);
         } catch {
@@ -448,7 +451,7 @@ export class ExecutionStore {
           : intent;
         this.db
           .prepare(
-            "UPDATE execution_intents SET state = 'claimed', attempts = attempts + 1, record = ? WHERE id = ? AND state = 'queued'"
+            "UPDATE execution_intents SET state = 'claimed', attempts = attempts + 1, record = ?, next_attempt_at = 0 WHERE id = ? AND state = 'queued'"
           )
           .run(this.serializeIntent(adopted), id);
         return this.getIntent(id);
@@ -598,6 +601,63 @@ export class ExecutionStore {
       .prepare("SELECT count(*) AS count FROM observed_inputs WHERE expires_at <= ?")
       .get(now) as { count: number };
     return { intents: intents.count, observations: observations.count };
+  }
+
+  /** 模型暂时故障仅在尚无工具、交付和结果时退避，决策与 Attempt 终止同事务提交 */
+  retryModel(runId: string, attemptId: string, failure: ModelFailure, now = Date.now()): boolean {
+    if (failure.kind !== "model" || !failure.retryable) return false;
+    return this.db
+      .transaction(() => {
+        const intent = this.forRun(runId);
+        if (
+          !intent ||
+          intent.state !== "claimed" ||
+          intent.attempts >= this.settings.maxAttempts ||
+          this.result(runId) ||
+          this.runs.get(runId)?.status !== "running"
+        )
+          return false;
+        try {
+          this.validateIntent(intent, now);
+        } catch {
+          return false;
+        }
+        const usage = this.db.prepare("SELECT model_calls FROM execution_usage WHERE run_id = ?").get(runId) as
+          | { model_calls: number }
+          | undefined;
+        if (
+          (usage?.model_calls ?? 0) >= this.settings.maxModelCallsPerRun ||
+          this.db.prepare("SELECT 1 FROM execution_operations WHERE run_id = ? LIMIT 1").get(runId) ||
+          this.db
+            .prepare(
+              "SELECT 1 FROM run_events WHERE run_id = ? AND json_extract(record, '$.type') IN ('tool_call_started','response_sending','artifact_upload_started') LIMIT 1"
+            )
+            .get(runId)
+        )
+          return false;
+        const delay = Math.min(
+          this.settings.maxRetryDelayMs,
+          this.settings.retryBaseDelayMs * 2 ** (intent.attempts - 1)
+        );
+        this.runs.append(runId, {
+          key: `${attemptId}:retry`,
+          type: "run_interrupted",
+          status: "interrupted",
+          phase: "retry",
+          attemptId,
+          error: {
+            code: `model_${failure.code}_retry`,
+            message: "模型服务暂时故障，已按执行预算安排重试",
+            phase: "model"
+          },
+          data: { availableAt: now + delay, attempts: intent.attempts }
+        });
+        this.db
+          .prepare("UPDATE execution_intents SET state = 'queued', next_attempt_at = ? WHERE id = ?")
+          .run(now + delay, intent.id);
+        return true;
+      })
+      .immediate();
   }
 
   /** 标记本轮调度结束，失败不自动完成或取消持久目标 */

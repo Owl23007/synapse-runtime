@@ -1,4 +1,5 @@
 import type { Agent, AgentRuntimeContext } from "@synapse/runtime-agent-core";
+import { ModelProviderError, type ModelFailure } from "@synapse/runtime-agent-core";
 import type { AgentRequest, ModelInvocationEnvelope } from "@synapse/runtime-conversation";
 import type { SynapseChannelEvent } from "@synapse/runtime-protocol";
 import {
@@ -270,7 +271,12 @@ export class RunCoordinator {
       controller.signal.throwIfAborted();
       run = await withAbort(this.options.agent.run(request, context), controller.signal);
       if (scope.runId !== undefined) run = { ...run, id: scope.runId };
-      if (run.status === "failed") recorder?.fail("failed", "agent_failed", run.error ?? "智能体未完成请求", "model");
+      if (run.status === "failed") {
+        const deferred = this.deferModelFailure(scope.runId, recorder, run.failure, controller.signal);
+        if (deferred && processStateId)
+          await this.options.eventProcessStore.update(processStateId, { status: "received" });
+        if (!deferred) recorder?.fail("failed", "agent_failed", run.error ?? "智能体未完成请求", "model");
+      }
     } catch (error) {
       const serializedError = serializeError(error);
       await this.options.conversationStore.appendEvent(lineId, {
@@ -294,6 +300,20 @@ export class RunCoordinator {
           errorJson: JSON.stringify({ error: serializedError })
         });
       }
+      if (
+        error instanceof ModelProviderError &&
+        this.deferModelFailure(scope.runId, recorder, error.failure, controller.signal)
+      )
+        return {
+          id: scope.runId!,
+          agentId: this.options.agent.id,
+          sessionId,
+          status: "failed" as const,
+          input: request.input,
+          steps: [],
+          error: error.message,
+          failure: error.failure
+        };
       throw error;
     }
     if (run.status === "succeeded" && run.output !== undefined && processStateId !== undefined) {
@@ -365,6 +385,24 @@ export class RunCoordinator {
       acknowledgeInputs: (through) => store.acknowledgeInputs(runId, through),
       getOutcome: () => store.result(runId)
     };
+  }
+
+  private deferModelFailure(
+    runId: string | undefined,
+    recorder: RunRecorder | undefined,
+    failure: ModelFailure | undefined,
+    signal: AbortSignal
+  ): boolean {
+    if (
+      !runId ||
+      !recorder ||
+      !failure ||
+      signal.aborted ||
+      !this.options.execution?.retryModel(runId, recorder.attemptId, failure)
+    )
+      return false;
+    recorder.retryScheduled();
+    return true;
   }
 
   private async replayOperation(call: ToolCallReplayRequest): Promise<ToolCallReplayResolution> {
@@ -513,7 +551,10 @@ export class RunCoordinator {
             }
           };
           const run = await withAbort(this.options.agent.run(request, context), controller.signal);
-          if (run.status !== "succeeded") throw new Error(run.error ?? "Agent failed");
+          if (run.status !== "succeeded") {
+            if (this.deferModelFailure(intent.runId, recorder, run.failure, controller.signal)) return;
+            throw new Error(run.error ?? "Agent failed");
+          }
           outcome = run.outcome ?? store.result(intent.runId) ?? { kind: "silent" };
         }
         if (!outcome) throw new Error("Execution outcome missing");
@@ -525,6 +566,11 @@ export class RunCoordinator {
         recorder?.emit("execution_completed", { kind: outcome.kind });
       else await delivery.sendIntent(intent, outcome.message, store, controller.signal);
     } catch (error) {
+      if (
+        error instanceof ModelProviderError &&
+        this.deferModelFailure(intent.runId, recorder, error.failure, controller.signal)
+      )
+        return;
       recorder?.fail(
         error instanceof ToolCallRecoveryError ? "uncertain" : "failed",
         "execution_failed",

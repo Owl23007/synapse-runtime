@@ -8,6 +8,7 @@ export class RunRecorder {
   readonly #outcome = new RunOutcome();
   #sequence = 0;
   #writeFailed = false;
+  #retryScheduled = false;
 
   /** 在开始执行前持久化本次尝试身份 */
   constructor(
@@ -61,6 +62,7 @@ export class RunRecorder {
 
   /** 仅在执行与发送均结束后生成终态，未决动作必须保守处理 */
   finish(): void {
+    if (this.#retryScheduled) return;
     if (this.#writeFailed) this.#outcome.fail("uncertain", "trace_write_failed", "运行事实写入失败，请核对外部结果");
     const { status, error } = this.#outcome.result();
     const type: AppendRunEventInput["type"] =
@@ -81,5 +83,10 @@ export class RunRecorder {
       attemptId: this.attemptId,
       ...(error === undefined ? {} : { error })
     });
+  }
+
+  /** 执行层已原子提交退避和中断事实，记录器不再覆盖该 Attempt 的结果 */
+  retryScheduled(): void {
+    this.#retryScheduled = true;
   }
 }
