@@ -3,6 +3,37 @@ mode = "local"
 dataDir = "~/.synapse/runtime"
 logLevel = "info"
 
+[runtime.limits]
+maxConcurrent = 2
+maxQueued = 32
+runTimeoutMs = 180000
+toolTimeoutMs = 60000
+shutdownGraceMs = 15000
+
+# 自主工作继承有限授权，重启不会刷新累计额度
+[autonomy]
+enabled = true
+pollIntervalMs = 1000
+maxPendingIntents = 64
+maxAttempts = 2
+maxRunsPerHour = 30
+maxRunsPerGrant = 12
+maxModelCallsPerRun = 8
+maxToolCallsPerRun = 16
+maxTasks = 16
+maxTaskDepth = 3
+maxSchedules = 8
+maxScheduleOccurrences = 12
+maxScheduleLifetimeHours = 72
+minScheduleIntervalMs = 300000
+maxContextCommits = 500
+maxRecordChars = 32000
+# 派生历史由管理员显式清理，未触发消息按 TTL 自动淘汰
+retentionHours = 168
+observationTtlMinutes = 30
+maxObservationsPerSession = 64
+maxDatabaseBytes = 536870912
+
 [server]
 # 首次部署仅监听本机；接收远程 Webhook 时显式配置监听地址与访问控制
 host = "127.0.0.1"
@@ -21,6 +52,7 @@ logBufferSize = 300
 [context]
 enabled = true
 maxHistoryChars = 6000
+maxTotalChars = 24000
 timezone = "Asia/Shanghai"
 privateHistoryTtlMinutes = 720
 groupHistoryTtlMinutes = 30
@@ -33,6 +65,12 @@ strategy = "default"
 
 [context.cache]
 enabled = true
+
+[agentLoop]
+maxSteps = 8
+maxToolCalls = 16
+maxInputChars = 64000
+maxOutputTokens = 4096
 
 [locale]
 # Built-in messages support zh-CN and en. Resource paths are relative to this configuration file and support ~.
@@ -150,6 +188,7 @@ enabled = false
 riskLevel = "low"
 
 [permissions]
+"runtime.manage" = "allow"
 "channel.qq.send_group_message" = "allow"
 "channel.qq.send_channel_message" = "allow"
 "channel.qq.send_private_message" = "allow"
