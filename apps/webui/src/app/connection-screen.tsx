@@ -191,7 +191,7 @@ export function ConnectionScreen({
             <span>Synapse</span>
           </a>
           <h1>连接 Runtime</h1>
-          <p>连接服务，进入你的工作空间</p>
+          <p>用突触传递信息，用连接构建未来</p>
         </header>
         <form onSubmit={submit} aria-busy={busy}>
           <fieldset disabled={busy}>

@@ -470,7 +470,6 @@ function Discover({
                   </select>
                 </label>
               )}
-              <p className="muted">第三方内容与扫描结果不代表安全认证。安装不会执行脚本，也不会自动为工作区授予权限</p>
               <button
                 className="primary"
                 disabled={busy || !version}

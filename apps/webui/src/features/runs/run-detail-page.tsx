@@ -294,9 +294,6 @@ export function RunDetail({
                     </dl>
                     <h3>记录内容</h3>
                     <Json value={event.data} />
-                    <p className="hint">
-                      内容已按服务端策略脱敏与限长。缺失的 usage、耗时或历史字段表示未记录，不代表零。
-                    </p>
                   </>
                 ) : (
                   <Empty title="选择一个事件" text="检查模型输入输出、工具参数和执行结果" />
@@ -319,8 +316,6 @@ function Context({ load, revision }: { load: () => Promise<unknown>; revision: n
         <Loading />
       ) : context.available ? (
         <>
-          <h2>本次执行实际使用的上下文</h2>
-          <p className="muted">此快照在执行时保存，后续引用变动不会改变这里的内容。</p>
           <Json value={context.snapshot} />
         </>
       ) : (
