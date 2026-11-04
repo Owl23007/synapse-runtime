@@ -7,9 +7,6 @@ import { PageBoundary } from "./page-boundary.js";
 const Workspace = lazy(() =>
   import("../features/workspace/workspace-page.js").then((module) => ({ default: module.Workspace }))
 );
-const Overview = lazy(() =>
-  import("../features/runs/overview-page.js").then((module) => ({ default: module.Overview }))
-);
 const Runs = lazy(() => import("../features/runs/runs-page.js").then((module) => ({ default: module.Runs })));
 const RunDetail = lazy(() =>
   import("../features/runs/run-detail-page.js").then((module) => ({ default: module.RunDetail }))
@@ -50,9 +47,6 @@ export function AppRouter({ route, client, revision }: ViewProps & { route: AppR
           initialLine={route.query.get("line") ?? ""}
         />
       );
-      break;
-    case "overview":
-      page = <Overview client={client} revision={revision} />;
       break;
     case "runs":
       page = route.id ? (
