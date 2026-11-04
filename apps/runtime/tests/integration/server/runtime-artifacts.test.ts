@@ -302,23 +302,11 @@ describe("群聊 DAG 容器工件闭环", () => {
     }
   }, 30_000);
 
-  it("配置文件链路保留容器限额，默认关闭并拒绝模型可用的宿主参数", async () => {
+  it("配置文件默认关闭容器并拒绝模型可用的宿主参数", async () => {
     expect(parseConfigObject({}).container.enabled).toBe(false);
     expect(() => parseConfigObject({ container: { enabled: true, mounts: ["/"] } })).toThrow();
     const config = await loadConfigFile(resolve("../../examples/minimal.config.toml"));
     expect(config.container.enabled).toBe(false);
-    const example = await loadConfigFile(resolve("../../examples/group-artifacts.config.toml"), {
-      env: {
-        MODEL_BASE_URL: "https://model.invalid/v1",
-        MODEL_API_KEY: "test",
-        MODEL_NAME: "test",
-        NAPCAT_WS_URL: "ws://localhost:3001",
-        NAPCAT_TOKEN: "test",
-        QQ_BOT_ID: "123"
-      }
-    });
-    expect(example.container).toMatchObject({ enabled: true, image: "synapse-artifacts:0.1" });
-    expect(example.permissions["channel.qq.upload_group_file"]).toBe("allow");
   });
 
   it("上传回执跨重启去重，开始上传后崩溃不会再次调用平台", async () => {

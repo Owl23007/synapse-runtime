@@ -4,7 +4,7 @@
 
 当前处于原型阶段，已支持持久运行追踪、原生 WebUI 会话、上下文 DAG 与群聊工件链路，持续完善执行、观察、恢复和交付体验
 
-现有群聊工件能力支持从群聊需求出发，在本地容器中生成工件并直接上传群文件，后续对话可读取历史结果。部署步骤见下文[创建部署配置](#创建部署配置)与 `examples/group-artifacts.config.toml`；版本阶段见[通往 1.0 的路线图](docs/roadmap.md)
+现有群聊工件能力支持从群聊需求出发，在本地容器中生成工件并直接上传群文件，后续对话可读取历史结果。部署步骤见下文[创建部署配置](#创建部署配置)；版本阶段见[通往 1.0 的路线图](docs/roadmap.md)
 
 ## 开始使用
 
@@ -25,7 +25,10 @@ node apps/runtime/dist/cli.js start --config examples/minimal.config.toml
 - 在「会话工作台」创建本地会话，发送消息调用当前配置的 Agent，无需接入 QQ
 - 在「上下文 DAG」选择历史节点，查看关联运行，创建分支后继续对话
 - 在分支中「比较与合并」，确认后将结构化结果发布到主线；并发修改会提示刷新
-- 在「工件」下载生成文件，在「系统状态」管理频道、取消活动任务或重载配置
+- 在「工件」下载生成文件，在「系统设置」管理频道、取消活动任务或重载配置
+- 在「系统设置 → 应用配置」按分组编辑模型、频道、工具、权限和运行参数，使用开关、下拉框或列表增删控件修改选项，保存到 Runtime 启动时使用的 TOML、YAML 或 JSON 文件
+
+配置保存后点击「应用配置」重载；监听地址、端口、日志级别等需要重启的改动会单独提示。密钥保持脱敏，未修改的环境变量占位符保留原值；并发修改会提示重新读取。保存会重新序列化文件，原有注释和排版不会保留。环境变量、用户配置和命令行覆盖仍按原有优先级生效
 
 最小配置使用 echo Agent；执行模型与容器工具需在 Runtime 配置中启用对应能力及权限。开发界面可执行 `pnpm webui:dev`；界面交互与布局在本地手动验收
 
@@ -43,8 +46,6 @@ cp .env.example .env
 `runtime.config.toml` 同时管理普通交互和自主执行。完整示例已包含 `[runtime.limits]`、`[autonomy]`、`[context]` 和 `[agentLoop]` 的有限预算，约束说明见[自主执行与数据维护](docs/autonomous-runtime.md)
 
 编辑 `.env`，填写所选示例引用的必填变量。完整示例引用 `QWEN_API_KEY`、`QQ_BOT_APP_ID` 与 `QQ_BOT_APP_SECRET`；频道禁用时仍会校验其配置。首次启动默认仅监听本机且不启用频道，填写凭据、端点和触发条件后再将需要的频道设为 `enabled = true`。接收远程 Webhook 时须显式调整 Gateway 监听地址与访问控制。
-
-群聊工件部署可将第一条复制命令的源文件改为 `examples/group-artifacts.config.toml`，其余资源复制步骤相同；填写 `MODEL_BASE_URL`、`MODEL_API_KEY`、`MODEL_NAME`、`NAPCAT_WS_URL`、`NAPCAT_TOKEN` 和 `QQ_BOT_ID`，并预先构建示例指定的容器镜像。
 
 ```bash
 node apps/runtime/dist/check.js config runtime.config.toml --env-file .env

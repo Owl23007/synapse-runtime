@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import { readRawConfigFile, writeRawConfigFile } from "@synapse/runtime-config/node";
 import { parseConfigObject } from "./loader.js";
-
-const writes = new Map<string, Promise<void>>();
+import { enqueueConfigFileEdit } from "./file-edits.js";
 
 /** 可安全返回给管理客户端的配置编辑错误，不包含配置值 */
 export class ChannelConfigEditError extends Error {
@@ -40,27 +39,15 @@ async function editChannel(
     throw new ChannelConfigEditError("invalid_channel_config");
   const key = resolve(path);
   // 同一文件的读改写排队，避免两个管理请求互相覆盖
-  const write = persistChannel(writes.get(key), key, id, value, add);
-  writes.set(key, write);
-  try {
-    await write;
-  } finally {
-    if (writes.get(key) === write) writes.delete(key);
-  }
+  await enqueueConfigFileEdit(key, () => persistChannel(key, id, value, add));
 }
 
 async function persistChannel(
-  previous: Promise<void> | undefined,
   key: string,
   id: string,
   value: Readonly<Record<string, unknown>>,
   add: boolean
 ): Promise<void> {
-  try {
-    await previous;
-  } catch {
-    /* 前一次编辑失败不阻塞后续有效写入 */
-  }
   const raw = await readRawConfigFile(key);
   if (!isRecord(raw) || (raw.channels !== undefined && !isRecord(raw.channels)))
     throw new ChannelConfigEditError("invalid_channel_config");

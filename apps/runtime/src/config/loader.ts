@@ -16,6 +16,8 @@ import { createApplicationConfigManager, readApplicationConfig } from "./manager
 
 /** 加载并规范化运行时配置 */
 export interface LoadConfigOptions {
+  /** 预览文件修改时替代部署层输入，仍执行其他来源合并与完整校验 */
+  readonly deploymentConfig?: Record<string, unknown>;
   readonly frameworkConfig?: Record<string, unknown>;
   readonly workspaceConfigPath?: string;
   readonly userConfigPath?: string;
@@ -46,10 +48,15 @@ export async function loadConfigFile(filePath: string, options: LoadConfigOption
     id,
     priority,
     async load() {
-      const raw = expandEnv(parseRawConfig(initial ?? (await readFile(path, "utf8")), path), {
-        env,
-        ...(options.allowUndefinedEnv === undefined ? {} : { allowUndefined: options.allowUndefinedEnv })
-      });
+      const raw = expandEnv(
+        initial !== undefined && options.deploymentConfig !== undefined
+          ? options.deploymentConfig
+          : parseRawConfig(initial ?? (await readFile(path, "utf8")), path),
+        {
+          env,
+          ...(options.allowUndefinedEnv === undefined ? {} : { allowUndefined: options.allowUndefinedEnv })
+        }
+      );
       if (raw === null || typeof raw !== "object" || Array.isArray(raw))
         throw new Error("Configuration must be an object");
       return { modules: normalizeSourcePaths(raw as Record<string, unknown>, dirname(resolve(path))) };

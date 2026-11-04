@@ -18,9 +18,12 @@ import type { ExecutionStore } from "@synapse/runtime-core/execution";
 import type { RuntimeWorkspace } from "@synapse/runtime-core/workspace";
 import type { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { addChannelConfigFile, updateChannelConfigFile, ChannelConfigEditError } from "../../config/channel-editor.js";
+import type { LoadConfigOptions } from "../../config/loader.js";
+import { registerConfigRoutes } from "./config-routes.js";
 
 /** 管理 API 所需的宿主能力与配置入口 */
 export interface AdminRouteDeps {
+  readonly configLoadOptions?: LoadConfigOptions | undefined;
   readonly getExecutionStore?: () => ExecutionStore | undefined;
   readonly resources?: Omit<AssetRouteDeps, "app">;
   readonly capabilities?: Omit<CapabilityRouteDeps, "app">;
@@ -69,6 +72,7 @@ export function registerAdminRoutes(deps: AdminRouteDeps): void {
 
     next();
   });
+  registerConfigRoutes(deps);
   registerRunRoutes({
     app: deps.app,
     getInspection: deps.getInspection ?? (() => undefined),
