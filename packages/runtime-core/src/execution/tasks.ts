@@ -9,14 +9,21 @@ export function createTaskStorage(context: ExecutionStorageContext & Pick<Execut
     /** 模型只创建自己授权域内的目标，父子深度和数量有硬上限 */
     createTask(
       grant: ExecutionGrant,
-      input: { key: string; goal: string; acceptance: string; parentId?: string }
+      input: { key: string; goal: string; acceptance: string; parentId?: string; lineId?: string }
     ): Task {
       context.authorize(grant.id);
       context.checkText(input.goal);
       context.checkText(input.acceptance);
       return context.db
         .transaction(() => {
-          const id = keyId("task", [grant.workspaceId, grant.principalId, input.key]);
+          // 会话内的模型键只承担局部幂等，不能碰撞到同一主体的其他会话
+          const creationKey = grant.sessionId ? keyId("task-key", [grant.sessionId, input.key]) : input.key;
+          const id = keyId("task", [
+            grant.workspaceId,
+            grant.principalId,
+            ...(grant.sessionId ? [grant.sessionId] : []),
+            input.key
+          ]);
           const previous = context.db
             .prepare("SELECT creation_request, record FROM agent_tasks WHERE id = ?")
             .get(id) as (Row & { creation_request: string }) | undefined;
@@ -39,6 +46,8 @@ export function createTaskStorage(context: ExecutionStorageContext & Pick<Execut
             id,
             workspaceId: grant.workspaceId,
             principalId: grant.principalId,
+            ...(grant.sessionId ? { sessionId: grant.sessionId } : {}),
+            ...(input.lineId ? { lineId: input.lineId } : {}),
             goal: input.goal,
             acceptance: input.acceptance,
             status: "open",
@@ -54,7 +63,7 @@ export function createTaskStorage(context: ExecutionStorageContext & Pick<Execut
               task.workspaceId,
               task.principalId,
               input.parentId ?? null,
-              input.key,
+              creationKey,
               stable(input),
               stable(task)
             );

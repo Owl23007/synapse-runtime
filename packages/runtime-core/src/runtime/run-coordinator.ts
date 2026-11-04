@@ -464,9 +464,18 @@ export class RunCoordinator {
                     priority: 100,
                     content: JSON.stringify({
                       workspace: getWorkspace?.(intent.workspaceId),
-                      task,
-                      policy: "后台执行默认静默；需要通知或等待时调用 runtime.finish；通知仅发送到已授权来源"
+                      executionMode: "background",
+                      outputPolicy: "默认静默，通知仅发送到已授权来源"
                     })
+                  },
+                  {
+                    id: "task-state",
+                    source: "execution-store",
+                    trust: "external" as const,
+                    stability: "turn" as const,
+                    required: true,
+                    priority: 100,
+                    content: JSON.stringify({ task: task ?? null })
                   }
                 ]
               }

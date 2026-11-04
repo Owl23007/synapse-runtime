@@ -38,9 +38,26 @@ export function createExecutionTools(store: ExecutionStore, graph: ContextGraph)
     if (!intent || intent.state !== "claimed") throw new Error("Trusted execution required");
     store.validateIntent(intent);
     const grant = store.authorize(intent.grantId);
-    if (grant.workspaceId !== context.workspaceId || grant.principalId !== context.userId)
+    if (
+      grant.workspaceId !== context.workspaceId ||
+      grant.principalId !== context.userId ||
+      (grant.sessionId !== undefined && grant.sessionId !== context.sessionId)
+    )
       throw new Error("Execution scope mismatch");
     return { intent, grant, contextScope: grant.sessionId ?? `private:${grant.workspaceId}:${grant.principalId}` };
+  };
+  const unavailableReason = (context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">) => {
+    const intent = store.forRun(context.runId);
+    if (!intent) return "execution_intent_missing";
+    if (intent.state !== "claimed") return "execution_intent_not_claimed";
+    try {
+      scope(context);
+      return "";
+    } catch (error) {
+      return error instanceof Error && error.message === "Execution scope mismatch"
+        ? "execution_scope_mismatch"
+        : "execution_authorization_invalid";
+    }
   };
   const define = <T extends z.ZodType>(
     name: string,
@@ -53,7 +70,8 @@ export function createExecutionTools(store: ExecutionStore, graph: ContextGraph)
     inputSchema: z.toJSONSchema(schema),
     effect: "transactional",
     permission: { action: "runtime.manage", resource: "execution" },
-    available: (context) => store.forRun(context.runId)?.state === "claimed",
+    available: (context) => unavailableReason(context) === "",
+    unavailableReason,
     handle: async (input, context) => {
       scope(context);
       return store.transactionalTool(context.callId!, () => handle(schema.parse(input), context));
@@ -68,9 +86,13 @@ export function createExecutionTools(store: ExecutionStore, graph: ContextGraph)
     ),
     define(
       "task.create",
-      "需要跨运行持续目标时创建任务，普通问答无需任务",
+      "用户要求跨运行持续目标时创建任务，依据成功回执确认创建；长期目标不等于定时计划，不能擅自添加调度",
       z.object({ key: id, goal: text, acceptance: text, parentId: id.optional() }).strict(),
-      (input, context) => store.createTask(scope(context).grant, defined(input))
+      (input, context) =>
+        store.createTask(scope(context).grant, {
+          ...defined(input),
+          ...(context.lineId ? { lineId: context.lineId } : {})
+        })
     ),
     define("task.list", "列出当前主体有权读取的持久目标", z.object({}).strict(), (_input, context) =>
       store.listTasks(scope(context).grant)

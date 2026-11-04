@@ -15,6 +15,10 @@ export interface ExecutionGrant {
 
 /** 可多次推进的持久目标，与 executor 作业和 Run 终态独立 */
 export interface Task {
+  /** 创建任务的会话线路，分支恢复时不混入主线目标 */
+  readonly lineId?: string;
+  /** 创建会话仅用于上下文相关性和幂等隔离，授权仍由工作区与主体决定 */
+  readonly sessionId?: string;
   /** 完成本次目标修订的运行，用于允许其结束交付而不复活其他旧运行 */
   readonly completedByRunId?: string;
   readonly id: string;

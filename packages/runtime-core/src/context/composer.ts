@@ -14,7 +14,11 @@ import { formatZonedTimestamp } from "./time.js";
 import type { RuntimeActor, WorkspaceRef } from "./types.js";
 import type { MemoryStore } from "../memory/types.js";
 import type { ContextGraph } from "../context-graph/index.js";
+import type { AgentRequest } from "@synapse/runtime-conversation";
+import type { ExecutionStore } from "../execution/store.js";
+import { getTextContent } from "@synapse/runtime-protocol";
 
+/** 组合历史、版本与记忆所需的可信存储及预算 */
 export interface ContextComposerOptions {
   /** 分支只采用显式选定版本的完整快照，不回溯执行轨迹 */
   readonly graph?: ContextGraph;
@@ -27,6 +31,7 @@ export interface ContextComposerOptions {
   readonly cacheEnabled?: boolean;
 }
 
+/** 将运行环境与低信任的历史、版本和记忆分层组合 */
 export class ContextComposer {
   readonly #graph: ContextGraph | undefined;
   readonly #transcriptStore: TranscriptStore;
@@ -140,6 +145,88 @@ export class ContextComposer {
     };
   }
 
+  /** 按实际工具权限恢复同会话目标和显式相关版本，不重放历史工具动作 */
+  executionSections(request: AgentRequest, store: ExecutionStore): readonly PromptContextSection[] {
+    const intent = request.runId ? store.forRun(request.runId) : undefined;
+    if (!intent || intent.state !== "claimed") return [];
+    store.validateIntent(intent);
+    const grant = store.authorize(intent.grantId);
+    if (
+      grant.workspaceId !== request.workspaceId ||
+      grant.principalId !== request.userId ||
+      (grant.sessionId !== undefined && grant.sessionId !== request.sessionId)
+    )
+      throw new Error("Execution scope mismatch");
+    const tools = new Set(request.invocation?.capabilities.toolIds);
+    const sections: PromptContextSection[] = [];
+    const tasks = tools.has("task.list")
+      ? store
+          .listTasks(grant)
+          .filter(
+            (task) =>
+              task.id === request.taskId ||
+              (task.sessionId === request.sessionId &&
+                (task.lineId === request.lineId || (!task.lineId && !request.branchId)) &&
+                (task.status === "open" || task.status === "paused"))
+          )
+          .slice(0, 5)
+          .map(({ id, revision, goal, acceptance, progress, status }) => ({
+            id,
+            revision,
+            goal,
+            acceptance,
+            progress,
+            status
+          }))
+      : [];
+    const text = getTextContent(request.input);
+    const continuing = /继续|接着|恢复|上次|昨天|continue|resume/i.test(text);
+    // 分支已经选择独立的快照，不能把主线的最新 Head 悄悄加回分支
+    const refs =
+      tools.has("context.refs") && !request.branchId
+        ? store
+            .contextRefs(grant.sessionId ?? `private:${grant.workspaceId}:${grant.principalId}`)
+            .filter((ref) => !ref.name.startsWith("line:") || ref.name === `line:${request.lineId}`)
+            .slice(0, 8)
+        : [];
+    const relevantRefs = refs.filter((ref) => text.includes(ref.name) || text.includes(ref.commitId) || continuing);
+    const snapshots = tools.has("context.read")
+      ? relevantRefs
+          .filter(
+            (ref) =>
+              text.includes(ref.name) ||
+              text.includes(ref.commitId) ||
+              (continuing &&
+                (ref.name === `line:${request.lineId}` ||
+                  (!ref.name.startsWith("line:") &&
+                    relevantRefs.filter((item) => !item.name.startsWith("line:")).length === 1)))
+          )
+          .map((ref) => {
+            const commit = this.#graph?.getCommit(
+              grant.sessionId ?? `private:${grant.workspaceId}:${grant.principalId}`,
+              ref.commitId
+            );
+            return commit ? { ...ref, content: commit.content } : ref;
+          })
+      : [];
+    if (tasks.length || relevantRefs.length)
+      sections.push({
+        id: "execution-state",
+        blocks: [
+          {
+            id: "persistent-state",
+            source: "execution-store",
+            trust: "external",
+            stability: "turn",
+            required: false,
+            priority: 85,
+            content: JSON.stringify({ tasks, contextRefs: relevantRefs, snapshots })
+          }
+        ]
+      });
+    return sections;
+  }
+
   async #composeMemories(
     input: {
       readonly actor: RuntimeActor;
@@ -189,7 +276,9 @@ export class ContextComposer {
         branch.contextSnapshot && typeof branch.contextSnapshot === "object"
           ? (branch.contextSnapshot as Record<string, unknown>).contextCommitId
           : undefined;
-      const checkpoint = typeof source === "string" ? this.#graph?.getCommit(input.sessionId, source) : undefined;
+      const head = this.#graph?.getRef(input.sessionId, `line:${branch.id}`);
+      const commitId = head?.commitId ?? source;
+      const checkpoint = typeof commitId === "string" ? this.#graph?.getCommit(input.sessionId, commitId) : undefined;
       return JSON.stringify({
         kind: "branch",
         id: branch.id,
@@ -272,6 +361,7 @@ function buildContextSections(input: {
       blocks: [
         {
           id: "line-state",
+          trust: "external",
           source: "conversation-store",
           stability: "session",
           required: false,
@@ -288,6 +378,7 @@ function buildContextSections(input: {
       blocks: [
         {
           id: "durable-memory",
+          trust: "external",
           source: "memory-store",
           stability: "workspace",
           required: false,

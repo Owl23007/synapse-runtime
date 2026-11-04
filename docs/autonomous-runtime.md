@@ -4,6 +4,14 @@
 
 自主执行与普通对话共用 `runtime.config.toml`。完整部署示例 `examples/runtime.config.toml` 包含执行容量、自主额度、上下文和模型循环配置，沿用同一份模型提供者、权限及 Prompt Bundle；无需额外加载自主配置文件
 
+显式配置 `permissions` 会整体替换默认权限表。需要模型管理目标时必须保留 `"runtime.manage" = "allow"`；读取资源和 Skill 分别需要 `asset.read` 与 `skill.read`，Runtime 不会因用户说“创建任务”而自动扩权。每轮编译生成 `tool_visibility_resolved` 审计，记录 registered、available、allowed、exposed 工具及 availability、permission、compilation 阶段的拒绝原因；管理员可通过 Run 事件检查，完整权限细节不进入模型上下文
+
+Prompt Bundle 的 `whenTools` 声明任一匹配工具可见时才加载的策略，匹配发生在 Skill 收窄工具集合之后。文件生成和交付约束保留在对应工具说明中。Recipe 的 `platform` 与 `conversationKind` 维度分别选择 Native 等入口和私聊、群聊场景；全局人格只描述表达风格，群友互动等场景措辞应放到群聊维度
+
+目标保存创建 Session 和 Line，相同模型键在不同 Session 中独立幂等。后续输入可恢复同会话、同线路的未结束目标；继续工作时选择当前线路 Head 和相关命名 Ref，多份候选保留索引供显式选择。分支继续使用已选快照，不混入主线的最新 Head。旧目标仍可通过任务工具显式读取，不从聊天文本猜测其创建会话
+
+历史、记忆、任务状态、文件候选和第三方 Skill 作为低优先级数据呈现，不能声明运行时权限或指令层级。文件候选仅在本轮附件、回复或文件引用相关且 `asset.read` 实际暴露时加入，继续工作不会重放历史工具动作
+
 ## 上限
 
 下表是未配置时的内置默认值。完整部署示例显式采用更保守的值：每小时 30 次 Run、每份授权累计 12 次 Run、最多 2 次尝试、16 个目标、8 个计划、72 小时授权寿命和每作用域 500 个上下文版本
