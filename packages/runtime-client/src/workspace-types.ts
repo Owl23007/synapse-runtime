@@ -25,6 +25,8 @@ export interface WorkspaceBranch {
 
 /** 持久消息保留会话线事件标识，关联上下文图时不混用提交标识 */
 export interface WorkspaceMessage {
+  /** 对应运行用于替换生成中的回复，历史消息允许缺失 */
+  readonly runId?: string;
   readonly id: string;
   readonly sequence: number;
   readonly type: string;

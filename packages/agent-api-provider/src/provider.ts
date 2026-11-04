@@ -2,6 +2,7 @@ import type { ChatCompletionProvider, ChatCompletionRequest, ChatCompletionResul
 import type { FetchInitLike, FetchLike, FetchResponseLike, OpenAiCompatibleChatProviderOptions } from "./types.js";
 import { messageForProvider, parseToolCalls, parseUsage, toolChoiceForProvider } from "./protocol-mapper.js";
 import { ModelProviderError } from "@synapse/runtime-agent-core";
+import { readChatStream } from "./stream-response.js";
 interface ChatCompletionResponse {
   readonly choices?: readonly {
     readonly message?: {
@@ -58,7 +59,7 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
     this.#fetch = options.fetch ?? defaultFetch;
   }
 
-  /** 调用聊天完成接口 */
+  /** 按需订阅正文流，兼容网关返回的完整 JSON 响应 */
   async complete(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
@@ -105,7 +106,8 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
           }),
       ...(temperature === undefined ? {} : { temperature }),
       ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
-      ...(topP === undefined ? {} : { top_p: topP })
+      ...(topP === undefined ? {} : { top_p: topP }),
+      ...(request.onTextDelta ? { stream: true, stream_options: { include_usage: true } } : {})
     };
     const serialized = JSON.stringify(body);
     if (serialized.length > this.#maxRequestChars)
@@ -135,6 +137,10 @@ export class OpenAiCompatibleChatProvider implements ChatCompletionProvider {
         "http",
         [408, 429].includes(response.status) || (response.status >= 500 && response.status <= 599)
       );
+    }
+    if (response.headers?.get("content-type")?.includes("text/event-stream")) {
+      if (!response.body) throw new Error("模型流响应缺少正文");
+      return readChatStream(response.body, request, signal);
     }
     const responseBody = (await response.json()) as ChatCompletionResponse;
 

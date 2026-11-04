@@ -99,6 +99,15 @@ export class ApiChatAgent implements Agent {
           ...(toolDefinitions.length === 0 ? {} : { tools: toolDefinitions, toolChoice: "auto" as const })
         };
         let result: ChatCompletionResult;
+        let streamedContent = "";
+        let publishedLength = 0;
+        let publishedAt = 0;
+        const publishText = async (force = false) => {
+          if (streamedContent.length === publishedLength || (!force && Date.now() - publishedAt < 200)) return;
+          await context?.observeModel?.({ ...metadata, type: "model_output", data: { content: streamedContent } });
+          publishedLength = streamedContent.length;
+          publishedAt = Date.now();
+        };
         try {
           const maxInputChars = Math.min(this.#maxInputChars, context?.maxInputChars ?? this.#maxInputChars);
           if (JSON.stringify(modelRequest).length > maxInputChars)
@@ -111,8 +120,20 @@ export class ApiChatAgent implements Agent {
           // oxlint-disable-next-line no-await-in-loop
           result = await this.#provider.complete({
             ...modelRequest,
+            ...(context?.streamText && context.observeModel
+              ? {
+                  onTextDelta: async (delta: string) => {
+                    // 累积快照独立脱敏，避免按增量拼接时重放重复内容；与 Trace 正文预算保持一致
+                    streamedContent = (streamedContent + delta).slice(0, 12_000);
+                    await publishText();
+                  }
+                }
+              : {}),
             ...(context?.signal ? { signal: context.signal } : {})
           });
+          // 最后一段短文本也需要在完成事件前落盘
+          // oxlint-disable-next-line no-await-in-loop
+          await publishText(true);
           context?.signal?.throwIfAborted();
         } catch (error) {
           // oxlint-disable-next-line no-await-in-loop

@@ -87,6 +87,14 @@ export class RuntimeAdminClient {
     }) as Promise<{ session: WorkspaceSession }>;
   }
 
+  /** 保存原生会话的展示标题 */
+  renameSession(id: string, title: string): Promise<{ session: WorkspaceSession }> {
+    return this.#request(`/admin/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title })
+    }) as Promise<{ session: WorkspaceSession }>;
+  }
+
   /** 在指定会话线上发起真实 Agent 运行，重试沿用原幂等键 */
   submitRun(input: {
     sessionId: string;

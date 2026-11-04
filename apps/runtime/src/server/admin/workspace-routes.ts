@@ -6,7 +6,7 @@ import { readJsonBody, sendJson } from "../http.js";
 /** 注册认证后的工作台传输接口，业务操作由当前运行组合提供 */
 export function registerWorkspaceRoutes(app: Nova, getWorkspace: () => RuntimeWorkspace | undefined): void {
   const route = (
-    method: "get" | "post",
+    method: "get" | "post" | "patch",
     path: string,
     handler: (workspace: RuntimeWorkspace, request: NovaRequest) => Promise<unknown>
   ) => {
@@ -32,6 +32,9 @@ export function registerWorkspaceRoutes(app: Nova, getWorkspace: () => RuntimeWo
     });
   };
   route("post", "/admin/sessions", (workspace, request) => workspace.createSession(readJsonBody(request)));
+  route("patch", "/admin/sessions/:id", (workspace, request) =>
+    workspace.renameSession(request.params.id ?? "", readJsonBody(request))
+  );
   route("post", "/admin/runs", (workspace, request) => workspace.submitRun(readJsonBody(request)));
   route("get", "/admin/sessions/:id/workspace", (workspace, request) =>
     workspace.getWorkspace(

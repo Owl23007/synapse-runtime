@@ -151,6 +151,7 @@ export class RunCoordinator {
     const recorder = scope.runId === undefined ? undefined : this.recorders.get(scope.runId);
     const attemptId = recorder?.attemptId ?? `agent-attempt-${randomUUID()}`;
     const context: AgentRuntimeContext = {
+      streamText: scope.accepted.session.locator?.platform === "native",
       maxInputChars: this.options.maxContextChars ?? 24_000,
       ...(this.options.execution ? this.executionContext(scope.runId!) : {}),
       signal: controller.signal,

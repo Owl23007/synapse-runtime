@@ -207,6 +207,8 @@ export class RuntimeDelivery {
       actorId: this.options.agentId,
       payload: {
         role: "assistant",
+        // 频道重试可能使用恢复 Run 标识，不能将其写入按消息幂等的载荷
+        ...(input.event.platform === "native" ? { runId: input.runId } : {}),
         message: output,
         text: getText(output)
       }

@@ -18,6 +18,7 @@ export type RunEventType =
   | "context_resolved"
   | "context_committed"
   | "model_call_started"
+  | "model_output"
   | "model_call_succeeded"
   | "model_call_failed"
   | "tool_call_started"
