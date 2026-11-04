@@ -1,0 +1,154 @@
+.config-layout {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+.config-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.config-navigation button {
+  justify-content: flex-start;
+  border-color: transparent;
+  color: var(--muted);
+}
+.config-navigation button[aria-current] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.config-form {
+  min-width: 0;
+}
+.config-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.config-section-heading {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+}
+.config-section-heading p {
+  font-size: var(--text-small);
+}
+.config-fields {
+  display: grid;
+  gap: var(--space-5);
+}
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.config-field-heading,
+.config-optional,
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.config-field-heading {
+  justify-content: space-between;
+}
+.config-field-heading label {
+  color: var(--text);
+  display: inline;
+}
+.config-key,
+.config-optional small,
+.config-group summary small {
+  display: block;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.config-switch {
+  flex-direction: row;
+  align-items: center;
+}
+.config-switch input {
+  width: 32px;
+  min-height: 22px;
+  accent-color: var(--accent);
+}
+.config-optional {
+  justify-content: space-between;
+  border: 1px dashed var(--border);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+}
+.config-group {
+  border: 1px solid var(--border);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+}
+.config-group summary {
+  color: var(--text);
+  margin-bottom: var(--space-4);
+}
+.config-group:not([open]) summary {
+  margin-bottom: 0;
+}
+.config-array-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+}
+.config-add-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+.config-add-entry label {
+  flex: 1;
+  min-width: 120px;
+}
+.config-add-entry [role="alert"] {
+  width: 100%;
+  color: var(--danger);
+}
+.config-footer,
+.config-result {
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+}
+.config-footer small {
+  display: block;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+.config-result p,
+.config-restart {
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+.config-restart {
+  color: var(--warning);
+  margin-top: var(--space-4);
+}
+.config-actions {
+  flex-wrap: wrap;
+}
+@media (max-width: 760px) {
+  .config-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .config-navigation {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+  }
+  .config-navigation button {
+    flex-shrink: 0;
+  }
+  .config-optional {
+    flex-wrap: wrap;
+  }
+}

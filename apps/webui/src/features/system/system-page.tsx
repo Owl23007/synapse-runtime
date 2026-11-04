@@ -6,8 +6,9 @@ import { Json, PageTitle } from "../../shared/ui/content.js";
 import { message, record, time } from "../../shared/lib/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
 import { toast } from "../../shared/lib/toast.js";
+import { ConfigSettings } from "./config-settings.js";
 
-/** 频道与任务入口复用系统管理接口，所有操作后读取服务端真实状态 */
+/** 设置、频道与任务入口复用管理接口，配置表单按选项持久化到文件 */
 export function System({
   client,
   view = "system"
@@ -45,11 +46,12 @@ export function System({
   return (
     <>
       <PageTitle
-        title={view === "channels" ? "频道" : view === "tasks" ? "任务" : "系统状态"}
+        title={view === "channels" ? "频道" : view === "tasks" ? "任务" : "系统设置"}
         description=""
         action={<button onClick={() => setRevision((value) => value + 1)}>刷新</button>}
       />
       <ErrorNotice error={data.error} retry={data.reload} />
+      {view === "system" && <ConfigSettings client={client} onApplied={() => setRevision((value) => value + 1)} />}
       {data.loading && !data.value ? (
         <Loading />
       ) : (
@@ -143,7 +145,7 @@ export function System({
             <section className="panel padded">
               <div className="system-setting">
                 <div>
-                  <h2>应用配置</h2>
+                  <h2>Runtime 管理</h2>
                   <p>从配置文件重新加载</p>
                 </div>
                 <button disabled={!!busy} onClick={() => setConfirmReload(!confirmReload)}>

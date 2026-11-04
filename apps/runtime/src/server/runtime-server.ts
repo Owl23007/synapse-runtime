@@ -201,6 +201,7 @@ export class RuntimeServer {
       app: this.#adminApp,
       getConfig: () => this.#config,
       getConfigPath: () => this.#configPath,
+      configLoadOptions: this.#loadConfigOptions,
       getStartedAt: () => this.#startedAt,
       logBuffer: this.#logBuffer,
       logger: this.#logger,

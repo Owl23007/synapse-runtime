@@ -1,4 +1,5 @@
 export { RuntimeAdminClient } from "./admin-client.js";
+export type { ConfigFieldSchema, ConfigFileChange, ConfigEditorSnapshot, ConfigSaveResult } from "./config-types.js";
 export type {
   ResourceWorkspace,
   AssetInfo,

@@ -414,6 +414,22 @@ export class RuntimeAdminClient {
     return this.#get("/admin/config");
   }
 
+  /** 读取原始配置文件及表单规则，密钥仅返回脱敏标记 */
+  configEditor(): Promise<import("./config-types.js").ConfigEditorSnapshot> {
+    return this.#get("/admin/config/editor") as Promise<import("./config-types.js").ConfigEditorSnapshot>;
+  }
+
+  /** 按文件版本保存选中字段，拒绝覆盖其他客户端或磁盘上的并发修改 */
+  saveConfig(
+    revision: string,
+    changes: readonly import("./config-types.js").ConfigFileChange[]
+  ): Promise<import("./config-types.js").ConfigSaveResult> {
+    return this.#request("/admin/config", {
+      method: "PATCH",
+      body: JSON.stringify({ revision, changes })
+    }) as Promise<import("./config-types.js").ConfigSaveResult>;
+  }
+
   /** 读取频道状态 */
   channels(): Promise<unknown> {
     return this.#get("/admin/channels");
