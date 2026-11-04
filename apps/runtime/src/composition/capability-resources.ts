@@ -239,6 +239,12 @@ export class CapabilityResources {
     return this.service
       .enabled(request.workspaceId, request.runId)
       .filter((install) => install.kind === "skill")
+      .filter((install) => {
+        if (visibleTools?.includes("skill.read")) return true;
+        if (request.requestedSkillIds?.includes(install.id))
+          throw new ResourceOperationError(403, "skill_read_forbidden");
+        return false;
+      })
       .map((install) => {
         if (request.requestedSkillIds?.includes(install.id)) {
           const required = this.service.store

@@ -44,7 +44,7 @@ export function createDockerTool(settings: DockerToolSettings, command: DockerCo
   return {
     name: "docker.run",
     description:
-      "在隔离 Docker 容器中实际执行 shell 命令，工作目录 /workspace，包含 Python、python-pptx、Pillow、openpyxl、reportlab、matplotlib。每次调用是全新容器，无网络，不保留文件。把需交付的相对文件路径写入 artifacts（图片标记 image）；成功生成的文件会自动附加到本轮回复，不能用文件名或假装已发送代替。",
+      "在隔离 Docker 容器中实际执行 shell 命令，工作目录 /workspace，包含 Python、python-pptx、Pillow、openpyxl、reportlab、matplotlib。每次调用是全新容器，无网络，不保留文件。把需交付的相对文件路径写入 artifacts（图片标记 image）；成功生成的文件会自动附加到本轮回复，不能用文件名或假装已发送代替。生成与交付分别确认，只有交付回执成功后才能声称已发送；交付结果未知时请用户核对，不得重新生成或更换调用身份规避未知结果。",
     permission: { action: "execution.docker.run", resource: config.image },
     inputSchema: {
       type: "object",

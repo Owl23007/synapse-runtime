@@ -55,6 +55,22 @@ export class ToolRuntime implements ToolRuntimeView {
     return [...this.#tools.values()].filter((tool) => tool.available?.(context) ?? true);
   }
 
+  /** 检查全部注册工具的作用域可见性，保留被过滤原因供宿主审计 */
+  inspectForContext(context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">): readonly {
+    readonly tool: Tool;
+    readonly available: boolean;
+    readonly reason?: string;
+  }[] {
+    return [...this.#tools.values()].map((tool) => {
+      const available = tool.available?.(context) ?? true;
+      return {
+        tool,
+        available,
+        ...(available ? {} : { reason: tool.unavailableReason?.(context) ?? "workspace_capability_unavailable" })
+      };
+    });
+  }
+
   /** 有界等待受控工具清理，返回仍未结束的处理器数量以便宿主告警 */
   async drain(timeoutMs = 15_000): Promise<number> {
     if (this.#handlers.size === 0) return 0;

@@ -16,6 +16,7 @@ export type RunEventType =
   | "run_uncertain"
   | "run_interrupted"
   | "context_resolved"
+  | "tool_visibility_resolved"
   | "context_committed"
   | "model_call_started"
   | "model_output"

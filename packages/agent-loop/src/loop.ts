@@ -66,14 +66,15 @@ export class ApiChatAgent implements Agent {
     }));
     const structuredContextMessages = renderContextSections(request.promptContext?.sections);
     const compiledPromptMessages = request.invocation.prompt.blocks.map((block) => ({
-      role: "system" as const,
-      content: block.content
+      role: block.trust === "external" ? ("user" as const) : ("system" as const),
+      content:
+        block.trust === "external" ? JSON.stringify({ source: block.promptId, data: block.content }) : block.content
     }));
     const messages: ChatCompletionMessage[] = [
       ...compiledPromptMessages,
       ...structuredContextMessages,
       ...(request.promptContext?.messages.map((message) => ({
-        role: message.role,
+        role: message.role === "system" ? ("user" as const) : message.role,
         content: message.content
       })) ?? []),
       { role: "user", content: userText }
@@ -299,7 +300,13 @@ function renderContextSections(
       }))
     )
     .toSorted(compareContextBlocks)
-    .map(({ block }) => ({ role: "system" as const, content: block.content }));
+    .map(({ block }) => ({
+      role: block.trust === "external" ? ("user" as const) : ("system" as const),
+      content:
+        block.trust === "external"
+          ? JSON.stringify({ source: block.source, id: block.id, data: block.content })
+          : block.content
+    }));
 }
 
 function compareContextBlocks(

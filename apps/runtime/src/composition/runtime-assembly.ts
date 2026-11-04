@@ -2,6 +2,7 @@ import { recoverArtifactToolOutput } from "@synapse/runtime-core/artifacts";
 import { RuntimeInspection } from "@synapse/runtime-core/inspection";
 import { type LocaleResolver } from "@synapse/runtime-i18n";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { ChannelRegistry } from "@synapse/runtime-channel";
 import type { ChannelConfig, RuntimeConfig } from "../config/index.js";
 import { ConversationRouter, type AgentRequest, type ModelInvocationEnvelope } from "@synapse/runtime-conversation";
@@ -20,7 +21,7 @@ import { registerContainerTools } from "./container-tools.js";
 import { createFileResources } from "./file-resources.js";
 import { createAssetTools } from "./asset-tools.js";
 import { CapabilityResources } from "./capability-resources.js";
-import { canUploadGroupFile } from "./channel-delivery.js";
+import { resolveVisibleTools, completeToolVisibilityAudit, type ToolVisibilityAudit } from "./tool-visibility.js";
 import { collectTraceSecrets } from "../secrets.js";
 import { ArtifactDeliveryStore } from "../infrastructure/artifact-delivery.js";
 import { createExecutionTools } from "@synapse/runtime-core/execution";
@@ -130,7 +131,21 @@ export function createRuntimeAssembly(options: RuntimeFactoryOptions): RuntimeAs
       ...(options.containerRunner === undefined ? {} : { runner: options.containerRunner })
     });
     capabilityResources = new CapabilityResources(options.config, contextStore, tools);
-    const compileInvocation = createInvocationCompiler(options.config, tools, options.channels, capabilityResources);
+    const compileInvocation = createInvocationCompiler(
+      options.config,
+      tools,
+      options.channels,
+      capabilityResources,
+      (audit) => {
+        options.logger.info("Runtime tool visibility resolved.", { ...audit });
+        if (audit.runId && contextStore.runs.get(audit.runId))
+          contextStore.runs.append(audit.runId, {
+            key: `tool-visibility:${randomUUID()}`,
+            type: "tool_visibility_resolved",
+            data: audit
+          });
+      }
+    );
     for (const tool of createExecutionTools(contextStore.execution, contextStore.contextGraph)) tools.register(tool);
     const runtime = new RuntimeCore({
       execution: contextStore.execution,
@@ -225,7 +240,8 @@ function createInvocationCompiler(
   config: RuntimeConfig,
   tools: ToolRuntime,
   channels: ChannelRegistry,
-  capabilities: CapabilityResources
+  capabilities: CapabilityResources,
+  reportAudit: (audit: ToolVisibilityAudit) => void
 ): (request: AgentRequest) => Promise<ModelInvocationEnvelope | undefined> {
   if (
     !config.prompts.enabled ||
@@ -234,6 +250,8 @@ function createInvocationCompiler(
   ) {
     return async (request) => {
       await capabilities.prepare(request);
+      const { audit } = await resolveVisibleTools(request, tools, channels);
+      reportAudit(completeToolVisibilityAudit(audit, []));
       capabilities.pin(request);
       return undefined;
     };
@@ -248,50 +266,30 @@ function createInvocationCompiler(
   }
   return async (request) => {
     await capabilities.prepare(request);
-    const visibleTools = (
-      await Promise.all(
-        tools
-          .listForContext({
-            sessionId: request.sessionId,
-            userId: request.userId,
-            runId: request.runId ?? "",
-            ...(request.workspaceId ? { workspaceId: request.workspaceId } : {})
-          })
-          .map(async (tool) => {
-            // 原生会话直接下载本地工件，外部频道仍需具备真实的群文件交付能力
-            if (
-              ((tool.name === "container.run" && request.source.platform !== "native") ||
-                tool.name === "artifact.upload") &&
-              (request.source.conversationKind !== "group" ||
-                !canUploadGroupFile(channels.get(request.source.channelId)))
-            )
-              return undefined;
-            // 动态权限依赖模型生成的参数，只能在实际调用时最终判断
-            if (typeof tool.permission === "function") return tool;
-            const decision = await tools.decidePermission({
-              action: tool.permission.action,
-              resource: tool.permission.resource,
-              subject: request.userId
-            });
-            return decision.decision === "allow" ? tool : undefined;
-          })
-      )
-    ).filter((tool): tool is NonNullable<typeof tool> => tool !== undefined);
+    const { tools: visibleTools, audit } = await resolveVisibleTools(request, tools, channels);
     const toolSet = describeToolSet(visibleTools);
     const purpose = resolvePurpose(compiler, config.prompts.defaultPurpose!, request);
-    const invocation = compiler.compile({
-      directorySkills: capabilities.directorySkills(request, toolSet.toolIds),
-      purpose,
-      dimensions: {
-        conversationKind: normalizeConversationKind(request.source.conversationKind),
-        lineKind: request.branchId === undefined ? "mainline" : "branch",
-        executionKind: request.taskId === undefined ? "interactive" : "task",
-        toolMode: toolSet.toolIds.length === 0 ? "disabled" : "enabled"
-      },
-      toolIds: toolSet.toolIds,
-      toolSetDigest: toolSet.digest,
-      ...(request.requestedSkillIds === undefined ? {} : { requestedSkillIds: request.requestedSkillIds })
-    });
+    let invocation: ModelInvocationEnvelope;
+    try {
+      invocation = compiler.compile({
+        directorySkills: capabilities.directorySkills(request, toolSet.toolIds),
+        purpose,
+        dimensions: {
+          platform: request.source.platform,
+          conversationKind: normalizeConversationKind(request.source.conversationKind),
+          lineKind: request.branchId === undefined ? "mainline" : "branch",
+          executionKind: request.taskId === undefined ? "interactive" : "task",
+          toolMode: toolSet.toolIds.length === 0 ? "disabled" : "enabled"
+        },
+        toolIds: toolSet.toolIds,
+        toolSetDigest: toolSet.digest,
+        ...(request.requestedSkillIds === undefined ? {} : { requestedSkillIds: request.requestedSkillIds })
+      });
+    } catch (error) {
+      reportAudit(completeToolVisibilityAudit(audit, []));
+      throw error;
+    }
+    reportAudit(completeToolVisibilityAudit(audit, invocation.capabilities.toolIds));
     capabilities.pin(request, invocation);
     return invocation;
   };
