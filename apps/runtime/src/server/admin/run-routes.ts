@@ -43,6 +43,7 @@ export function registerRunRoutes(options: RunRouteOptions): void {
     const page = inspection.listRuns({
       limit: numberQuery(request, "limit", 50, 1, 200),
       before: numberQuery(request, "before", Number.MAX_SAFE_INTEGER),
+      ...(request.query.has("q") ? { q: request.query.get("q")! } : {}),
       ...(status === undefined ? {} : { status: status as RunStatus }),
       ...(since === undefined ? {} : { since }),
       ...(until === undefined ? {} : { until }),

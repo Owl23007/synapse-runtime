@@ -57,6 +57,7 @@ export class RuntimeInspection {
   /** 校验有界条件后按稳定游标读取运行列表 */
   listRuns(query: ListRunsInput = {}) {
     page(query.limit ?? 50, query.before ?? Number.MAX_SAFE_INTEGER);
+    if (query.q !== undefined && query.q.length > 2048) throw new InspectionQueryError();
     if (
       query.status !== undefined &&
       !["accepted", "running", "succeeded", "failed", "blocked", "uncertain", "interrupted"].includes(query.status)
