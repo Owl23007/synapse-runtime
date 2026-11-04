@@ -3,6 +3,7 @@ import type { AssetInfo, AssetVersionInfo, RuntimeAdminClient } from "@synapse/r
 import type { ViewProps } from "../../shared/types/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
 import { PageTitle } from "../../shared/ui/content.js";
+import { Icon } from "../../shared/ui/icons.js";
 import { Empty, ErrorNotice, Loading } from "../../shared/ui/feedback.js";
 import { message, time } from "../../shared/lib/runtime.js";
 import { toast } from "../../shared/lib/toast.js";
@@ -21,10 +22,10 @@ const states: Record<string, string> = {
   cached: "已缓存",
   "fetch-failed": "获取失败",
   "remote-unavailable": "远端不可用",
-  deleted: "已删除"
+  deleted: "已移除"
 };
 
-/** 工作区独立文件入口，列表不下载内容，预览由用户显式发起 */
+/** 工作区文件列表保持独立滚动，按需打开检查器与加载预览内容 */
 export function Files({
   client,
   revision,
@@ -45,6 +46,13 @@ export function Files({
   const [group, setGroup] = useState("");
   const [folder, setFolder] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLElement>(null);
+  const more = useRef<HTMLDetailsElement>(null);
+  const closeInspector = useCallback(() => {
+    const row = list.current?.querySelector<HTMLButtonElement>("[aria-pressed=true]");
+    setSelected("");
+    requestAnimationFrame(() => row?.focus({ preventScroll: true }));
+  }, []);
   const uploadKeys = useRef(new WeakMap<File, string>());
   const workspaces = useLoad(
     useCallback(() => client.resourceWorkspaces(), [client]),
@@ -99,22 +107,15 @@ export function Files({
       toast.success("文件已保存");
     });
   return (
-    <>
-      <PageTitle
-        title="Files"
-        description="按工作区管理文件、历史版本与运行关系"
-        action={
-          <button className="primary" disabled={!workspaceId || busy} onClick={() => input.current?.click()}>
-            上传文件
-          </button>
-        }
-      />
+    <div className="files-page">
+      <PageTitle title="文件" description="管理工作区文件、历史版本与引用关系" />
       <input
         ref={input}
         type="file"
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
+          event.target.value = "";
           if (file) void upload(file);
         }}
       />
@@ -122,9 +123,9 @@ export function Files({
         error={error || files.error || workspaces.error || session.error}
         retry={() => setNonce((value) => value + 1)}
       />
-      <div className="resource-toolbar">
-        <label>
-          工作区
+      <div className="resource-toolbar files-toolbar" aria-label="文件工具栏">
+        <label className="files-workspace">
+          <span className="sr-only">工作区</span>
           <select value={workspaceId} onChange={(event) => setWorkspace(event.target.value)} aria-label="文件工作区">
             {workspaces.value?.items.map((item) => (
               <option key={item.id} value={item.id}>
@@ -135,18 +136,42 @@ export function Files({
         </label>
         <input
           aria-label="搜索文件"
-          placeholder="搜索文件名"
+          placeholder="搜索文件…"
           value={q}
           onChange={(event) => setQ(event.target.value)}
           maxLength={500}
         />
-        <button onClick={() => setSyncOpen(!syncOpen)}>同步 QQ 文件</button>
-        <button onClick={() => setNonce((value) => value + 1)}>刷新</button>
+        <button className="primary" disabled={!workspaceId || busy} onClick={() => input.current?.click()}>
+          <Icon name="upload" /> 上传文件
+        </button>
+        <details className="files-more" ref={more}>
+          <summary aria-label="更多文件操作" title="更多文件操作">
+            <Icon name="more" />
+          </summary>
+          <div className="files-menu">
+            <button
+              onClick={() => {
+                setSyncOpen(!syncOpen);
+                if (more.current) more.current.open = false;
+              }}
+            >
+              同步 QQ 文件
+            </button>
+            <button
+              onClick={() => {
+                setNonce((value) => value + 1);
+                if (more.current) more.current.open = false;
+              }}
+            >
+              刷新
+            </button>
+          </div>
+        </details>
         {sessionId && <a href={`#/workspace?session=${encodeURIComponent(sessionId)}`}>返回会话</a>}
       </div>
       {syncOpen && (
         <form
-          className="resource-toolbar panel"
+          className="resource-toolbar panel files-sync"
           onSubmit={(event) => {
             event.preventDefault();
             void act(async () => {
@@ -168,6 +193,9 @@ export function Files({
             <input value={folder} onChange={(event) => setFolder(event.target.value)} />
           </label>
           <button disabled={busy}>同步来源索引</button>
+          <button type="button" onClick={() => setSyncOpen(false)}>
+            收起
+          </button>
         </form>
       )}
       <div className="tabs resource-tabs" role="tablist" aria-label="文件来源">
@@ -180,39 +208,47 @@ export function Files({
       {!workspaceId ? (
         <Empty title="尚无资源工作区" text="创建一次原生会话，或接收 QQ 文件后即可使用" />
       ) : (
-        <div className="files-layout">
-          <section className="panel file-list" aria-label="工作区文件">
+        <div className={`files-layout ${selected ? "has-inspector" : ""}`}>
+          <section ref={list} className="panel file-list" aria-label="工作区文件">
+            <div className="file-list-heading">
+              <span>
+                {items.length} 个文件{files.value?.nextCursor ? " · 可加载更多" : ""}
+              </span>
+              <span>最近更新</span>
+            </div>
             {files.loading && !items.length ? (
               <Loading />
             ) : !items.length ? (
               <Empty title="暂无文件" text="上传文件或同步 QQ 来源，内容会在预览或读取时按需获取" />
             ) : (
-              items.map((asset) => (
-                <button
-                  className={`file-row ${selected === asset.id ? "selected" : ""}`}
-                  key={asset.id}
-                  onClick={() => setSelected(asset.id)}
-                >
-                  <span className="file-mark" aria-hidden="true">
-                    ▤
-                  </span>
-                  <span>
-                    <strong>{asset.displayName}</strong>
-                    <small>{time(asset.updatedAt)}</small>
-                  </span>
-                  <span className="resource-state">
-                    {
-                      states[
-                        asset.deletedAt
-                          ? "deleted"
-                          : asset.currentVersionId
-                            ? "cached"
-                            : asset.fetchState || "remote-only"
-                      ]
-                    }
-                  </span>
-                </button>
-              ))
+              <>
+                <div className="file-columns" aria-hidden="true">
+                  <span>名称</span>
+                  <span>更新时间</span>
+                  <span>状态</span>
+                </div>
+                {items.map((asset) => (
+                  <button
+                    className={`file-row ${selected === asset.id ? "selected" : ""}`}
+                    key={asset.id}
+                    aria-pressed={selected === asset.id}
+                    aria-controls={selected === asset.id ? "file-inspector" : undefined}
+                    onClick={() => setSelected(asset.id)}
+                  >
+                    <span className="file-name">
+                      <span className="file-mark" aria-hidden="true">
+                        <Icon name={asset.declaredMime?.startsWith("image/") ? "image" : "file"} />
+                      </span>
+                      <span>
+                        <strong title={asset.displayName}>{asset.displayName}</strong>
+                        <small>{asset.declaredMime || "文件"}</small>
+                      </span>
+                    </span>
+                    <span className="file-updated">{time(asset.updatedAt)}</span>
+                    <span className="resource-state">{assetState(asset)}</span>
+                  </button>
+                ))}
+              </>
             )}
             {files.value?.nextCursor && (
               <button
@@ -226,7 +262,7 @@ export function Files({
               </button>
             )}
           </section>
-          {selected ? (
+          {selected && (
             <FileDetail
               key={selected}
               client={client}
@@ -235,26 +271,23 @@ export function Files({
               disabled={busy}
               onChange={() => setNonce((value) => value + 1)}
               onReplace={(file) => void upload(file, selected)}
+              onClose={closeInspector}
             />
-          ) : (
-            <section className="panel">
-              <Empty title="选择文件" text="查看来源、版本、内容与关联运行" />
-            </section>
           )}
         </div>
       )}
-      {workspaceId && (
+      {workspaceId && source === "mount" && (
         <MountBrowser
+          key={workspaceId}
           client={client}
           workspaceId={workspaceId}
           onImported={(asset) => {
             setSelected(asset.id);
-            setSource("mount");
             setNonce((value) => value + 1);
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -264,7 +297,8 @@ function FileDetail({
   revision,
   disabled,
   onChange,
-  onReplace
+  onReplace,
+  onClose
 }: {
   client: RuntimeAdminClient;
   id: string;
@@ -272,6 +306,7 @@ function FileDetail({
   disabled: boolean;
   onChange: () => void;
   onReplace: (file: File) => void;
+  onClose: () => void;
 }) {
   const detail = useLoad(
     useCallback(() => client.asset(id), [client, id]),
@@ -284,6 +319,15 @@ function FileDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const replacement = useRef<HTMLInputElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    close.current?.focus({ preventScroll: true });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(
     () => () => {
       if (preview) URL.revokeObjectURL(preview.url);
@@ -308,6 +352,7 @@ function FileDetail({
     act(async () => {
       const resolved: AssetVersionInfo = version ?? (await client.materializeAsset(id)).version;
       const blob = await client.downloadAsset(id, resolved.id);
+      if (!mounted.current) return;
       const url = URL.createObjectURL(new Blob([blob], { type: resolved.detectedMime }));
       if (download) {
         const anchor = document.createElement("a");
@@ -317,6 +362,11 @@ function FileDetail({
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
         const text = resolved.detectedMime.startsWith("text/plain") ? await blob.text() : undefined;
+        // 关闭检查器后异步读取仍可能完成，此时没有组件负责释放预览 URL
+        if (!mounted.current) {
+          URL.revokeObjectURL(url);
+          return;
+        }
         setPreview({
           url,
           mime: resolved.detectedMime,
@@ -327,30 +377,81 @@ function FileDetail({
     });
   if (!data)
     return (
-      <section className="panel">
+      <aside
+        id="file-inspector"
+        className="panel file-detail"
+        aria-label="文件详情"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <div className="file-detail-heading">
+          <h2>文件详情</h2>
+          <button ref={close} aria-label="关闭文件详情" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </div>
         <ErrorNotice error={detail.error} retry={detail.reload} />
         {detail.loading && <Loading />}
-      </section>
+      </aside>
     );
   return (
-    <section className="panel file-detail">
-      <div className="panel-heading">
-        <h2>{data.asset.displayName}</h2>
-        <span>{data.versions.length} 个版本</span>
+    <aside
+      id="file-inspector"
+      className="panel file-detail"
+      aria-label="文件详情"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div className="file-detail-heading">
+        <div>
+          <h2>{data.asset.displayName}</h2>
+          <small>
+            {version?.detectedMime || data.asset.declaredMime || "文件"} ·{" "}
+            {version ? `版本 ${version.versionNo}` : "尚未缓存"}
+          </small>
+        </div>
+        <button ref={close} aria-label="关闭文件详情" title="关闭文件详情" onClick={onClose}>
+          <Icon name="close" />
+        </button>
       </div>
       <ErrorNotice error={error || detail.error} retry={detail.reload} />
-      <div className="resource-toolbar">
-        <button disabled={busy || disabled || !!data.asset.deletedAt} onClick={() => void content(false)}>
-          {busy ? "读取中…" : "预览"}
-        </button>
+      <button
+        className="file-preview-trigger"
+        disabled={busy || disabled || !!data.asset.deletedAt}
+        onClick={() => void content(false)}
+      >
+        <Icon name="eye" /> {busy ? "读取中…" : preview ? "重新加载预览" : "点击预览文件"}
+      </button>
+      {preview && (
+        <div className="file-preview">
+          {preview.text !== undefined ? (
+            <>
+              <pre>{preview.text}</pre>
+              {preview.truncated && <p>预览已截断，下载可查看完整内容</p>}
+            </>
+          ) : preview.mime.startsWith("image/") ? (
+            <img alt={data.asset.displayName} src={preview.url} />
+          ) : preview.mime === "application/pdf" ? (
+            <iframe title={data.asset.displayName} src={preview.url} sandbox="" />
+          ) : (
+            <p>此格式请下载后查看</p>
+          )}
+        </div>
+      )}
+      <div className="resource-toolbar file-actions">
         <button disabled={busy || disabled} onClick={() => void content(true)}>
           下载
         </button>
         <button disabled={busy || disabled || !!data.asset.deletedAt} onClick={() => replacement.current?.click()}>
           上传新版本
-        </button>
-        <button disabled={busy || disabled || !!data.asset.deletedAt} onClick={() => setDeleting(!deleting)}>
-          删除
         </button>
       </div>
       <input
@@ -359,47 +460,26 @@ function FileDetail({
         hidden
         onChange={(event) => {
           const file = event.target.files?.[0];
+          event.target.value = "";
           if (file) onReplace(file);
         }}
       />
-      {deleting && (
-        <div className="notice">
-          <span>从 Files 隐藏此文件，历史运行与远端文件仍保留</span>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void act(async () => {
-                await client.deleteAsset(id);
-                setDeleting(false);
-              })
-            }
-          >
-            确认删除
-          </button>
-          <button onClick={() => setDeleting(false)}>取消</button>
-        </div>
-      )}
-      {!data.asset.deletedAt && (
-        <form
-          className="resource-toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void act(async () => {
-              await client.renameAsset(id, rename);
-              setRename("");
-            });
-          }}
-        >
-          <input
-            aria-label="文件新名称"
-            placeholder={data.asset.displayName}
-            maxLength={255}
-            value={rename}
-            onChange={(event) => setRename(event.target.value)}
-          />
-          <button disabled={!rename.trim() || busy}>重命名</button>
-        </form>
-      )}
+      <h3>文件信息</h3>
+      <dl className="detail-facts">
+        <dt>存储状态</dt>
+        <dd>{assetState(data.asset)}</dd>
+        <dt>更新于</dt>
+        <dd>{time(data.asset.updatedAt)}</dd>
+        <dt>版本数</dt>
+        <dd>{data.versions.length} 个</dd>
+        <dt>来源</dt>
+        <dd>
+          {[...new Set(data.sources.map((item) => sources.find(([key]) => key === item.kind)?.[1] ?? item.kind))].join(
+            "、"
+          ) || "—"}
+        </dd>
+      </dl>
+      <h3>历史版本</h3>
       <label>
         内容版本
         <select
@@ -433,33 +513,19 @@ function FileDetail({
           {states[data.asset.fetchState ?? "fetch-failed"]} · {data.asset.fetchError}
         </p>
       )}
-      {preview && (
-        <div className="file-preview">
-          {preview.text !== undefined ? (
-            <>
-              <pre>{preview.text}</pre>
-              {preview.truncated && <p>预览已截断，下载可查看完整内容</p>}
-            </>
-          ) : preview.mime.startsWith("image/") ? (
-            <img alt={data.asset.displayName} src={preview.url} />
-          ) : preview.mime === "application/pdf" ? (
-            <iframe title={data.asset.displayName} src={preview.url} sandbox="" />
-          ) : (
-            <p>此格式请下载后查看</p>
-          )}
-        </div>
-      )}
-      <h3>来源</h3>
-      {data.sources.map((item) => (
-        <div className="file-source" key={item.id}>
-          <strong>{sources.find(([key]) => key === item.kind)?.[1] ?? item.kind}</strong>
-          <small>
-            首次发现 {time(item.observedAt)} · 最近发现 {time(item.lastSeenAt)}
-          </small>
-          <pre>{JSON.stringify(item.locator, null, 2)}</pre>
-        </div>
-      ))}
-      <h3>关联记录</h3>
+      <details>
+        <summary>来源详情</summary>
+        {data.sources.map((item) => (
+          <div className="file-source" key={item.id}>
+            <strong>{sources.find(([key]) => key === item.kind)?.[1] ?? item.kind}</strong>
+            <small>
+              首次发现 {time(item.observedAt)} · 最近发现 {time(item.lastSeenAt)}
+            </small>
+            <pre>{JSON.stringify(item.locator, null, 2)}</pre>
+          </div>
+        ))}
+      </details>
+      <h3>引用关系</h3>
       {data.refs.length ? (
         data.refs.map((ref, index) => (
           <div className="file-relation" key={`${ref.refType}:${ref.refId}:${index}`}>
@@ -475,7 +541,52 @@ function FileDetail({
       ) : (
         <p className="muted">尚未被运行引用</p>
       )}
-    </section>
+      <details className="file-management">
+        <summary>管理文件</summary>
+        {!data.asset.deletedAt && (
+          <form
+            className="resource-toolbar"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void act(async () => {
+                await client.renameAsset(id, rename);
+                setRename("");
+              });
+            }}
+          >
+            <input
+              aria-label="文件新名称"
+              placeholder={data.asset.displayName}
+              maxLength={255}
+              value={rename}
+              onChange={(event) => setRename(event.target.value)}
+            />
+            <button disabled={!rename.trim() || busy || disabled}>重命名</button>
+          </form>
+        )}
+        {deleting && (
+          <div className="notice">
+            <span>从文件列表隐藏此文件，历史运行与远端原件仍保留</span>
+            <button
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  await client.deleteAsset(id);
+                  setDeleting(false);
+                  onClose();
+                })
+              }
+            >
+              确认移除
+            </button>
+            <button onClick={() => setDeleting(false)}>取消</button>
+          </div>
+        )}
+        <button disabled={busy || disabled || !!data.asset.deletedAt} onClick={() => setDeleting(!deleting)}>
+          从文件列表移除
+        </button>
+      </details>
+    </aside>
   );
 }
 
@@ -562,4 +673,11 @@ function bytes(value: number) {
     : value >= 1024
       ? `${(value / 1024).toFixed(1)} KiB`
       : `${value} B`;
+}
+
+function assetState(asset: AssetInfo) {
+  return (
+    states[asset.deletedAt ? "deleted" : asset.currentVersionId ? "cached" : asset.fetchState || "remote-only"] ||
+    "未知状态"
+  );
 }
