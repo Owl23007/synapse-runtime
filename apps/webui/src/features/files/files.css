@@ -152,27 +152,6 @@
   margin-top: 24px;
   padding: 24px;
 }
-.chat-files {
-  padding: 8px 12px;
-}
-.chat-files .file-row {
-  padding: 8px;
-}
-.attachment-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 12px;
-}
-.attachment-chips span {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-}
 @media (max-width: 900px) {
   .files-layout {
     grid-template-columns: 1fr;

@@ -1,12 +1,14 @@
+import { useEffect, useState } from "react";
 import { Badge, Empty } from "../../../shared/ui/feedback.js";
 import { message, time, workspaceMessageText } from "../../../shared/lib/runtime.js";
 import { Icon, SynapseMark } from "../../../shared/ui/icons.js";
 import { messageTime, phaseLabel } from "../lib/activity.js";
 import { RunTimeline } from "./run-inspector.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
-import { ChatFiles } from "./chat-files.js";
+import { ChatAttachments, ChatFiles } from "./chat-files.js";
+import { navigate } from "../lib/navigation.js";
 
-/** 回复操作放在正文底部，输入区共享执行状态并保持原生发送与频道只读边界 */
+/** 输入区按附件、正文与操作栏组织，发送目标与当前分支保持一致 */
 export function WorkspaceConversation({ workspace }: { workspace: WorkspaceController }) {
   const {
     client,
@@ -39,6 +41,8 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
     act,
     send
   } = workspace;
+  const [filesBusy, setFilesBusy] = useState(false);
+  useEffect(() => setFilesBusy(false), [scope]);
   if (!data.value) return null;
   return (
     <>
@@ -128,14 +132,18 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
         )}
         <div ref={tail} />
       </div>
-      <form className="composer" onSubmit={send}>
+      <form
+        className="composer"
+        onSubmit={(event) => {
+          if (busy || filesBusy || activeRun) event.preventDefault();
+          else send(event);
+        }}
+      >
         {native && (
-          <ChatFiles
-            client={client}
-            sessionId={initialSession}
+          <ChatAttachments
             attachments={workspace.attachments}
             onChange={workspace.setAttachments}
-            disabled={busy || !!activeRun}
+            disabled={busy || filesBusy || !!activeRun}
           />
         )}
         <textarea
@@ -155,33 +163,46 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
         />
         <div className="composer-footer">
           <div className="composer-tools">
-            <button
-              type="button"
-              className="icon-button"
-              title="查看上下文"
-              aria-label="查看上下文"
-              onClick={() => setTab("graph")}
-            >
+            {native && (
+              <ChatFiles
+                key={scope}
+                client={client}
+                sessionId={initialSession}
+                attachments={workspace.attachments}
+                onChange={(attachments) => {
+                  if (scopeRef.current === scope) workspace.setAttachments(attachments);
+                }}
+                onBusyChange={(pending) => {
+                  if (scopeRef.current === scope) setFilesBusy(pending);
+                }}
+                disabled={busy || !!activeRun}
+              />
+            )}
+            <label className="composer-line-select">
               <Icon name="branch" />
-            </button>
-            <button
-              type="button"
-              className="icon-button"
-              title="查看工件"
-              aria-label="查看工件"
-              onClick={() => setTab("artifacts")}
-            >
-              <Icon name="file" />
-            </button>
+              <select
+                aria-label="消息目标分支"
+                value={lineId}
+                onChange={(event) => navigate(initialSession, event.target.value)}
+              >
+                <option value={data.value.session.mainlineId}>主线</option>
+                {data.value.branches.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+              <Icon name="chevron" />
+            </label>
           </div>
           <span>{native ? "Ctrl / ⌘ + Enter" : "只读会话"}</span>
           <button
             className="primary send-button"
             aria-label="发送消息"
-            title={busy ? "提交中" : activeRun ? "执行中" : "发送消息"}
-            disabled={busy || !!activeRun || !native || !text.trim()}
+            title={busy ? "提交中" : filesBusy ? "正在附加文件…" : activeRun ? "执行中" : "发送消息"}
+            disabled={busy || filesBusy || !!activeRun || !native || !text.trim()}
           >
-            <Icon name="send" />
+            <Icon name="arrowUp" />
           </button>
         </div>
       </form>

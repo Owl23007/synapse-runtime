@@ -1648,7 +1648,7 @@
 }
 .shell-workspace .composer {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--space-6);
   margin: var(--space-2) var(--space-4) var(--space-4);
   flex-shrink: 0;
   background: var(--surface);
@@ -1660,25 +1660,151 @@
   margin-right: auto;
 }
 .shell-workspace .composer textarea {
-  min-height: 64px;
+  display: block;
+  min-height: 100px;
   max-height: 200px;
-  padding: var(--space-4) var(--space-4) 0;
+  padding: var(--space-5) var(--space-5) var(--space-3);
+  background: transparent;
   resize: none;
 }
 .shell-workspace .composer-footer {
   gap: var(--space-3);
+  flex-wrap: nowrap;
   padding: var(--space-2) var(--space-3) var(--space-3);
 }
 .composer-tools {
   display: flex;
-  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-1);
 }
 .composer-tools .icon-button {
-  border-color: var(--border);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.composer-tools .icon-button:hover {
+  background: var(--surface-hover);
+}
+.composer-line-select {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 220px;
+  color: var(--muted);
+}
+.composer-line-select select {
+  width: auto;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-6) var(--space-2) var(--space-8);
+  appearance: none;
+  border-color: transparent;
+  background: transparent;
+  text-overflow: ellipsis;
+}
+.composer-line-select select:hover {
+  background: var(--surface-hover);
+}
+.composer-line-select > .icon {
+  position: absolute;
+  left: var(--space-2);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.composer-line-select > .icon:last-child {
+  left: auto;
+  right: var(--space-2);
+  width: 12px;
+  height: 12px;
+  transform: rotate(90deg);
+}
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4) var(--space-4) 0;
+  list-style: none;
+}
+.composer-attachments li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+}
+.composer-attachments li > .icon {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.composer-attachments li > span {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-attachments .icon-button {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.composer-file-picker {
+  inset: auto;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(420px, 60dvh);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-float);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-float);
+  overflow: auto;
+}
+.composer-file-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.composer-file-actions a {
+  font-size: var(--text-control);
+}
+.composer-file-picker .file-row {
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-2);
+  white-space: normal;
+}
+.composer-file-picker .file-row > span:first-child {
+  min-width: 0;
+}
+.composer-file-picker .file-row > span:last-child {
+  flex: 0 0 auto;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+.composer-files-empty {
+  margin: var(--space-4) 0 var(--space-2);
+  text-align: center;
+  font-size: var(--text-control);
 }
 .shell-workspace .composer-footer > span {
   margin-left: auto;
   font-size: var(--text-small);
+  white-space: nowrap;
 }
 .shell-workspace .send-button {
   width: 40px;
@@ -1686,6 +1812,7 @@
   min-width: 40px;
   padding: 0;
   border-radius: 10px;
+  flex-shrink: 0;
 }
 .new-session-composer .composer-add {
   width: 36px;
@@ -2143,7 +2270,8 @@
     margin: var(--space-2) var(--space-3) var(--space-3);
   }
   .shell-workspace .composer textarea {
-    min-height: 56px;
+    min-height: 88px;
+    padding: var(--space-4);
   }
   .shell-workspace .composer-footer {
     gap: var(--space-2);
@@ -2151,6 +2279,7 @@
   }
   .shell-workspace .composer-footer > span {
     font-size: var(--text-small);
+    white-space: nowrap;
   }
   .shell-workspace .composer-tools {
     gap: var(--space-1);
@@ -2158,6 +2287,15 @@
   .shell-workspace .composer-tools .icon-button {
     min-width: 28px;
     width: 28px;
+  }
+  .composer-line-select {
+    max-width: 132px;
+  }
+  .composer-footer > span {
+    display: none;
+  }
+  .shell-workspace .composer-footer .send-button {
+    margin-left: auto;
   }
   .execution-trace {
     margin-left: 0;

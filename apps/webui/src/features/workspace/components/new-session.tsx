@@ -61,7 +61,7 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
               title={busy ? "正在开始会话…" : "发送消息"}
               disabled={busy || !initialText.trim()}
             >
-              <Icon name="send" />
+              <Icon name="arrowUp" />
             </button>
           </div>
         </form>
