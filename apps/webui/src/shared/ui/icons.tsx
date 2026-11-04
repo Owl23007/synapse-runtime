@@ -15,6 +15,7 @@ const paths = {
   listPanel: "M3 4h4v5H3Z M11 5h10 M11 8h7 M3 15h4v5H3Z M11 16h10 M11 19h7",
   edit: "m15 4 5 5 M4 15 15 4a3.5 3.5 0 0 1 5 5L9 20H4v-5Z",
   sidebar: "M3 4h18v16H3V4Z M9 4v16",
+  filter: "M4 6h16 M7 12h10 M10 18h4",
   search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0 M15 15l5 5",
   plus: "M12 5v14 M5 12h14",
   close: "M6 6l12 12 M6 18 18 6",

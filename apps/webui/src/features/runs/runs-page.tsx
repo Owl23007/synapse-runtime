@@ -27,7 +27,8 @@ export function Runs({ client, revision }: ViewProps) {
   const [error, setError] = useState("");
   const [now, setNow] = useState(Date.now);
   const searchRef = useRef<HTMLInputElement>(null);
-  const filtersRef = useRef<HTMLDetailsElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const refresh = useRunsRefresh(revision);
   const before = cursors.at(-1);
   const load = useCallback(
@@ -105,7 +106,8 @@ export function Runs({ client, revision }: ViewProps) {
     setRange("");
     setSearch("");
     apply({});
-    if (filtersRef.current) filtersRef.current.open = false;
+    setFiltersOpen(false);
+    filterButtonRef.current?.focus();
   };
 
   return (
@@ -113,34 +115,51 @@ export function Runs({ client, revision }: ViewProps) {
       <h1 className="sr-only">运行</h1>
       <div className="runs-layout">
         <section className="runs-list panel" aria-label="运行列表">
-          <div className="runs-list-heading">
-            <span>运行记录</span>
-            <span
-              className={`runs-live ${navigator.onLine ? "" : "offline"}`}
-              title="运行事件实时更新，前台每 30 秒补读，返回页面时同步"
+          <div className="runs-list-heading">运行记录</div>
+          <div className="runs-list-toolbar">
+            <label className="runs-search">
+              <Icon name="search" />
+              <span className="sr-only">搜索运行</span>
+              <input
+                ref={searchRef}
+                type="search"
+                maxLength={2048}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索任务、会话或运行 ID…"
+              />
+              <kbd title="Ctrl / ⌘ + K">⌘ K</kbd>
+            </label>
+            <button
+              ref={filterButtonRef}
+              type="button"
+              className={`icon-button runs-filter-toggle ${filterCount ? "has-filters" : ""}`}
+              aria-label={filterCount ? `筛选运行，已启用 ${filterCount} 项条件` : "筛选运行"}
+              title={filterCount ? `筛选 · ${filterCount} 项条件` : "筛选运行"}
+              aria-expanded={filtersOpen}
+              aria-controls="runs-filters"
+              onClick={() => setFiltersOpen((value) => !value)}
             >
-              <span className="dot" />
-              {navigator.onLine ? "自动更新" : "等待连接"}
-            </span>
+              <Icon name="filter" />
+              {filterCount > 0 && (
+                <span className="runs-filter-count" aria-hidden="true">
+                  {filterCount}
+                </span>
+              )}
+            </button>
           </div>
-          <label className="runs-search">
-            <Icon name="search" />
-            <span className="sr-only">搜索运行</span>
-            <input
-              ref={searchRef}
-              type="search"
-              maxLength={2048}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜索任务、会话或运行 ID…"
-            />
-            <kbd title="Ctrl / ⌘ + K">⌘ K</kbd>
-          </label>
-          <details className="runs-filter-panel" ref={filtersRef}>
-            <summary>
-              筛选{filterCount ? ` · ${filterCount}` : ""}
-              <span>状态 · 频道 · 时间</span>
-            </summary>
+          <div
+            className="runs-filter-panel"
+            id="runs-filters"
+            hidden={!filtersOpen}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setFiltersOpen(false);
+                filterButtonRef.current?.focus();
+              }
+            }}
+          >
             <form
               className="runs-filters"
               onSubmit={(event) => {
@@ -157,7 +176,8 @@ export function Runs({ client, revision }: ViewProps) {
                   ...(since ? { since: new Date(since).toISOString() } : {}),
                   ...(until ? { until: new Date(until).toISOString() } : {})
                 });
-                if (filtersRef.current) filtersRef.current.open = false;
+                setFiltersOpen(false);
+                filterButtonRef.current?.focus();
               }}
             >
               <label>
@@ -240,7 +260,7 @@ export function Runs({ client, revision }: ViewProps) {
                 </button>
               </div>
             </form>
-          </details>
+          </div>
           <ErrorNotice error={data.error || error} retry={data.reload} />
           <div className="runs-rows" key={before ?? "first"} aria-busy={data.loading}>
             {data.loading && !data.value ? (
