@@ -25,7 +25,10 @@ export interface FetchInitLike {
   readonly body?: string;
 }
 
+/** 提供商响应允许按需读取 SSE，同时兼容只实现 JSON 的调用方 */
 export interface FetchResponseLike {
+  readonly headers?: { get(name: string): string | null };
+  readonly body?: ReadableStream<Uint8Array> | null;
   readonly ok: boolean;
   readonly status: number;
   json(): Promise<unknown>;

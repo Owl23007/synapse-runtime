@@ -16,8 +16,10 @@ export type RunEventType =
   | "run_uncertain"
   | "run_interrupted"
   | "context_resolved"
+  | "tool_visibility_resolved"
   | "context_committed"
   | "model_call_started"
+  | "model_output"
   | "model_call_succeeded"
   | "model_call_failed"
   | "tool_call_started"
@@ -105,6 +107,8 @@ export interface AppendRunEventInput {
 
 /** 有界运行列表过滤，before 使用上一页末项的稳定游标 */
 export interface ListRunsInput {
+  /** 关键词先筛选再分页，按字面子串匹配运行 ID、摘要与会话 */
+  readonly q?: string;
   readonly limit?: number;
   readonly before?: number;
   readonly status?: RunStatus;

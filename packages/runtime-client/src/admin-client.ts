@@ -47,7 +47,7 @@ export class RuntimeAdminClient {
     this.#fetch = options.fetch ?? defaultFetch;
   }
 
-  /** 按状态、频道、会话及时间分页检查运行 */
+  /** 按关键词、状态、频道、会话及时间分页检查运行 */
   runs(query: RunQuery = {}): Promise<RunListResponse> {
     return this.#get(`/admin/runs${queryString(query)}`) as Promise<RunListResponse>;
   }
@@ -84,6 +84,14 @@ export class RuntimeAdminClient {
     return this.#request("/admin/sessions", {
       method: "POST",
       body: JSON.stringify({ title, idempotencyKey })
+    }) as Promise<{ session: WorkspaceSession }>;
+  }
+
+  /** 保存原生会话的展示标题 */
+  renameSession(id: string, title: string): Promise<{ session: WorkspaceSession }> {
+    return this.#request(`/admin/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title })
     }) as Promise<{ session: WorkspaceSession }>;
   }
 

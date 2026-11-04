@@ -66,8 +66,10 @@ export interface PromptContextCache {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
-/** A renderable unit of structured system context. */
+/** 保留来源与信任边界的上下文区块，外部内容按低优先级数据呈现 */
 export interface PromptContextBlock {
+  /** 未声明时兼容既有宿主区块，动态资源和存储内容应显式标为 external */
+  readonly trust?: "runtime" | "external";
   readonly id: string;
   readonly content: string;
   readonly source: string;
@@ -99,6 +101,8 @@ export interface PromptScene {
 
 /** 提示词合成后保留来源和缓存边界的不可变区块 */
 export interface PromptEnvelopeBlock {
+  /** 第三方 Skill 目录及正文不能成为运行时指令 */
+  readonly trust?: "runtime" | "external";
   readonly promptId: string;
   readonly version: string;
   readonly stage: "reasoning" | "internal" | "presentation" | "system" | "tool";

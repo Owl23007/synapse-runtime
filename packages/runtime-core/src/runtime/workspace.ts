@@ -8,6 +8,8 @@ import type { RuntimeCore } from "./runtime-core.js";
 export interface RuntimeWorkspaceStore extends ConversationStore {
   /** 原子建立会话、固定工作区与初始版本 */
   createNativeSession(input: { id: string; key: string; title: string; workspaceId?: string }): ConversationSession;
+  /** 修改展示标题并保留原有会话身份与元数据 */
+  renameSessionTitle(sessionId: string, title: string): Promise<ConversationSession>;
   /** 原子采用上下文版本与呈现投影 */
   commitContextResult(
     input: CommitInput & { readonly additionalParents: readonly string[] },
@@ -48,8 +50,16 @@ export class RuntimeWorkspace {
     const id = `native-${digest(key)}`;
     const existing = await contextStore.getSession(id);
     const title = string(body.title, 120);
-    if (existing && (existing.metadata as { title?: string } | undefined)?.title !== title)
-      throw new WorkspaceOperationError(409, "幂等键对应的会话名称不同");
+    if (existing) {
+      // 可编辑的展示标题不参与创建重放，创建请求仍与不可变根提交核对
+      const original = contextStore.contextGraph.getCommitByKey(id, `session:${id}:root`);
+      if (
+        (original?.content.title ?? (existing.metadata as { title?: string } | undefined)?.title) !== title ||
+        (body.workspaceId !== undefined && body.workspaceId !== existing.workspaceId)
+      )
+        throw new WorkspaceOperationError(409, "幂等键对应的会话请求不同");
+      return { session: contextStore.inspectValue(existing), workspaceId: existing.workspaceId! };
+    }
     const session = contextStore.createNativeSession({
       id,
       key,
@@ -57,6 +67,14 @@ export class RuntimeWorkspace {
       ...(body.workspaceId === undefined ? {} : { workspaceId: string(body.workspaceId) })
     });
     return { session: contextStore.inspectValue(session), workspaceId: session.workspaceId! };
+  }
+
+  /** 更新原生会话展示名，频道名称继续由原频道提供 */
+  async renameSession(sessionId: string, input: unknown) {
+    const session = await this.contextStore.getSession(sessionId);
+    if (!session || session.locator?.platform !== "native") throw new WorkspaceOperationError(404, "原生会话不存在");
+    const title = string(object(input).title, 120);
+    return { session: this.contextStore.inspectValue(await this.contextStore.renameSessionTitle(sessionId, title)) };
   }
 
   /** 接收原生输入并返回持久运行身份 */
@@ -105,6 +123,7 @@ export class RuntimeWorkspace {
           sequence: event.sequence,
           type: event.type,
           createdAt: event.createdAt,
+          ...(typeof payload.runId === "string" ? { runId: payload.runId } : {}),
           payload: {
             ...(typeof payload.text === "string" ? { text: contextStore.inspectValue(payload.text) } : {}),
             ...(typeof payload.summary === "string" ? { summary: contextStore.inspectValue(payload.summary) } : {}),

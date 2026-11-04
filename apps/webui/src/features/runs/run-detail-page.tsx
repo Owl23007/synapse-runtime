@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type RunEvent } from "@synapse/runtime-client";
 import { navigateTabs } from "../../shared/ui/tabs.js";
 import { Badge, Empty, ErrorNotice, Loading } from "../../shared/ui/feedback.js";
@@ -8,10 +8,10 @@ import { useLoad } from "../../shared/hooks/use-load.js";
 import { type ViewProps } from "../../shared/types/runtime.js";
 import { Icon } from "../../shared/ui/icons.js";
 import { ExecutionChart, ToolCalls } from "./run-activity.js";
-import { durationLabel, runDuration } from "./run-presentation.js";
+import { durationLabel, runDuration, shortTime } from "./run-presentation.js";
 import "./runs.css";
 
-/** 同时支持详情直链与列表内检查，只呈现持久状态和执行时快照 */
+/** 以请求内容为标题检查持久状态，执行事件在卡片内分栏浏览并独立滚动 */
 export function RunDetail({
   client,
   id,
@@ -22,6 +22,7 @@ export function RunDetail({
   const data = useLoad(load, revision);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [selected, setSelected] = useState<number>();
+  const selectedEventRef = useRef<HTMLButtonElement>(null);
   const [tab, setTab] = useState("timeline");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -65,6 +66,16 @@ export function RunDetail({
   const run = data.value?.run;
   const filteredEvents = events.filter((item) => tab !== "delivery" || /artifact|response/.test(item.type));
   const event = filteredEvents.find((item) => item.seq === selected) ?? filteredEvents.at(-1);
+  useEffect(() => {
+    const button = selectedEventRef.current;
+    const list = button?.parentElement;
+    if (!button || !list) return;
+    // 只调整事件列表，避免 scrollIntoView 连带滚动外层页面或阶段图
+    const bounds = button.getBoundingClientRect();
+    const viewport = list.getBoundingClientRect();
+    if (bounds.top < viewport.top) list.scrollTop -= viewport.top - bounds.top;
+    else if (bounds.bottom > viewport.bottom) list.scrollTop += bounds.bottom - viewport.bottom;
+  }, [event?.id, tab, run?.id]);
   if (!run)
     return (
       <>
@@ -94,34 +105,44 @@ export function RunDetail({
             <span className="run-detail-symbol">
               <Icon name="run" />
             </span>
-            <a className="run-detail-id" href={`#/runs/${encodeURIComponent(run.id)}`} title={run.id}>
-              {run.id}
-            </a>
-            <button
-              className="icon-button"
-              aria-label="复制运行 ID"
-              title={copyState || "复制运行 ID"}
-              onClick={() => {
-                void Promise.resolve()
-                  .then(() => navigator.clipboard.writeText(run.id))
-                  .then(
-                    () => setCopyState("已复制"),
-                    () => setCopyState("复制失败，请手动复制运行 ID")
-                  );
-              }}
-            >
-              <Icon name={copyState === "已复制" ? "check" : "copy"} />
-            </button>
-            <Badge status={run.status} />
-            <a className="button run-open-session" href={workspaceLink}>
-              <Icon name="chat" />
-              {run.channelId === "native" ? "在工作空间中打开" : "查看会话"}
-            </a>
+            <div className="run-detail-title">
+              <div className="run-title-line">
+                <h2 className="run-summary" title={run.summary}>
+                  {run.summary || "无文本请求"}
+                </h2>
+                <Badge status={run.status} />
+              </div>
+              <div className="run-id-line">
+                <a className="run-detail-id" href={`#/runs/${encodeURIComponent(run.id)}`} title={run.id}>
+                  {run.id}
+                </a>
+                <button
+                  className="icon-button"
+                  aria-label="复制运行 ID"
+                  title={copyState || "复制运行 ID"}
+                  onClick={() => {
+                    void Promise.resolve()
+                      .then(() => navigator.clipboard.writeText(run.id))
+                      .then(
+                        () => setCopyState("已复制"),
+                        () => setCopyState("复制失败，请手动复制运行 ID")
+                      );
+                  }}
+                >
+                  <Icon name={copyState === "已复制" ? "check" : "copy"} />
+                </button>
+              </div>
+            </div>
+            {workspaceLink && (
+              <a className="button run-open-session" href={workspaceLink}>
+                <Icon name="chat" />
+                {run.channelId === "native" ? "在工作空间中打开" : "查看会话"}
+              </a>
+            )}
           </div>
           <span className="sr-only" role="status">
             {copyState}
           </span>
-          <h2 className="run-summary">{run.summary || "无文本请求"}</h2>
         </>
       ) : (
         <PageTitle title={run.summary || "运行详情"} description={run.id} action={<Badge status={run.status} />} />
@@ -200,7 +221,12 @@ export function RunDetail({
           </button>
         ))}
       </div>
-      <div role="tabpanel" id={`run-${id}-panel`} aria-labelledby={`run-${id}-${tab}-tab`}>
+      <div
+        className={`run-tab-panel run-tab-${tab}`}
+        role="tabpanel"
+        id={`run-${id}-panel`}
+        aria-labelledby={`run-${id}-${tab}-tab`}
+      >
         {tab === "timeline" && <ExecutionChart run={run} events={events} now={now} hasMore={hasMore} />}
         {tab === "context" || tab === "dependencies" ? (
           <Context load={tab === "context" ? contextLoad : dependenciesLoad} revision={revision} />
@@ -210,28 +236,33 @@ export function RunDetail({
             {hasMore && <p className="hint">当前仅展示已加载的事件，请在执行时间线中加载后续事件</p>}
           </section>
         ) : (
-          <div className="run-event-layout">
-            <section className="inspector panel">
-              <div className="timeline">
-                <div className="panel-heading">
-                  <h2>{tab === "delivery" ? "交付事件" : "执行事件"}</h2>
-                  <span className="muted">
-                    {events.length} / {run.lastSeq}
-                  </span>
-                </div>
+          <section className="run-event-inspector panel" aria-label={tab === "delivery" ? "交付事件" : "执行事件"}>
+            <div className="panel-heading">
+              <h2>{tab === "delivery" ? "交付事件" : "执行事件"}</h2>
+              <span className="muted">
+                {filteredEvents.length}
+                {tab === "timeline" ? ` / ${run.lastSeq}` : ""}
+              </span>
+            </div>
+            <div className="run-event-split">
+              <div className="timeline" role="region" aria-label="事件列表" tabIndex={0}>
                 {filteredEvents.map((item) => (
                   <button
                     className={`event ${event?.seq === item.seq ? "selected" : ""}`}
+                    aria-pressed={event?.seq === item.seq}
+                    ref={event?.seq === item.seq ? selectedEventRef : undefined}
                     key={item.id}
                     onClick={() => setSelected(item.seq)}
                   >
                     <span className="event-index">{String(item.seq).padStart(2, "0")}</span>
-                    <span>
-                      <strong>{eventLabel(item.type)}</strong>
-                      <small>{time(item.occurredAt)}</small>
-                    </span>
-                    <span className="event-duration">
-                      {item.durationMs === undefined ? "" : `${item.durationMs} ms`}
+                    <span className="run-event-label">
+                      <strong title={eventLabel(item.type)}>{eventLabel(item.type)}</strong>
+                      <small>
+                        <time title={time(item.occurredAt)} dateTime={item.occurredAt}>
+                          {shortTime(item.occurredAt)}
+                        </time>
+                        {item.durationMs !== undefined && <span>{durationLabel(item.durationMs)}</span>}
+                      </small>
                     </span>
                   </button>
                 ))}
@@ -245,9 +276,9 @@ export function RunDetail({
                     </button>
                   </div>
                 )}
-                {busy && <Loading />}
+                {busy && !events.length && <Loading />}
               </div>
-              <div className="event-detail">
+              <div className="event-detail" key={event?.id ?? "empty"} role="region" aria-label="事件详情" tabIndex={0}>
                 {event ? (
                   <>
                     <h2>{eventLabel(event.type)}</h2>
@@ -259,25 +290,17 @@ export function RunDetail({
                       <dt>执行尝试</dt>
                       <dd>{event.attemptId ?? "未记录"}</dd>
                       <dt>耗时</dt>
-                      <dd>{event.durationMs === undefined ? "未记录" : `${event.durationMs} ms`}</dd>
+                      <dd>{durationLabel(event.durationMs)}</dd>
                     </dl>
                     <h3>记录内容</h3>
                     <Json value={event.data} />
-                    <p className="hint">
-                      内容已按服务端策略脱敏与限长。缺失的 usage、耗时或历史字段表示未记录，不代表零。
-                    </p>
                   </>
                 ) : (
                   <Empty title="选择一个事件" text="检查模型输入输出、工具参数和执行结果" />
                 )}
               </div>
-            </section>
-            {embedded && tab === "timeline" && (
-              <aside className="run-tools-aside panel padded">
-                <ToolCalls events={events} onSelect={(seq) => setSelected(seq)} />
-              </aside>
-            )}
-          </div>
+            </div>
+          </section>
         )}
       </div>
     </div>
@@ -293,8 +316,6 @@ function Context({ load, revision }: { load: () => Promise<unknown>; revision: n
         <Loading />
       ) : context.available ? (
         <>
-          <h2>本次执行实际使用的上下文</h2>
-          <p className="muted">此快照在执行时保存，后续引用变动不会改变这里的内容。</p>
           <Json value={context.snapshot} />
         </>
       ) : (

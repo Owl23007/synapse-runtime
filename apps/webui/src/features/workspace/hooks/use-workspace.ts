@@ -132,7 +132,6 @@ export function useWorkspace({
       ),
     [older, data.value]
   );
-  const tail = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const narrow = matchMedia("(max-width: 1279px)");
     const mobile = matchMedia("(max-width: 760px)");
@@ -176,12 +175,6 @@ export function useWorkspace({
     addEventListener("keydown", searchShortcut);
     return () => removeEventListener("keydown", searchShortcut);
   }, [inspectorOpen]);
-  useEffect(() => {
-    tail.current?.scrollIntoView({
-      block: "nearest",
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"
-    });
-  }, [messages.at(-1)?.id]);
   const act = async (operation: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
@@ -336,7 +329,6 @@ export function useWorkspace({
     taskItems,
     inspectorArtifacts,
     messages,
-    tail,
     act,
     create,
     send,

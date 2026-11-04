@@ -56,7 +56,13 @@ export function allocateContext(
       select(
         block.metadata?.sourceRef ?? `${block.source}:${sectionId}:${block.id}`,
         block.metadata?.version ?? "1",
-        JSON.stringify({ role: "system", content: block.content }).length,
+        JSON.stringify({
+          role: block.trust === "external" ? "user" : "system",
+          content:
+            block.trust === "external"
+              ? JSON.stringify({ source: block.source, id: block.id, data: block.content })
+              : block.content
+        }).length,
         block.required
       )
     )
@@ -99,7 +105,11 @@ export function trustedContextCost(request: AgentRequest, tools: readonly Tool[]
   return (
     JSON.stringify({
       messages: [
-        ...(request.invocation?.prompt.blocks.map((block) => ({ role: "system", content: block.content })) ?? []),
+        ...(request.invocation?.prompt.blocks.map((block) => ({
+          role: block.trust === "external" ? "user" : "system",
+          content:
+            block.trust === "external" ? JSON.stringify({ source: block.promptId, data: block.content }) : block.content
+        })) ?? []),
         { role: "user", content: getTextContent(request.input) }
       ],
       tools: definitions

@@ -56,7 +56,7 @@ export class AssetService {
     };
   }
 
-  /** 触发运行时只收集有界文件候选；精确附件和 Reply 来源优先，不下载内容 */
+  /** 只收集本轮附件、回复来源及明确提及的文件，避免缓存资源污染普通对话 */
   candidates(
     workspaceId: string,
     message: import("@synapse/runtime-protocol").SynapseMessage,
@@ -74,16 +74,32 @@ export class AssetService {
           )
           .all(workspaceId, `${channelId}:${conversationId}:${reply}`)
       : [];
+    const input = message.segments
+      .filter((segment) => segment.type === "text")
+      .map((segment) => segment.text)
+      .join("\n");
+    const refersToRecentFile =
+      /(?:这个|那个|刚才|之前|上次|最近|上述).{0,8}(?:文件|附件|截图|图片|文档)|(?:this|that|previous|recent)\s+(?:file|attachment|image|document)/i.test(
+        input
+      );
     return {
       attachments: explicit,
       replyAttachments: related,
-      recent: this.index.list(workspaceId, { limit: 10 }).items.map((asset) => ({
-        assetId: asset.id,
-        name: asset.displayName,
-        currentVersionId: asset.currentVersionId,
-        updatedAt: asset.updatedAt,
-        cached: !!asset.currentVersionId
-      }))
+      recent: this.index
+        .list(workspaceId, { limit: 10 })
+        .items.filter(
+          (asset) =>
+            refersToRecentFile ||
+            input.includes(asset.id) ||
+            (asset.displayName.length >= 2 && input.toLocaleLowerCase().includes(asset.displayName.toLocaleLowerCase()))
+        )
+        .map((asset) => ({
+          assetId: asset.id,
+          name: asset.displayName,
+          currentVersionId: asset.currentVersionId,
+          updatedAt: asset.updatedAt,
+          cached: !!asset.currentVersionId
+        }))
     };
   }
 

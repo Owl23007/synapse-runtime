@@ -7,9 +7,6 @@ import { PageBoundary } from "./page-boundary.js";
 const Workspace = lazy(() =>
   import("../features/workspace/workspace-page.js").then((module) => ({ default: module.Workspace }))
 );
-const Overview = lazy(() =>
-  import("../features/runs/overview-page.js").then((module) => ({ default: module.Overview }))
-);
 const Runs = lazy(() => import("../features/runs/runs-page.js").then((module) => ({ default: module.Runs })));
 const RunDetail = lazy(() =>
   import("../features/runs/run-detail-page.js").then((module) => ({ default: module.RunDetail }))
@@ -23,7 +20,7 @@ const Capabilities = lazy(() =>
   import("../features/capabilities/capabilities-page.js").then((module) => ({ default: module.Capabilities }))
 );
 
-/** 页面按功能懒加载，同一工作台的查询参数变化保留会话列表与折叠偏好 */
+/** 页面按功能懒加载，设置深链接传入配置分类，其他页面保留各自的查询上下文 */
 export function AppRouter({ route, client, revision }: ViewProps & { route: AppRoute }) {
   let page;
   switch (route.section) {
@@ -51,14 +48,11 @@ export function AppRouter({ route, client, revision }: ViewProps & { route: AppR
         />
       );
       break;
-    case "overview":
-      page = <Overview client={client} revision={revision} />;
-      break;
     case "runs":
       page = route.id ? (
         <RunDetail key={route.id} client={client} revision={revision} id={route.id} />
       ) : (
-        <Runs key={route.key} client={client} revision={revision} />
+        <Runs client={client} revision={revision} />
       );
       break;
     case "explorer":
@@ -67,7 +61,14 @@ export function AppRouter({ route, client, revision }: ViewProps & { route: AppR
     case "system":
     case "channels":
     case "tasks":
-      page = <System key={route.section} client={client} view={route.section} />;
+      page = (
+        <System
+          key={route.section}
+          client={client}
+          view={route.section}
+          configSection={route.query.get("section") ?? "runtime"}
+        />
+      );
       break;
     default:
       page = <Empty title="页面不存在" text="从左侧导航选择一个页面" />;

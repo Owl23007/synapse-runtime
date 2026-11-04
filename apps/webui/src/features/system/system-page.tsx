@@ -8,13 +8,15 @@ import { useLoad } from "../../shared/hooks/use-load.js";
 import { toast } from "../../shared/lib/toast.js";
 import { ConfigSettings } from "./config-settings.js";
 
-/** 设置、频道与任务入口复用管理接口，配置表单按选项持久化到文件 */
+/** 设置、频道与任务入口复用管理接口，配置分类支持从能力状态卡直接定位 */
 export function System({
   client,
-  view = "system"
+  view = "system",
+  configSection = "runtime"
 }: {
   client: RuntimeAdminClient;
   view?: "system" | "channels" | "tasks";
+  configSection?: string;
 }) {
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState("");
@@ -51,7 +53,13 @@ export function System({
         action={<button onClick={() => setRevision((value) => value + 1)}>刷新</button>}
       />
       <ErrorNotice error={data.error} retry={data.reload} />
-      {view === "system" && <ConfigSettings client={client} onApplied={() => setRevision((value) => value + 1)} />}
+      {view === "system" && (
+        <ConfigSettings
+          client={client}
+          initialSection={configSection}
+          onApplied={() => setRevision((value) => value + 1)}
+        />
+      )}
       {data.loading && !data.value ? (
         <Loading />
       ) : (

@@ -11,6 +11,8 @@ export const PromptDefinitionSchema = z
     scene: z.string().min(1).optional(),
     slot: z.enum(["runtime", "behavior", "capability", "scene", "skill", "workspace", "output"]).default("scene"),
     template: z.string(),
+    // 能力策略只能引用本轮最终暴露的工具，任一匹配时才加载模板
+    whenTools: z.array(z.string().min(1)).min(1).optional(),
     variables: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/)).default([]),
     enabled: z.boolean().default(true),
     cacheGroup: z.string().min(1).optional(),

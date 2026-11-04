@@ -27,7 +27,8 @@ export function useRuntimeEvents(connection: RuntimeConnection | undefined) {
         ...(cursor === undefined ? {} : { afterCursor: cursor }),
         onEvent: (event) => {
           cursor = event.cursor;
-          refresh();
+          // 正文快照由选中运行独立消费，逐字生成不触发会话、图和文件的全页重读
+          if (event.type !== "model_output") refresh();
         },
         onSnapshot: (snapshot) => {
           cursor ??= snapshot.cursor;

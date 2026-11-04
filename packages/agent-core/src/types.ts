@@ -32,6 +32,8 @@ export interface AgentRun {
 
 /** 运行时绑定的身份、工具与模型观察入口 */
 export interface AgentRuntimeContext {
+  /** 原生会话可观察生成中的文本，外部频道继续使用最终交付语义 */
+  readonly streamText?: boolean;
   /** 宿主全局请求预算覆盖提示词、候选、工具定义及后续工具结果 */
   readonly maxInputChars?: number;
   /** 由宿主持久化的结束意图，循环在工具安全边界读取 */
@@ -58,7 +60,7 @@ export type AgentOutcome =
 
 /** 单轮模型请求与结果事件，不包含 Provider 凭据或 HTTP Header */
 export interface AgentModelEvent {
-  readonly type: "model_call_started" | "model_call_succeeded" | "model_call_failed";
+  readonly type: "model_call_started" | "model_call_succeeded" | "model_call_failed" | "model_output";
   readonly modelCallId: string;
   readonly providerId: string;
   readonly model?: string;

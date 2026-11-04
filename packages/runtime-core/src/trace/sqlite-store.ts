@@ -195,6 +195,13 @@ export class SqliteRunTraceStore implements RunTraceStore {
     const limit = pageLimit(input.limit);
     const where: string[] = [];
     const values: (string | number)[] = [];
+    if (input.q?.trim()) {
+      // 使用字面子串匹配，避免用户输入的 % 和 _ 被当成 SQL 通配符
+      where.push(
+        "instr(lower(id || ' ' || json_extract(record, '$.summary') || ' ' || coalesce(json_extract(record, '$.sessionId'), '')), lower(?)) > 0"
+      );
+      values.push(input.q.trim());
+    }
     if (input.before !== undefined) {
       validateCursor(input.before);
       where.push("ordinal < ?");

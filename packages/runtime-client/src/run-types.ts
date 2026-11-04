@@ -33,8 +33,9 @@ export interface RunEvent {
   readonly durationMs?: number;
   readonly data: unknown;
 }
-/** 运行查询过滤与分页参数 */
+/** 运行查询过滤与分页参数，关键词在服务端筛选后再分页 */
 export interface RunQuery {
+  readonly q?: string;
   readonly status?: RunStatus;
   readonly channelId?: string;
   readonly sessionId?: string;

@@ -39,6 +39,8 @@ export interface ChatTokenUsage {
 
 /** 聊天完成请求 */
 export interface ChatCompletionRequest {
+  /** 按模型到达顺序观察正文增量，不序列化回调且不改变最终结果 */
+  readonly onTextDelta?: (text: string) => void | Promise<void>;
   /** 调用方生命周期信号，不序列化到模型请求载荷 */
   readonly signal?: AbortSignal;
   readonly messages: readonly ChatCompletionMessage[];

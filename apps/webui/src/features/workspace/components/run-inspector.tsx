@@ -29,16 +29,17 @@ function RunClock({ run }: { run: RunTrace }) {
 
 /** 对话内的执行折叠区只呈现已记录阶段，可直接跳转完整审计 */
 export function RunTimeline({ run, events }: { run: RunTrace; events: readonly RunEvent[] }) {
+  const stages = events.filter((event) => event.type !== "model_output");
   return (
     <details className="execution-trace">
       <summary>
         <Icon name="chevron" />
         <strong>执行过程</strong>
-        <span>{events.length} 条事件</span>
+        <span>{stages.length} 条事件</span>
         <Badge status={run.status} />
       </summary>
       <ol>
-        {events.slice(-12).map((event) => (
+        {stages.slice(-12).map((event) => (
           <li key={event.id}>
             <span className="dot" />
             <span>{eventLabel(event.type)}</span>
@@ -56,7 +57,7 @@ function shortEventTime(value: string) {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/** 右上角浮动卡片汇总当前会话运行、工具与工件，窄屏以抽屉展示并管理焦点 */
+/** 运行面板固定标题并共享单层滚动，工具正文显式折叠，窄屏管理抽屉焦点 */
 export function WorkspaceInspector({
   run,
   events,
@@ -89,10 +90,10 @@ export function WorkspaceInspector({
     const previous = document.activeElement;
     panel.current?.querySelector<HTMLButtonElement>(".inspector-toggle")?.focus();
     return () => {
-      // 运行入口收纳在弹出菜单中，关闭抽屉后回到始终可见的更多按钮
+      // 关闭抽屉后回到始终可见的运行入口，避免焦点落入已隐藏区域
       requestAnimationFrame(() => {
         const target =
-          document.querySelector<HTMLButtonElement>(".workspace-more") ??
+          document.querySelector<HTMLButtonElement>(".workspace-inspector-trigger") ??
           (previous instanceof HTMLElement && previous.isConnected && previous !== document.body
             ? previous
             : undefined);
@@ -133,115 +134,146 @@ export function WorkspaceInspector({
         }
       }}
     >
-      <div className="pane-heading">
-        <h2>{run && ["accepted", "running"].includes(run.status) ? "当前运行" : "最近运行"}</h2>
-        <button
-          className="icon-button inspector-toggle"
-          aria-label={drawer ? "关闭运行面板" : "收起运行面板"}
-          title="收起运行面板"
-          aria-expanded="true"
-          aria-controls="workspace-inspector"
-          onClick={onClose}
-        >
-          <Icon name="close" />
-        </button>
-      </div>
-      <ErrorNotice error={error} retry={retry} />
-      {run ? (
-        <>
+      <div className="inspector-header">
+        <div className="pane-heading">
+          <h2>{run && ["accepted", "running"].includes(run.status) ? "当前运行" : "最近运行"}</h2>
+          <button
+            className="icon-button inspector-toggle"
+            aria-label={drawer ? "关闭运行面板" : "收起运行面板"}
+            title="收起运行面板"
+            aria-expanded="true"
+            aria-controls="workspace-inspector"
+            onClick={onClose}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+        <ErrorNotice error={error} retry={retry} />
+        {run && (
           <div className="inspector-run-status">
             <Badge status={run.status} />
             <RunClock run={run} />
           </div>
-          <details className="inspector-section" open>
-            <summary>
-              <Icon name="run" />
-              <span title={run.summary}>{run.summary || "运行详情"}</span>
-              <Icon name="chevron" />
-            </summary>
-            <div className="inspector-section-body">
-              <p>{phaseLabel(run.phase)}</p>
-              {run.error && <p className="run-error-text">{run.error.message}</p>}
-              <a href={`#/runs/${encodeURIComponent(run.id)}`}>查看运行详情 ↗</a>
-            </div>
-          </details>
-          <details className="inspector-section" open>
-            <summary>
-              <strong>工具调用</strong>
-              <span className="count">{calls.length}</span>
-              <Icon name="chevron" />
-            </summary>
-            <div className="inspector-section-body tool-activity-list">
-              {calls.length ? (
-                calls.map((call, index) => {
-                  const input = record(call.input);
-                  const preview = [input.path, input.pattern, input.query, input.command].find(
-                    (value): value is string => typeof value === "string"
-                  );
-                  return (
-                    <details className="tool-activity" key={call.id}>
-                      <summary>
-                        <span className="tool-index">{index + 1}</span>
-                        <strong title={call.name}>{call.name}</strong>
-                        {call.durationMs !== undefined && <small className="tool-duration">{call.durationMs} ms</small>}
-                        <span className={`tool-status ${call.status}`} aria-hidden="true">
-                          {call.status === "succeeded" ? (
-                            <Icon name="check" />
-                          ) : call.status === "running" ? (
-                            <span className="activity-spinner" />
-                          ) : (
-                            labels[call.status]
+        )}
+      </div>
+      <div className="inspector-content">
+        {run ? (
+          <>
+            <details className="inspector-section" open>
+              <summary>
+                <Icon name="run" />
+                <span title={run.summary}>{run.summary || "运行详情"}</span>
+                <Icon name="chevron" />
+              </summary>
+              <div className="inspector-section-body">
+                <p>{phaseLabel(run.phase)}</p>
+                {run.error && <p className="run-error-text">{run.error.message}</p>}
+                <a href={`#/runs/${encodeURIComponent(run.id)}`}>查看运行详情 ↗</a>
+              </div>
+            </details>
+            <details className="inspector-section" open>
+              <summary>
+                <strong>工具调用</strong>
+                <span className="count">{calls.length}</span>
+                <Icon name="chevron" />
+              </summary>
+              <div className="inspector-section-body tool-activity-list">
+                {calls.length ? (
+                  calls.map((call, index) => {
+                    const input = record(call.input);
+                    const preview = [input.path, input.pattern, input.query, input.command].find(
+                      (value): value is string => typeof value === "string"
+                    );
+                    return (
+                      <details className="tool-activity" key={call.id}>
+                        <summary>
+                          <span className="tool-index">{index + 1}</span>
+                          <strong title={call.name}>{call.name}</strong>
+                          {call.durationMs !== undefined && (
+                            <small className="tool-duration">{call.durationMs} ms</small>
                           )}
-                        </span>
-                        <span className="sr-only">{labels[call.status]}</span>
-                        {preview && (
-                          <code className="tool-input-preview" title={preview}>
-                            {preview}
-                          </code>
-                        )}
-                      </summary>
-                      <div>
-                        <h3>输入</h3>
-                        <Json value={call.input} />
-                        <h3>回执</h3>
-                        <Json value={call.output} />
-                      </div>
-                    </details>
-                  );
-                })
-              ) : (
-                <p className="inspector-placeholder">{loading ? "正在读取工具调用…" : "暂无工具调用"}</p>
-              )}
-            </div>
-          </details>
-        </>
-      ) : (
-        <Empty title={loading ? "正在读取运行…" : "暂无运行"} text="" />
-      )}
-      <details className="inspector-section" open>
-        <summary>
-          <strong>相关工件</strong>
-          <span className="count">{artifacts.length}</span>
-          <Icon name="chevron" />
-        </summary>
-        <div className="inspector-section-body">
-          <ErrorNotice error={artifactsError} retry={retryArtifacts} />
-          {artifacts.slice(0, 6).map((artifact) => (
-            <button className="related-artifact" key={String(artifact.id)} onClick={onArtifacts}>
-              <Icon name="file" />
-              <span title={String(artifact.name)}>{String(artifact.name)}</span>
-            </button>
-          ))}
-          {!artifacts.length && (
-            <p className="inspector-placeholder">{artifactsLoading ? "正在读取工件…" : "暂无工件"}</p>
-          )}
-          {artifacts.length > 0 && (
-            <button className="text-button" onClick={onArtifacts}>
-              打开工件列表 ↗
-            </button>
-          )}
-        </div>
-      </details>
+                          <span className={`tool-status ${call.status}`} aria-hidden="true">
+                            {call.status === "succeeded" ? (
+                              <Icon name="check" />
+                            ) : call.status === "running" ? (
+                              <span className="activity-spinner" />
+                            ) : (
+                              labels[call.status]
+                            )}
+                          </span>
+                          <span className="sr-only">{labels[call.status]}</span>
+                          <span className="tool-disclosure disclosure-action">
+                            <span className="when-closed">展开</span>
+                            <span className="when-open">收起</span>
+                            <Icon name="chevron" />
+                          </span>
+                          {preview && (
+                            <code className="tool-input-preview" title={preview}>
+                              {preview}
+                            </code>
+                          )}
+                        </summary>
+                        <div className="tool-activity-body">
+                          <details className="tool-payload">
+                            <summary>
+                              <span>输入参数</span>
+                              <span className="disclosure-action">
+                                <span className="when-closed">展开</span>
+                                <span className="when-open">收起</span>
+                                <Icon name="chevron" />
+                              </span>
+                            </summary>
+                            <Json value={call.input} />
+                          </details>
+                          <details className="tool-payload">
+                            <summary>
+                              <span>执行回执</span>
+                              <span className="disclosure-action">
+                                <span className="when-closed">展开</span>
+                                <span className="when-open">收起</span>
+                                <Icon name="chevron" />
+                              </span>
+                            </summary>
+                            <Json value={call.output} />
+                          </details>
+                        </div>
+                      </details>
+                    );
+                  })
+                ) : (
+                  <p className="inspector-placeholder">{loading ? "正在读取工具调用…" : "暂无工具调用"}</p>
+                )}
+              </div>
+            </details>
+          </>
+        ) : (
+          <Empty title={loading ? "正在读取运行…" : "暂无运行"} text="" />
+        )}
+        <details className="inspector-section" open>
+          <summary>
+            <strong>相关工件</strong>
+            <span className="count">{artifacts.length}</span>
+            <Icon name="chevron" />
+          </summary>
+          <div className="inspector-section-body">
+            <ErrorNotice error={artifactsError} retry={retryArtifacts} />
+            {artifacts.slice(0, 6).map((artifact) => (
+              <button className="related-artifact" key={String(artifact.id)} onClick={onArtifacts}>
+                <Icon name="file" />
+                <span title={String(artifact.name)}>{String(artifact.name)}</span>
+              </button>
+            ))}
+            {!artifacts.length && (
+              <p className="inspector-placeholder">{artifactsLoading ? "正在读取工件…" : "暂无工件"}</p>
+            )}
+            {artifacts.length > 0 && (
+              <button className="text-button" onClick={onArtifacts}>
+                打开工件列表 ↗
+              </button>
+            )}
+          </div>
+        </details>
+      </div>
     </aside>
   );
 }

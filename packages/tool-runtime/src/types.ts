@@ -51,6 +51,8 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
   readonly effect?: "external" | "transactional" | "read";
   /** 工作区能力策略同时用于可见性与实际调用，不能替代用户权限 */
   readonly available?: (context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">) => boolean;
+  /** 仅供宿主审计的不可用原因，不向模型暴露授权细节 */
+  readonly unavailableReason?: (context: Pick<ToolContext, "workspaceId" | "runId" | "sessionId" | "userId">) => string;
   readonly name: string;
   readonly description: string;
   /** 发送给模型并用于参数校验的 JSON Schema */

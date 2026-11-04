@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { decodeJson } from "./json-codec.js";
+import { decodeJson, encodeRequiredJson } from "./json-codec.js";
 import type { ConversationType, WorkspaceRef } from "../../context/types.js";
 import type {
   AcceptNormalizedEventInput,
@@ -281,6 +281,30 @@ export class SqliteRuntimeContextStore
         return session;
       })
       .immediate();
+  }
+
+  /** 仅修改标题投影，历史上下文和会话创建幂等记录保持原样 */
+  async renameSessionTitle(sessionId: string, title: string): Promise<ConversationSession> {
+    this.#db
+      .transaction(() => {
+        const row = this.#db.prepare("SELECT metadata_json FROM conversation_sessions WHERE id = ?").get(sessionId) as
+          | { metadata_json: string | null }
+          | undefined;
+        if (!row) throw new Error("会话不存在");
+        const metadata = row.metadata_json === null ? undefined : decodeJson(row.metadata_json, "session metadata");
+        // 元数据使用版本化编码，必须经仓储编解码器更新，不能直接修改 JSON 路径
+        const value = {
+          ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {}),
+          title
+        };
+        this.#db
+          .prepare("UPDATE conversation_sessions SET metadata_json = ?, updated_at = ? WHERE id = ?")
+          .run(encodeRequiredJson(value, "session metadata"), new Date().toISOString(), sessionId);
+      })
+      .immediate();
+    const session = await this.getSession(sessionId);
+    if (!session) throw new Error("会话不存在");
+    return session;
   }
 
   /** 上下文融合与呈现投影同事务提交，不再生成第二套语义 Head */

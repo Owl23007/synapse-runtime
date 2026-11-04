@@ -18,7 +18,7 @@ function readClearTokenPreference(): boolean {
   return clearTokenPreference;
 }
 
-/** 应用壳统一退出入口，退出时可保留或清除页面内存凭据，异常时仍可重新认证 */
+/** 应用壳统一导航与退出入口，能力页与文件页直接展示任务工具栏，避免重复页头挤占内容 */
 export function AppShell({
   route,
   stream,
@@ -43,7 +43,7 @@ export function AppShell({
   return (
     <MaterialProvider>
       <div
-        className={`shell ${section === "workspace" ? "shell-workspace" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+        className={`shell ${section === "workspace" ? "shell-workspace" : ""} ${section === "files" ? "shell-files" : ""} ${section === "capabilities" ? "shell-capabilities" : ""} ${section === "runs" && !route.id ? "shell-runs" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
       >
         <a
           className="skip-link"
@@ -101,15 +101,17 @@ export function AppShell({
           </div>
         </aside>
         <div className="main-shell">
-          {section !== "workspace" && (
-            <header className="topbar">
-              <span>
-                工作空间 <span className="separator">/</span>
-                {PAGE_ITEMS.find((item) => item.section === section)?.label ??
-                  (section === "system" ? "系统状态" : "页面")}
-              </span>
-            </header>
-          )}
+          {section !== "workspace" &&
+            section !== "files" &&
+            section !== "capabilities" &&
+            !(section === "runs" && !route.id) && (
+              <header className="topbar">
+                <span>
+                  {PAGE_ITEMS.find((item) => item.section === section)?.label ??
+                    (section === "system" ? "系统状态" : "页面")}
+                </span>
+              </header>
+            )}
           {(stream === "unauthorized" || stream === "incompatible") && (
             <div className="notice error" role="alert">
               {stream === "unauthorized"
