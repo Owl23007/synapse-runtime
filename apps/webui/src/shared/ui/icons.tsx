@@ -12,6 +12,8 @@ const paths = {
   file: "M6 3h8l4 4v14H6V3Z M14 3v5h4 M9 12h6 M9 16h6",
   settings: "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   panel: "M3 4h18v16H3V4Z M15 4v16",
+  listPanel: "M3 4h4v5H3Z M11 5h10 M11 8h7 M3 15h4v5H3Z M11 16h10 M11 19h7",
+  edit: "m15 4 5 5 M4 15 15 4a3.5 3.5 0 0 1 5 5L9 20H4v-5Z",
   sidebar: "M3 4h18v16H3V4Z M9 4v16",
   search: "M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0 M15 15l5 5",
   plus: "M12 5v14 M5 12h14",

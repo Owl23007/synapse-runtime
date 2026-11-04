@@ -1228,12 +1228,12 @@
   cursor: row-resize;
   user-select: none;
 }
-:is(.session-list, .context-history-list, .conversation, .workspace-inspector) {
+:is(.session-list, .context-history-list, .conversation, .inspector-content) {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 28%, transparent) transparent;
   scrollbar-gutter: stable;
 }
-:is(.session-list, .context-history-list, .conversation, .workspace-inspector):is(:hover, :focus-within) {
+:is(.session-list, .context-history-list, .conversation, .inspector-content):is(:hover, :focus-within) {
   scrollbar-color: color-mix(in srgb, var(--muted) 48%, transparent) transparent;
 }
 .session-search-field {
@@ -1457,13 +1457,11 @@
   overflow: hidden;
 }
 .workspace-body.with-inspector {
-  /* 仅为浮动卡片留出安全区域，卡片自身按内容定高，不再拉伸成整列 */
+  /* 正文滚动止于面板左侧，避免滚动轨道叠到面板的独立滚动区域 */
   padding-right: calc(var(--workspace-inspector) + var(--space-6));
 }
 .workspace-body.with-inspector[data-view="chat"] {
-  /* 滚动容器延伸到页面右缘，仅在正文内预留卡片空间，避免滚动条夹在两栏之间 */
-  --inspector-reserve: calc(var(--workspace-inspector) + var(--space-6));
-  padding-right: 0;
+  --inspector-reserve: 0px;
 }
 .workspace-view {
   --conversation-gutter: clamp(24px, 3vw, 48px);
@@ -1489,6 +1487,55 @@
 }
 .shell-workspace .workspace-header > div:not(.workspace-header-actions):not(.workspace-menu) {
   min-width: 0;
+  flex: 1;
+}
+.session-title-button {
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-1) 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+}
+.session-title-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-title-button .icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  opacity: 0;
+}
+.session-title-button:is(:hover, :focus-visible) .icon {
+  opacity: 1;
+}
+.session-title-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  min-width: 0;
+  max-width: 460px;
+}
+.session-title-editor input {
+  flex: 1;
+  width: 0;
+  min-width: 60px;
+}
+.session-title-editor .icon-button {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+}
+.session-title-error {
+  flex-basis: 100%;
+  font-size: var(--text-small);
+  color: var(--danger);
 }
 .shell-workspace .workspace-header h2 {
   margin: 0;
@@ -1503,7 +1550,7 @@
 }
 .shell-workspace .workspace-header .line-select {
   position: relative;
-  flex: 0 1 140px;
+  flex: 0 0 140px;
   width: 140px;
   min-width: 96px;
 }
@@ -1523,8 +1570,17 @@
 .workspace-header-actions {
   display: flex;
   gap: var(--space-2);
-  margin-left: auto;
+  align-items: center;
   flex-shrink: 0;
+}
+.workspace-inspector-trigger {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.workspace-inspector-trigger[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 .workspace-more {
   border: 0;
@@ -1570,8 +1626,12 @@
   min-height: 0;
   max-height: none;
   scrollbar-width: thin;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .shell-workspace .chat-message {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
   padding: var(--space-4) 0;
   gap: var(--space-3);
   align-items: start;
@@ -1587,9 +1647,10 @@
   height: 24px;
 }
 .shell-workspace .message-body {
-  padding: var(--space-4);
-  background: var(--surface-secondary);
-  border-radius: var(--radius);
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  background: transparent;
 }
 .shell-workspace .chat-message.assistant .message-body {
   padding: 0;
@@ -1625,26 +1686,47 @@
   height: 16px;
 }
 .shell-workspace .chat-message.user {
-  flex-direction: row-reverse;
+  grid-template-columns: minmax(0, 1fr);
+  width: fit-content;
   margin-left: auto;
-  max-width: 90%;
-}
-.shell-workspace .chat-message.user .message-avatar {
-  background: var(--accent-soft);
-  color: var(--accent);
+  max-width: 85%;
 }
 .shell-workspace .chat-message.user .message-body {
-  flex: initial;
-  background: var(--accent-soft);
+  background: transparent;
 }
 .shell-workspace .chat-message.user .message-meta {
-  flex-direction: row-reverse;
-  justify-content: space-between;
+  justify-content: flex-end;
+  min-height: 20px;
+  padding-right: var(--space-2);
 }
 .shell-workspace .chat-message.user .message-text {
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-float) var(--radius-float) var(--space-1) var(--radius-float);
+  background: var(--accent-soft);
+}
+.message-stream-state,
+.message-stream-placeholder {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.message-run-details:empty {
+  display: none;
+}
+.message-run-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  background: var(--danger-soft);
+  border-radius: var(--radius-control);
+  color: var(--danger);
+  font-size: var(--text-control);
+  overflow-wrap: anywhere;
+}
+.message-run-error a {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .shell-workspace .composer {
   border: 1px solid var(--border);
@@ -1801,10 +1883,17 @@
   text-align: center;
   font-size: var(--text-control);
 }
-.shell-workspace .composer-footer > span {
+.composer-submit {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-3);
   margin-left: auto;
+}
+.composer-shortcut {
   font-size: var(--text-small);
   white-space: nowrap;
+  color: var(--muted);
 }
 .shell-workspace .send-button {
   width: 40px;
@@ -1830,6 +1919,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
+}
+.message-run-details .execution-trace {
+  margin: var(--space-4) 0 0;
 }
 .execution-trace summary {
   list-style: none;
@@ -1877,16 +1969,37 @@
   z-index: 4;
   width: var(--workspace-inspector);
   max-height: calc(100% - 2 * var(--space-4));
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   min-width: 0;
-  padding: var(--space-4) var(--space-5);
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-float);
   background: var(--surface);
   box-shadow: var(--shadow-float);
   scrollbar-width: thin;
   scrollbar-gutter: auto;
+}
+.inspector-header {
+  flex-shrink: 0;
+  padding: var(--space-4) var(--space-5) var(--space-2);
+}
+.inspector-header .pane-heading {
+  padding: 0 0 var(--space-2);
+  justify-content: space-between;
+}
+.inspector-header .pane-heading h2 {
+  margin: 0;
+}
+.inspector-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-5) var(--space-4);
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 .workspace-inspector > .pane-heading {
   justify-content: space-between;
@@ -1904,13 +2017,13 @@
   border: 0;
   background: transparent;
 }
-.workspace-inspector > .empty {
+.inspector-content > .empty {
   padding: var(--space-3) 0;
 }
-.workspace-inspector > .empty > span {
+.inspector-content > .empty > span {
   display: none;
 }
-.workspace-inspector > .empty h3 {
+.inspector-content > .empty h3 {
   margin: 0;
   font-size: var(--text-control);
   font-weight: var(--weight-normal);
@@ -1989,7 +2102,7 @@
 }
 .tool-activity summary {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   list-style: none;
@@ -2043,7 +2156,71 @@
 }
 .tool-activity .json {
   padding: var(--space-2);
-  max-height: 160px;
+  max-height: none;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+}
+.tool-activity > summary {
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.tool-activity > summary > .tool-disclosure {
+  grid-column: 3;
+  grid-row: 1;
+}
+.tool-activity .tool-duration {
+  grid-column: 2;
+  grid-row: 2;
+}
+.tool-activity summary > .tool-status {
+  grid-column: 3;
+  grid-row: 2;
+}
+.tool-activity summary > .tool-input-preview {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.tool-activity .tool-payload {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.tool-activity .tool-payload > summary {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  font-size: var(--text-small);
+}
+.disclosure-action {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  color: var(--muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+.disclosure-action .icon {
+  width: 12px;
+  height: 12px;
+}
+details > summary .when-open {
+  display: none;
+}
+details[open] > summary .when-open {
+  display: inline;
+}
+details[open] > summary .when-closed {
+  display: none;
+}
+details[open] > summary .disclosure-action .icon {
+  transform: rotate(90deg);
 }
 .activity-spinner {
   display: inline-block;
@@ -2097,12 +2274,6 @@
 }
 .tool-activity summary > strong {
   grid-column: 2;
-}
-.tool-activity summary > .tool-duration {
-  grid-column: 3;
-}
-.tool-activity summary > .tool-status {
-  grid-column: 4;
 }
 .tool-duration {
   color: var(--muted);
@@ -2162,7 +2333,7 @@
     position: absolute;
     inset: var(--space-3) var(--space-3) auto auto;
     width: min(340px, calc(100% - 2 * var(--space-3)));
-    padding: var(--space-4);
+    padding: 0;
     background: var(--surface);
     z-index: 4;
     box-shadow: var(--shadow-float);
@@ -2223,7 +2394,7 @@
     flex: 1;
   }
   .shell-workspace .workspace-header {
-    padding: var(--space-3);
+    padding: 0;
     min-height: 60px;
     gap: var(--space-2);
     flex-wrap: nowrap;
@@ -2257,7 +2428,7 @@
     gap: var(--space-2);
   }
   .shell-workspace .message-body {
-    padding: var(--space-3);
+    padding: 0;
   }
   .shell-workspace .message-meta {
     gap: var(--space-2);
@@ -2277,10 +2448,6 @@
     gap: var(--space-2);
     flex-wrap: nowrap;
   }
-  .shell-workspace .composer-footer > span {
-    font-size: var(--text-small);
-    white-space: nowrap;
-  }
   .shell-workspace .composer-tools {
     gap: var(--space-1);
   }
@@ -2291,11 +2458,8 @@
   .composer-line-select {
     max-width: 132px;
   }
-  .composer-footer > span {
+  .composer-shortcut {
     display: none;
-  }
-  .shell-workspace .composer-footer .send-button {
-    margin-left: auto;
   }
   .execution-trace {
     margin-left: 0;

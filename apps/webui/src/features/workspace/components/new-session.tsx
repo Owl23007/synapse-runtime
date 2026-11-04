@@ -54,15 +54,17 @@ export function NewSession({ workspace }: { workspace: WorkspaceController }) {
             >
               <Icon name="plus" />
             </button>
-            <span className="new-session-shortcut">Enter 发送 · Shift + Enter 换行</span>
-            <button
-              className="primary send-button"
-              aria-label="发送消息"
-              title={busy ? "正在开始会话…" : "发送消息"}
-              disabled={busy || !initialText.trim()}
-            >
-              <Icon name="arrowUp" />
-            </button>
+            <div className="composer-submit">
+              <span className="composer-shortcut new-session-shortcut">Enter 发送 · Shift + Enter 换行</span>
+              <button
+                className="primary send-button"
+                aria-label="发送消息"
+                title={busy ? "正在开始会话…" : "发送消息"}
+                disabled={busy || !initialText.trim()}
+              >
+                <Icon name="arrowUp" />
+              </button>
+            </div>
           </div>
         </form>
         <span className="sr-only" role="status">

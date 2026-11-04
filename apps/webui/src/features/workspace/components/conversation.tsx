@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Badge, Empty } from "../../../shared/ui/feedback.js";
+import { useEffect, useRef, useState } from "react";
+import { Empty, ErrorNotice } from "../../../shared/ui/feedback.js";
 import { message, time, workspaceMessageText } from "../../../shared/lib/runtime.js";
 import { Icon, SynapseMark } from "../../../shared/ui/icons.js";
 import { messageTime, phaseLabel } from "../lib/activity.js";
@@ -7,8 +7,10 @@ import { RunTimeline } from "./run-inspector.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 import { ChatAttachments, ChatFiles } from "./chat-files.js";
 import { navigate } from "../lib/navigation.js";
+import { Markdown } from "../../../shared/ui/markdown.js";
+import { streamedReply } from "../lib/streamed-reply.js";
 
-/** 输入区按附件、正文与操作栏组织，发送目标与当前分支保持一致 */
+/** 回复统一承载 Markdown、流式正文与运行反馈，输入目标与当前分支保持一致 */
 export function WorkspaceConversation({ workspace }: { workspace: WorkspaceController }) {
   const {
     client,
@@ -25,28 +27,65 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
     moreHistory,
     setMoreHistory,
     setNotice,
-    inspectorOpen,
     scope,
     scopeRef,
     data,
     native,
     lineId,
     branch,
-    lineRuns,
     activeRun,
     latestRun,
     activity,
     messages,
-    tail,
     act,
     send
   } = workspace;
   const [filesBusy, setFilesBusy] = useState(false);
+  const conversation = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const liveText = streamedReply(activity.events);
+  const latestReply = latestRun
+    ? messages.findLast(
+        (item) =>
+          item.type === "assistant_message" &&
+          (item.runId === latestRun.id ||
+            (!item.runId && Date.parse(item.createdAt) >= Date.parse(latestRun.startedAt)))
+      )
+    : undefined;
+  const showLive = native && latestRun && !latestReply && (activeRun || liveText);
   useEffect(() => setFilesBusy(false), [scope]);
+  useEffect(() => {
+    following.current = true;
+  }, [scope]);
+  useEffect(() => {
+    if (following.current && conversation.current) conversation.current.scrollTop = conversation.current.scrollHeight;
+  }, [messages.at(-1)?.id, liveText, activity.events.length]);
   if (!data.value) return null;
+  const runDetails = latestRun ? (
+    <div className="message-run-details">
+      {activity.events.length > 0 && <RunTimeline run={latestRun} events={activity.events} />}
+      <ErrorNotice error={activity.error} retry={activity.reload} />
+      {!activeRun && latestRun.error && (
+        <div className="message-run-error" role="status">
+          <span>{latestRun.error.message}</span>
+          <a href={`#/runs/${encodeURIComponent(latestRun.id)}`}>查看详情</a>
+        </div>
+      )}
+    </div>
+  ) : null;
   return (
     <>
-      <div className="conversation" role="log" aria-label="会话消息">
+      <div
+        ref={conversation}
+        className="conversation"
+        role="log"
+        aria-label="会话消息"
+        aria-live="off"
+        onScroll={(event) => {
+          const node = event.currentTarget;
+          following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96;
+        }}
+      >
         {(moreHistory ?? data.value.hasMore) && (
           <button
             disabled={busy}
@@ -79,7 +118,11 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
         )}
         {messages.map((item) => (
           <article key={item.id} className={`chat-message ${item.type === "user_message" ? "user" : "assistant"}`}>
-            <div className="message-avatar">{item.type === "user_message" ? "你" : <SynapseMark />}</div>
+            {item.type !== "user_message" && (
+              <div className="message-avatar">
+                <SynapseMark />
+              </div>
+            )}
             <div className="message-body">
               <div className="message-meta">
                 <strong>
@@ -89,7 +132,14 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
                   {messageTime(item.createdAt)}
                 </time>
               </div>
-              <div className="message-text">{workspaceMessageText(item.payload)}</div>
+              <div className="message-text">
+                {item.type === "user_message" ? (
+                  workspaceMessageText(item.payload)
+                ) : (
+                  <Markdown text={workspaceMessageText(item.payload)} />
+                )}
+              </div>
+              {item.id === latestReply?.id && runDetails}
               {item.type !== "user_message" && (
                 <div className="message-actions">
                   <button
@@ -110,33 +160,46 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
             </div>
           </article>
         ))}
-        {latestRun && activity.events.length > 0 && <RunTimeline run={latestRun} events={activity.events} />}
+        {showLive && (
+          <article className="chat-message assistant streaming-message" aria-label="正在生成的 Agent 回复">
+            <div className="message-avatar">
+              <SynapseMark />
+            </div>
+            <div className="message-body">
+              <div className="message-meta">
+                <strong>Synapse</strong>
+                <time dateTime={latestRun.startedAt}>{messageTime(latestRun.startedAt)}</time>
+                <span className="message-stream-state" role="status">
+                  {activeRun ? phaseLabel(activeRun.phase) : "生成已结束"}
+                </span>
+              </div>
+              <div className="message-text">
+                {liveText ? (
+                  <Markdown text={liveText} />
+                ) : (
+                  <span className="message-stream-placeholder">正在准备回复…</span>
+                )}
+              </div>
+              {runDetails}
+            </div>
+          </article>
+        )}
         {!messages.length && !activeRun && (
           <Empty
             title={branch ? "在分支上继续探索" : "准备就绪"}
             text={native ? "输入目标，交给 Agent 执行" : "此会话尚无消息"}
           />
         )}
-        {activeRun && !inspectorOpen && !activity.events.length && (
-          <div className="running-strip">
-            <Badge status={activeRun.status} />
-            <span>{phaseLabel(activeRun.phase)}</span>
-            <a href={`#/runs/${encodeURIComponent(activeRun.id)}`}>检查运行 ↗</a>
-          </div>
-        )}
-        {!activeRun && lineRuns[0]?.error && (
-          <div className="notice error">
-            {lineRuns[0].error.message}
-            <a href={`#/runs/${encodeURIComponent(lineRuns[0].id)}`}>查看详情</a>
-          </div>
-        )}
-        <div ref={tail} />
+        {!latestReply && !showLive && runDetails}
       </div>
       <form
         className="composer"
         onSubmit={(event) => {
           if (busy || filesBusy || activeRun) event.preventDefault();
-          else send(event);
+          else {
+            following.current = true;
+            send(event);
+          }
         }}
       >
         {native && (
@@ -195,15 +258,17 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
               <Icon name="chevron" />
             </label>
           </div>
-          <span>{native ? "Ctrl / ⌘ + Enter" : "只读会话"}</span>
-          <button
-            className="primary send-button"
-            aria-label="发送消息"
-            title={busy ? "提交中" : filesBusy ? "正在附加文件…" : activeRun ? "执行中" : "发送消息"}
-            disabled={busy || filesBusy || !!activeRun || !native || !text.trim()}
-          >
-            <Icon name="arrowUp" />
-          </button>
+          <div className="composer-submit">
+            <span className="composer-shortcut">{native ? "Ctrl / ⌘ + Enter" : "只读会话"}</span>
+            <button
+              className="primary send-button"
+              aria-label="发送消息"
+              title={busy ? "提交中" : filesBusy ? "正在附加文件…" : activeRun ? "执行中" : "发送消息"}
+              disabled={busy || filesBusy || !!activeRun || !native || !text.trim()}
+            >
+              <Icon name="arrowUp" />
+            </button>
+          </div>
         </div>
       </form>
     </>

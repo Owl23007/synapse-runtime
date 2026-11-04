@@ -19,6 +19,7 @@ export function eventLabel(type: string): string {
     run_resumed: "恢复执行",
     context_resolved: "解析上下文",
     model_call_started: "调用模型",
+    model_output: "生成回复",
     model_call_succeeded: "模型返回",
     model_call_failed: "模型调用失败",
     permission_decided: "权限检查",

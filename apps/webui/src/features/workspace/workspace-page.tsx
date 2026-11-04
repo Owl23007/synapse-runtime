@@ -68,7 +68,7 @@ export function Workspace(props: WorkspaceProps) {
             )
           ) : (
             <>
-              <WorkspaceHeader workspace={workspace} />
+              <WorkspaceHeader key={initialSession} workspace={workspace} />
               {merging && branch && <MergePreview workspace={workspace} />}
               <div className={`workspace-body ${inspectorOpen ? "with-inspector" : ""}`} data-view={tab}>
                 <div className="workspace-view">
