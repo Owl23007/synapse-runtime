@@ -237,10 +237,6 @@ export function Capabilities({ client, revision }: ViewProps) {
                   </select>
                 </label>
               </div>
-              <span className="capability-workspace-hint">
-                <Icon name="lock" />
-                安装后，按工作区独立启用
-              </span>
             </div>
             {installed.loading && !installed.value ? (
               <Loading />
@@ -809,7 +805,6 @@ function GitHubInstall({
         </span>
         <div>
           <h2>从 GitHub 仓库安装</h2>
-          <p>填写仓库和固定提交，安装一个可审阅的 Skill 快照</p>
         </div>
       </div>
       <label>
@@ -846,7 +841,6 @@ function GitHubInstall({
           />
         </label>
       </div>
-      <p>GitHub 来源按指定仓库安装，不提供关键词搜索。仅保存标准 SKILL.md 目录与资源，脚本不会执行</p>
       {operationError && (
         <CapabilityStatus
           error={operationError.detail}
