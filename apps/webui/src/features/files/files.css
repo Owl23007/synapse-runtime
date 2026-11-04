@@ -33,7 +33,7 @@
 .files-toolbar {
   align-items: center;
   gap: 8px;
-  margin: 20px 0 12px;
+  margin: 0 0 12px;
 }
 .files-workspace {
   width: 220px;
@@ -316,6 +316,18 @@
 .file-relation code {
   overflow-wrap: anywhere;
   flex: 1;
+}
+/* 检查器内的长 ID 和版本各占一行，避免版本文案把弹性 ID 列挤成单字宽 */
+.file-detail .file-relation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+.file-detail .file-relation code,
+.file-detail .file-relation small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .mount-browser {
   margin: 12px 0 0;

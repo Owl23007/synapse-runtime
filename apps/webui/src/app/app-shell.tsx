@@ -18,7 +18,7 @@ function readClearTokenPreference(): boolean {
   return clearTokenPreference;
 }
 
-/** 应用壳统一导航与退出入口，文件页自行提供唯一标题；退出时可保留或清除页面内存凭据 */
+/** 应用壳统一导航与退出入口，文件页直接展示资源工具栏；退出时可保留或清除页面内存凭据 */
 export function AppShell({
   route,
   stream,

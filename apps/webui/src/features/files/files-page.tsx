@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssetInfo, AssetVersionInfo, RuntimeAdminClient } from "@synapse/runtime-client";
 import type { ViewProps } from "../../shared/types/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
-import { PageTitle } from "../../shared/ui/content.js";
 import { Icon } from "../../shared/ui/icons.js";
 import { Empty, ErrorNotice, Loading } from "../../shared/ui/feedback.js";
 import { message, time } from "../../shared/lib/runtime.js";
@@ -25,7 +24,7 @@ const states: Record<string, string> = {
   deleted: "已移除"
 };
 
-/** 工作区文件列表保持独立滚动，按需打开检查器与加载预览内容 */
+/** 工作区以文件工具栏为入口，列表独立滚动，按需打开检查器与加载预览内容 */
 export function Files({
   client,
   revision,
@@ -108,7 +107,6 @@ export function Files({
     });
   return (
     <div className="files-page">
-      <PageTitle title="文件" description="管理工作区文件、历史版本与引用关系" />
       <input
         ref={input}
         type="file"
