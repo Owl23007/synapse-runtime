@@ -8,8 +8,16 @@ import { toast } from "../../shared/lib/toast.js";
 import { ConfigField } from "./config-field.js";
 import { changeConfigDraft, CONFIG_SECTIONS } from "./settings-model.js";
 
-/** 按选项编辑配置文件，保存后明确提示重载或重启边界 */
-export function ConfigSettings({ client, onApplied }: { client: RuntimeAdminClient; onApplied: () => void }) {
+/** 按深链接定位配置分类，编辑草稿在分类跳转时保留，保存后提示重载或重启边界 */
+export function ConfigSettings({
+  client,
+  initialSection = "runtime",
+  onApplied
+}: {
+  client: RuntimeAdminClient;
+  initialSection?: string;
+  onApplied: () => void;
+}) {
   const load = useCallback(() => client.configEditor(), [client]);
   const data = useLoad(load);
   return (
@@ -25,6 +33,7 @@ export function ConfigSettings({ client, onApplied }: { client: RuntimeAdminClie
             key={data.value.revision}
             snapshot={data.value}
             client={client}
+            initialSection={initialSection}
             refresh={data.reload}
             onApplied={onApplied}
           />
@@ -37,15 +46,19 @@ export function ConfigSettings({ client, onApplied }: { client: RuntimeAdminClie
 function SettingsForm({
   snapshot,
   client,
+  initialSection,
   refresh,
   onApplied
 }: {
   snapshot: ConfigEditorSnapshot;
   client: RuntimeAdminClient;
+  initialSection: string;
   refresh: () => void;
   onApplied: () => void;
 }) {
-  const [section, setSection] = useState("runtime");
+  const [section, setSection] = useState(() =>
+    Object.hasOwn(snapshot.schema.properties ?? {}, initialSection) ? initialSection : "runtime"
+  );
   const [draft, setDraft] = useState(snapshot.config);
   const [changes, setChanges] = useState<readonly ConfigFileChange[]>([]);
   const [busy, setBusy] = useState(false);
@@ -55,6 +68,9 @@ function SettingsForm({
   const [applied, setApplied] = useState(false);
   const groups = Object.entries(snapshot.schema.properties ?? {});
   const group = groups.find(([key]) => key === section);
+  useEffect(() => {
+    setSection(Object.hasOwn(snapshot.schema.properties ?? {}, initialSection) ? initialSection : "runtime");
+  }, [initialSection, snapshot.schema]);
   const fieldSchema =
     section === "agent" && group
       ? {

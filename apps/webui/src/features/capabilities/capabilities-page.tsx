@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
-import type { CapabilityInfo, CatalogItem, RuntimeAdminClient } from "@synapse/runtime-client";
+import { useCallback, useId, useRef, useState, type ReactNode } from "react";
+import type { CapabilityBinding, CapabilityInfo, CatalogItem, RuntimeAdminClient } from "@synapse/runtime-client";
 import type { ViewProps } from "../../shared/types/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
 import { PageTitle } from "../../shared/ui/content.js";
-import { ErrorNotice, Loading } from "../../shared/ui/feedback.js";
+import { Loading } from "../../shared/ui/feedback.js";
 import { Icon } from "../../shared/ui/icons.js";
 import { navigateTabs } from "../../shared/ui/tabs.js";
 import { message, record, time } from "../../shared/lib/runtime.js";
 import { toast } from "../../shared/lib/toast.js";
+import { capabilityIssue, catalogItemState } from "./capability-presentation.js";
 import "./capabilities.css";
 
 const tabs = [
@@ -19,24 +20,24 @@ const tabs = [
 const catalogSources = [
   {
     id: "clawhub",
-    name: "ClawHub Skills",
-    label: "SKILLS",
+    name: "Skills 市场",
+    label: "ClawHub · 搜索可复用技能",
     icon: "file",
-    description: "发现可复用的技能，拓展智能体的工作方式"
+    description: "ClawHub Skills"
   },
   {
     id: "mcp-official",
     name: "MCP Registry",
-    label: "MCP",
+    label: "搜索远程工具与服务",
     icon: "server",
-    description: "连接远程工具与服务，让工作区拥有更多能力"
+    description: "MCP Registry"
   },
   {
     id: "github",
-    name: "GitHub",
-    label: "REPOSITORY",
+    name: "GitHub 仓库",
+    label: "从仓库安装固定提交",
     icon: "branch",
-    description: "从仓库安装固定版本，管理自己的 Skill"
+    description: "GitHub"
   }
 ] as const;
 const connectionStates: Record<string, string> = {
@@ -47,14 +48,15 @@ const connectionStates: Record<string, string> = {
   "schema-changed": "工具定义已变化，需重新发现"
 };
 
-/** 能力中心统一呈现目录、安装版本与连接状态，工作区启用仍需单独操作 */
+/** 能力中心默认进入发现流程，错误按任务局部呈现，安装与工作区启用保持独立 */
 export function Capabilities({ client, revision }: ViewProps) {
   const tabId = useId();
-  const [tab, setTab] = useState("installed");
+  const [tab, setTab] = useState("discover");
   const [provider, setProvider] = useState("clawhub");
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const operationBusy = useRef(false);
+  const [error, setError] = useState<{ tab: string; provider: string; detail: string; retry: () => void }>();
   const [workspace, setWorkspace] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const installed = useLoad(
@@ -83,21 +85,26 @@ export function Capabilities({ client, revision }: ViewProps) {
   );
   const items = installed.value?.items ?? [];
   const selected = items.find((item) => item.id === selectedId);
-  const enabledCount = bindings.value?.items.filter((binding) => binding.enabled).length;
+  const enabledCount =
+    bindings.error || workspaces.error ? undefined : bindings.value?.items.filter((binding) => binding.enabled).length;
+  const refresh = () => setNonce((value) => value + 1);
+  const workspaceName = workspaces.value?.items.find((item) => item.id === workspaceId)?.name ?? "";
   const discover = (source = "clawhub") => {
     setProvider(source);
     setTab("discover");
   };
   const act = async (operation: () => Promise<void>) => {
-    if (busy) return;
+    if (operationBusy.current) return;
+    operationBusy.current = true;
     setBusy(true);
-    setError("");
+    setError(undefined);
     try {
       await operation();
       setNonce((value) => value + 1);
     } catch (cause) {
-      setError(message(cause));
+      setError({ tab, provider, detail: message(cause), retry: () => void act(operation) });
     } finally {
+      operationBusy.current = false;
       setBusy(false);
     }
   };
@@ -112,64 +119,38 @@ export function Capabilities({ client, revision }: ViewProps) {
           description="发现技能与工具，为你的工作区拓展更多可能"
           action={
             <div className="capability-actions">
-              <button onClick={() => setNonce((value) => value + 1)}>
+              <button className="capability-refresh" onClick={refresh}>
                 <Icon name="refresh" />
                 刷新
               </button>
-              <button className="primary" onClick={() => discover()}>
-                <Icon name="plus" />
-                发现能力
-              </button>
+              {tab !== "discover" && (
+                <button className="primary" onClick={() => discover()}>
+                  <Icon name="plus" />
+                  发现能力
+                </button>
+              )}
             </div>
           }
         />
       </div>
-      <dl className="capability-overview" aria-label="能力概览">
+      <dl className="capability-summary" aria-label="能力概览">
         <div>
-          <dt>
-            <Icon name="workspace" />
-            已安装版本
-          </dt>
-          <dd>
-            {installed.value ? items.length : "—"}
-            <small>个版本</small>
-          </dd>
+          <dt>已安装版本</dt>
+          <dd>{installed.value && !installed.error ? items.length : "—"}</dd>
         </div>
         <div>
-          <dt>
-            <Icon name="file" />
-            Skills
-          </dt>
-          <dd>
-            {installed.value ? items.filter((item) => item.kind === "skill").length : "—"}
-            <small>个技能版本</small>
-          </dd>
+          <dt>Skills</dt>
+          <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "skill").length : "—"}</dd>
         </div>
         <div>
-          <dt>
-            <Icon name="server" />
-            MCP 服务
-          </dt>
-          <dd>
-            {installed.value ? items.filter((item) => item.kind !== "skill").length : "—"}
-            <small>个安装版本</small>
-          </dd>
+          <dt>MCP 服务</dt>
+          <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "mcp").length : "—"}</dd>
         </div>
-        <div>
-          <dt>
-            <Icon name="check" />
-            工作区已启用
-          </dt>
-          <dd>
-            {enabledCount ?? "—"}
-            <small>项能力</small>
-          </dd>
+        <div title={workspaceName ? `工作区：${workspaceName}` : "暂无工作区"}>
+          <dt>当前工作区已启用</dt>
+          <dd>{enabledCount ?? "—"}</dd>
         </div>
       </dl>
-      <ErrorNotice
-        error={error || installed.error || workspaces.error || bindings.error || connections.error || updates.error}
-        retry={() => setNonce((value) => value + 1)}
-      />
       <div className="tabs capability-tabs" role="tablist" aria-label="能力管理" onKeyDown={navigateTabs}>
         {tabs.map(([key, label, icon]) => (
           <button
@@ -194,12 +175,33 @@ export function Capabilities({ client, revision }: ViewProps) {
         tabIndex={0}
         className="capability-content"
       >
+        {tab !== "discover" && error?.tab === tab && (
+          <CapabilityStatus
+            error={error.detail}
+            title="本次操作未完成"
+            impact="操作尚未完成，请处理以下问题后重试"
+            retry={error.retry}
+          />
+        )}
         {tab === "discover" && (
           <Discover
             client={client}
             busy={busy}
             provider={provider}
-            onProviderChange={setProvider}
+            onProviderChange={(source) => {
+              setError(undefined);
+              setProvider(source);
+            }}
+            refreshRevision={revision + nonce}
+            installations={items}
+            bindings={bindings.value?.items ?? []}
+            installationsKnown={!!installed.value && !installed.error}
+            bindingsKnown={!!bindings.value && !bindings.error && !workspaces.error}
+            stateError={installed.error || workspaces.error || bindings.error}
+            onRefreshState={refresh}
+            workspaceName={workspaceName}
+            operationError={error?.tab === "discover" && error.provider === provider ? error : undefined}
+            onDismissError={() => setError(undefined)}
             onInstall={(input) =>
               act(async () => {
                 const result = await client.installCapability(input);
@@ -212,6 +214,12 @@ export function Capabilities({ client, revision }: ViewProps) {
         )}
         {tab === "installed" && (
           <>
+            <CapabilityStatus
+              error={installed.error || workspaces.error || bindings.error}
+              title="安装与启用状态暂不可用"
+              impact="暂时无法读取已安装版本或工作区启用状态"
+              retry={refresh}
+            />
             <div className="capability-workspace-bar">
               <div className="capability-workspace-select">
                 <Icon name="workspace" />
@@ -240,7 +248,7 @@ export function Capabilities({ client, revision }: ViewProps) {
             </div>
             {installed.loading && !installed.value ? (
               <Loading />
-            ) : !items.length ? (
+            ) : installed.error && !installed.value ? null : !items.length ? (
               <>
                 <CapabilityEmpty
                   icon="plug"
@@ -254,11 +262,6 @@ export function Capabilities({ client, revision }: ViewProps) {
                     </button>
                   }
                 />
-                <div className="capability-section-heading">
-                  <h2>从这里开始探索</h2>
-                  <span>选择适合你的能力来源</span>
-                </div>
-                <CatalogSources onSelect={discover} />
               </>
             ) : (
               <div className="capability-layout">
@@ -351,9 +354,15 @@ export function Capabilities({ client, revision }: ViewProps) {
               </button>
             </div>
             <p className="muted">检查只读取来源版本；新版本需要明确安装并手动切换工作区</p>
+            <CapabilityStatus
+              error={updates.error}
+              title="更新记录暂不可用"
+              impact="暂时无法读取最近的版本检查结果"
+              retry={updates.reload}
+            />
             {updates.loading && !updates.value ? (
               <Loading />
-            ) : updates.value?.items.length ? (
+            ) : updates.error && !updates.value ? null : updates.value?.items.length ? (
               updates.value.items.map((update, index) => (
                 <div className="capability-update" key={`${String(update.installId)}:${index}`}>
                   <strong>
@@ -384,9 +393,15 @@ export function Capabilities({ client, revision }: ViewProps) {
         )}
         {tab === "connections" && (
           <div className="connection-grid">
+            <CapabilityStatus
+              error={connections.error}
+              title="连接状态暂不可用"
+              impact="暂时无法读取 MCP 服务的连接与工具状态"
+              retry={connections.reload}
+            />
             {connections.loading && !connections.value ? (
               <Loading />
-            ) : connections.value?.items.length ? (
+            ) : connections.error && !connections.value ? null : connections.value?.items.length ? (
               connections.value.items.map((connection) => (
                 <section className="panel capability-panel" key={connection.installId}>
                   <div className="panel-heading">
@@ -398,11 +413,17 @@ export function Capabilities({ client, revision }: ViewProps) {
                       {connectionStates[connection.state] ?? connection.state}
                     </span>
                   </div>
-                  {connection.error && (
-                    <p role="status" className="notice error">
-                      {connection.error}
-                    </p>
-                  )}
+                  <CapabilityStatus
+                    error={connection.error}
+                    title="此 MCP 服务暂不可用"
+                    impact="此服务的工具暂时无法使用，其他能力不受影响"
+                    retry={() =>
+                      void act(async () => {
+                        await client.reconnectMcp(connection.installId);
+                        toast.success("连接与工具定义已重新发现");
+                      })
+                    }
+                  />
                   <dl className="capability-facts">
                     <dt>所需用户权限</dt>
                     <dd>
@@ -421,17 +442,19 @@ export function Capabilities({ client, revision }: ViewProps) {
                       <code>{connection.observedToolSetDigest ?? "—"}</code>
                     </dd>
                   </dl>
-                  <button
-                    disabled={busy}
-                    onClick={() =>
-                      void act(async () => {
-                        await client.reconnectMcp(connection.installId);
-                        toast.success("连接与工具定义已重新发现");
-                      })
-                    }
-                  >
-                    连接 / 重新发现
-                  </button>
+                  {!connection.error && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          await client.reconnectMcp(connection.installId);
+                          toast.success("连接与工具定义已重新发现");
+                        })
+                      }
+                    >
+                      连接 / 重新发现
+                    </button>
+                  )}
                   <p className="muted">远程服务版本不能完全锁定；写操作结果未知时需核对服务端，不自动重放</p>
                   {connection.tools.map((tool) => (
                     <details key={tool.name}>
@@ -468,233 +491,534 @@ function Discover({
   busy,
   provider,
   onProviderChange,
+  refreshRevision,
+  installations,
+  bindings,
+  installationsKnown,
+  bindingsKnown,
+  stateError,
+  onRefreshState,
+  workspaceName,
+  operationError,
+  onDismissError,
   onInstall
 }: {
   client: RuntimeAdminClient;
   busy: boolean;
   provider: string;
   onProviderChange: (provider: string) => void;
+  refreshRevision: number;
+  installations: readonly CapabilityInfo[];
+  bindings: readonly CapabilityBinding[];
+  installationsKnown: boolean;
+  bindingsKnown: boolean;
+  stateError: string;
+  onRefreshState: () => void;
+  workspaceName: string;
+  operationError: { detail: string; retry: () => void } | undefined;
+  onDismissError: () => void;
   onInstall: (input: unknown) => Promise<void>;
 }) {
+  const searchId = useId();
   const [q, setQ] = useState("");
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState<string>();
+  const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<CatalogItem>();
-  const [version, setVersion] = useState("");
-  const [revision, setRevision] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [endpoint, setEndpoint] = useState(0);
+  const source = catalogSources.find((item) => item.id === provider)!;
   const results = useLoad(
     useCallback(
-      () => (searching && provider !== "github" ? client.searchCatalog(provider, query) : Promise.resolve(undefined)),
-      [client, provider, query, searching]
+      () =>
+        query !== undefined && provider !== "github"
+          ? client.searchCatalog(provider, query)
+          : Promise.resolve(undefined),
+      [client, provider, query]
     ),
-    0
+    refreshRevision
   );
-  const versions = useLoad(
-    useCallback(
-      () => (selected ? client.catalogVersions(selected.provider, selected.packageId) : Promise.resolve(undefined)),
-      [client, selected]
-    ),
-    0
-  );
-  useEffect(() => {
+  const activeFilter =
+    !installationsKnown || (filter === "enabled" && (!bindingsKnown || !workspaceName)) ? "all" : filter;
+  const visibleItems = (results.value?.items ?? []).filter((item) => {
+    const state = catalogItemState(item, installations, bindings);
+    if (activeFilter === "enabled") return state === "enabled";
+    if (activeFilter === "installed") return state !== "uninstalled";
+    if (activeFilter === "uninstalled") return state === "uninstalled";
+    return true;
+  });
+  const search = (value: string) => {
+    const keyword = value.trim();
+    if (!keyword) return;
+    onDismissError();
+    setQ(keyword);
     setSelected(undefined);
-    setSearching(false);
-    setVersion("");
-  }, [provider]);
+    if (query === keyword) results.reload();
+    setQuery(keyword);
+  };
   return (
-    <>
-      <div className="capability-section-heading">
-        <div>
-          <h2>发现新能力</h2>
-          <p>从技能目录、工具服务或代码仓库中选择</p>
+    <div className="capability-discovery">
+      <section className="capability-discovery-tools" aria-label="发现与搜索能力">
+        <div className="capability-source-label">
+          <h2>选择发现来源</h2>
+          <span>先选择来源，再搜索或填写安装信息</span>
         </div>
-      </div>
-      <CatalogSources selected={provider} onSelect={onProviderChange} />
-      <form
-        className="capability-search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (searching && query === q) results.reload();
-          setQuery(q);
-          setSearching(true);
-        }}
-      >
-        <Icon name={provider === "github" ? "branch" : "search"} />
-        <input
-          aria-label={provider === "github" ? "GitHub 仓库" : "搜索能力"}
-          placeholder={
-            provider === "github"
-              ? "输入 GitHub 仓库，例如 owner/repository"
-              : provider === "clawhub"
-                ? "在 ClawHub 中搜索 Skills…"
-                : "在 MCP Registry 中搜索工具与服务…"
+        <CatalogSources
+          selected={provider}
+          onSelect={(source) => {
+            if (source === provider) return;
+            // 来源与搜索上下文在同一事件中切换，避免旧关键词或结果被解释为新来源的数据
+            setQ("");
+            setQuery(undefined);
+            setFilter("all");
+            setSelected(undefined);
+            onProviderChange(source);
+          }}
+          disabled={busy}
+          sourceStatus={
+            results.error
+              ? "搜索暂不可用"
+              : operationError?.detail.includes("mcp_host_requires_configuration")
+                ? "需配置主机"
+                : undefined
           }
-          maxLength={500}
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
         />
         {provider !== "github" && (
-          <button className="primary" disabled={results.loading && searching}>
-            搜索能力
-            <Icon name="arrowRight" />
-          </button>
+          <>
+            <label className="capability-search-label" htmlFor={searchId}>
+              在 {source.description} 中搜索
+            </label>
+            <form
+              className="capability-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                search(q);
+              }}
+            >
+              <Icon name="search" />
+              <input
+                id={searchId}
+                aria-label={`搜索 ${source.name}`}
+                placeholder={
+                  provider === "clawhub" ? "输入技能名称或关键词，例如 github" : "输入 MCP 服务名称或关键词，例如 files"
+                }
+                maxLength={500}
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+              />
+              <button className="primary" disabled={!q.trim() || (results.loading && query !== undefined)}>
+                <Icon name="search" />
+                搜索能力
+              </button>
+            </form>
+          </>
         )}
-      </form>
-      <ErrorNotice error={results.error || versions.error} retry={results.reload} />
+      </section>
       {provider === "github" ? (
-        <form
-          className="panel capability-panel"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onInstall({ provider: "github", packageId: q, revision, ...(directory ? { directory } : {}) });
-          }}
-        >
-          <h2>安装 GitHub Skill 快照</h2>
-          <label>
-            完整 Commit SHA
-            <input
-              required
-              pattern="[a-f0-9]{40}"
-              aria-label="完整 Commit SHA"
-              value={revision}
-              onChange={(event) => setRevision(event.target.value)}
-            />
-          </label>
-          <label>
-            仓库内 Skill 目录（可选）
-            <input
-              aria-label="Skill 子目录"
-              value={directory}
-              onChange={(event) => setDirectory(event.target.value)}
-              placeholder="skills/report-analysis"
-            />
-          </label>
-          <p className="muted">只安装已固定提交的标准 SKILL.md 目录。脚本仅保存供审阅，不会执行</p>
-          <button className="primary" disabled={busy || !q || !/^[a-f0-9]{40}$/.test(revision)}>
-            安装固定快照
-          </button>
-        </form>
+        <GitHubInstall
+          busy={busy}
+          operationError={operationError}
+          onDismissError={onDismissError}
+          onInstall={onInstall}
+        />
       ) : (
         <div className={`capability-layout ${selected ? "" : "is-browsing"}`}>
-          <section className="panel capability-list">
-            {searching && (
-              <div className="capability-list-heading">
+          <section className="panel capability-list capability-results" aria-label="目录搜索结果">
+            <div className="capability-results-heading">
+              <div>
                 <h2>搜索结果</h2>
-                <span>{results.value?.items.length ?? 0} 项能力</span>
+                <p>{query !== undefined ? `${source.description} · “${query}”` : "输入关键词，发现适合工作区的能力"}</p>
               </div>
+              {query !== undefined && !results.loading && !results.error && (
+                <span>
+                  {visibleItems.length} / {results.value?.items.length ?? 0} 项
+                </span>
+              )}
+            </div>
+            <div className="capability-result-filters" role="group" aria-label="筛选当前搜索结果">
+              {(
+                [
+                  ["all", "全部"],
+                  ["installed", "已安装"],
+                  ["uninstalled", "未安装"],
+                  ["enabled", "已启用"]
+                ] as const
+              ).map(([key, label]) => {
+                const unavailable =
+                  key !== "all" && (!installationsKnown || (key === "enabled" && (!bindingsKnown || !workspaceName)));
+                return (
+                  <button
+                    key={key}
+                    aria-pressed={activeFilter === key}
+                    disabled={unavailable}
+                    title={
+                      unavailable
+                        ? "读取安装与工作区状态后可筛选"
+                        : key === "enabled"
+                          ? `工作区：${workspaceName}`
+                          : undefined
+                    }
+                    onClick={() => {
+                      setFilter(key);
+                      setSelected(undefined);
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+              <span>{workspaceName ? `工作区：${workspaceName}` : "暂无工作区"}</span>
+            </div>
+            {stateError && (
+              <details className="capability-state-note">
+                <summary>安装与启用状态暂不可用，目录仍可搜索</summary>
+                <CapabilityStatus
+                  error={stateError}
+                  title="无法核对安装与启用状态"
+                  impact="相关筛选暂不可用，目录搜索不受影响"
+                  retry={onRefreshState}
+                />
+              </details>
             )}
-            {results.loading ? (
-              <Loading />
-            ) : results.value?.items.length ? (
-              results.value.items.map((item) => (
-                <button
-                  className={`capability-row ${selected?.packageId === item.packageId ? "selected" : ""}`}
-                  aria-pressed={selected?.packageId === item.packageId}
-                  key={item.packageId}
-                  onClick={() => {
-                    setSelected(item);
-                    setVersion("");
-                    setEndpoint(0);
-                  }}
-                >
-                  <CapabilityKind skill={item.provider === "clawhub"} />
-                  <span className="capability-row-body">
-                    <strong>{item.name}</strong>
-                    <small>{item.description.slice(0, 180)}</small>
-                    <small>{item.packageId}</small>
-                  </span>
-                  <Icon name="chevron" />
-                </button>
-              ))
-            ) : (
-              <CapabilityEmpty
-                icon="search"
-                title={searching ? "没有匹配结果" : "发现第三方能力"}
-                text="搜索只读取目录元数据，安装与工作区启用需要分别操作"
-              />
-            )}
+            <div
+              className="capability-results-body"
+              aria-live="polite"
+              aria-busy={query !== undefined && results.loading}
+            >
+              {query === undefined ? (
+                <CapabilityEmpty
+                  icon="search"
+                  title={q.trim() ? "关键词已就绪，点击搜索开始发现" : "输入关键词，开始发现能力"}
+                  text={`搜索范围为 ${source.description}。选择结果后可查看版本、来源与安装状态`}
+                  action={
+                    <div className="capability-search-suggestions">
+                      <span>试试搜索</span>
+                      {["github", "web", "files"].map((keyword) => (
+                        <button key={keyword} onClick={() => search(keyword)}>
+                          {keyword}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                />
+              ) : results.loading ? (
+                <Loading />
+              ) : results.error ? (
+                <CapabilityStatus
+                  error={results.error}
+                  title={`${source.description} 搜索暂不可用`}
+                  impact="当前来源的搜索未完成，你可以重试或切换其他来源"
+                  retry={results.reload}
+                />
+              ) : visibleItems.length ? (
+                visibleItems.map((item) => {
+                  const state = catalogItemState(item, installations, bindings);
+                  return (
+                    <button
+                      className={`capability-row ${selected?.packageId === item.packageId ? "selected" : ""}`}
+                      aria-pressed={selected?.packageId === item.packageId}
+                      key={item.packageId}
+                      onClick={() => {
+                        onDismissError();
+                        setSelected(item);
+                      }}
+                    >
+                      <CapabilityKind skill={item.provider === "clawhub"} />
+                      <span className="capability-row-body">
+                        <strong>{item.name}</strong>
+                        <small>{item.description.slice(0, 180)}</small>
+                        <small>{item.packageId}</small>
+                        <span
+                          className={`capability-state ${installationsKnown && bindingsKnown && state === "enabled" ? "is-enabled" : ""}`}
+                        >
+                          {!installationsKnown
+                            ? "安装状态未读取"
+                            : bindingsKnown && state === "enabled"
+                              ? "当前工作区已启用"
+                              : state !== "uninstalled"
+                                ? "已安装"
+                                : "未安装"}
+                        </span>
+                      </span>
+                      <Icon name="chevron" />
+                    </button>
+                  );
+                })
+              ) : (
+                <CapabilityEmpty
+                  icon="search"
+                  title={results.value?.items.length ? "当前筛选下没有匹配能力" : "没有找到匹配能力"}
+                  text={
+                    results.value?.items.length
+                      ? "筛选仅作用于本次搜索结果，可以查看全部或更换关键词"
+                      : `没有找到与“${query}”匹配的结果，请尝试其他关键词或切换来源`
+                  }
+                  action={
+                    <button
+                      onClick={() => {
+                        setFilter("all");
+                        if (!results.value?.items.length) document.getElementById(searchId)?.focus();
+                      }}
+                    >
+                      {results.value?.items.length ? "查看全部结果" : "修改关键词"}
+                    </button>
+                  }
+                />
+              )}
+            </div>
           </section>
           {selected && (
-            <section className="panel capability-panel">
-              <div className="capability-detail-heading">
-                <CapabilityKind skill={selected.provider === "clawhub"} />
-                <div>
-                  <span className="capability-eyebrow">
-                    {selected.provider === "clawhub" ? "SKILL" : "MCP SERVICE"}
-                  </span>
-                  <h2>{selected.name}</h2>
-                </div>
-              </div>
-              <p>{selected.description}</p>
-              <dl className="capability-facts">
-                <dt>来源</dt>
-                <dd>
-                  {selected.provider} · {selected.packageId}
-                </dd>
-                <dt>作者</dt>
-                <dd>{selected.author ?? "查看来源目录"}</dd>
-                <dt>许可证</dt>
-                <dd>{selected.license ?? "安装后审阅包内许可证"}</dd>
-              </dl>
-              {safeLink(selected.url) && (
-                <a href={safeLink(selected.url)} rel="noreferrer" target="_blank">
-                  查看来源 <Icon name="arrowRight" />
-                </a>
-              )}
-              <label>
-                精确版本
-                <select aria-label="安装版本" value={version} onChange={(event) => setVersion(event.target.value)}>
-                  <option value="">选择发布版本</option>
-                  {versions.value?.items.map((item) => (
-                    <option key={item.version} value={item.version}>
-                      {item.version}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {versions.value?.items.find((item) => item.version === version)?.changelog && (
-                <pre>{versions.value.items.find((item) => item.version === version)!.changelog}</pre>
-              )}
-              {selected.provider === "mcp-official" && (
-                <label>
-                  远程 HTTP 端点
-                  <select
-                    aria-label="MCP 端点"
-                    value={endpoint}
-                    onChange={(event) => setEndpoint(Number(event.target.value))}
-                  >
-                    {selected.remotes
-                      ?.filter((remote) => remote.type === "streamable-http")
-                      .map((remote, index) => (
-                        <option key={remote.url} value={index}>
-                          {remote.url}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              )}
-              <button
-                className="primary"
-                disabled={busy || !version}
-                onClick={() =>
-                  void onInstall({
-                    provider: selected.provider,
-                    packageId: selected.packageId,
-                    version,
-                    ...(selected.provider === "mcp-official" ? { endpointIndex: endpoint } : {})
-                  })
-                }
-              >
-                <Icon name="plus" />
-                {busy ? "安装中…" : "安装此版本"}
-              </button>
-            </section>
+            <CatalogDetail
+              key={`${selected.provider}:${selected.packageId}`}
+              client={client}
+              item={selected}
+              busy={busy}
+              refreshRevision={refreshRevision}
+              installations={installations}
+              operationError={operationError}
+              onDismissError={onDismissError}
+              onInstall={onInstall}
+            />
           )}
         </div>
       )}
-    </>
+    </div>
+  );
+}
+
+function GitHubInstall({
+  busy,
+  operationError,
+  onDismissError,
+  onInstall
+}: {
+  busy: boolean;
+  operationError: { detail: string; retry: () => void } | undefined;
+  onDismissError: () => void;
+  onInstall: (input: unknown) => Promise<void>;
+}) {
+  const [repository, setRepository] = useState("");
+  const [revision, setRevision] = useState("");
+  const [directory, setDirectory] = useState("");
+  return (
+    <form
+      className="panel capability-panel capability-github-form"
+      onChange={onDismissError}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onInstall({
+          provider: "github",
+          packageId: repository.trim(),
+          revision,
+          ...(directory.trim() ? { directory: directory.trim() } : {})
+        });
+      }}
+    >
+      <div className="capability-detail-heading">
+        <span className="capability-kind">
+          <Icon name="branch" />
+        </span>
+        <div>
+          <h2>从 GitHub 仓库安装</h2>
+          <p>填写仓库和固定提交，安装一个可审阅的 Skill 快照</p>
+        </div>
+      </div>
+      <label>
+        GitHub 仓库
+        <input
+          aria-label="GitHub 仓库"
+          required
+          pattern="[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+          placeholder="owner/repository"
+          maxLength={500}
+          value={repository}
+          onChange={(event) => setRepository(event.target.value)}
+        />
+      </label>
+      <div className="capability-github-fields">
+        <label>
+          完整 Commit SHA
+          <input
+            aria-label="完整 Commit SHA"
+            required
+            pattern="[a-f0-9]{40}"
+            placeholder="40 位提交 SHA"
+            value={revision}
+            onChange={(event) => setRevision(event.target.value)}
+          />
+        </label>
+        <label>
+          Skill 目录（可选）
+          <input
+            aria-label="Skill 子目录"
+            placeholder="例如 skills/report-analysis"
+            value={directory}
+            onChange={(event) => setDirectory(event.target.value)}
+          />
+        </label>
+      </div>
+      <p>GitHub 来源按指定仓库安装，不提供关键词搜索。仅保存标准 SKILL.md 目录与资源，脚本不会执行</p>
+      {operationError && (
+        <CapabilityStatus
+          error={operationError.detail}
+          title="GitHub 快照安装未完成"
+          impact="请处理以下问题后重试，并在“已安装”中确认安装结果"
+          retry={operationError.retry}
+        />
+      )}
+      <div className="capability-install-footer">
+        <span>安装后，在“已安装”中为工作区启用</span>
+        <button
+          className="primary"
+          disabled={
+            busy || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository.trim()) || !/^[a-f0-9]{40}$/.test(revision)
+          }
+        >
+          <Icon name="plus" />
+          {busy ? "安装中…" : "安装固定快照"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function CatalogDetail({
+  client,
+  item,
+  busy,
+  refreshRevision,
+  installations,
+  operationError,
+  onDismissError,
+  onInstall
+}: {
+  client: RuntimeAdminClient;
+  item: CatalogItem;
+  busy: boolean;
+  refreshRevision: number;
+  installations: readonly CapabilityInfo[];
+  operationError: { detail: string; retry: () => void } | undefined;
+  onDismissError: () => void;
+  onInstall: (input: unknown) => Promise<void>;
+}) {
+  const [version, setVersion] = useState("");
+  const [endpoint, setEndpoint] = useState(0);
+  const versions = useLoad(
+    useCallback(() => client.catalogVersions(item.provider, item.packageId), [client, item.provider, item.packageId]),
+    refreshRevision
+  );
+  const remotes = item.remotes?.filter((remote) => remote.type === "streamable-http") ?? [];
+  const alreadyInstalled = installations.some(
+    (installation) =>
+      installation.packageKey === `${item.provider}:${item.packageId}` && installation.sourceVersion === version
+  );
+  return (
+    <section className="panel capability-panel">
+      <div className="capability-detail-heading">
+        <CapabilityKind skill={item.provider === "clawhub"} />
+        <div>
+          <span className="capability-eyebrow">{item.provider === "clawhub" ? "SKILL" : "MCP SERVICE"}</span>
+          <h2>{item.name}</h2>
+        </div>
+      </div>
+      <p>{item.description}</p>
+      <dl className="capability-facts">
+        <dt>来源</dt>
+        <dd>
+          {item.provider} · {item.packageId}
+        </dd>
+        <dt>作者</dt>
+        <dd>{item.author ?? "查看来源目录"}</dd>
+        <dt>许可证</dt>
+        <dd>{item.license ?? "安装后审阅包内许可证"}</dd>
+      </dl>
+      {safeLink(item.url) && (
+        <a href={safeLink(item.url)} rel="noreferrer" target="_blank">
+          查看来源
+          <Icon name="arrowRight" />
+        </a>
+      )}
+      <CapabilityStatus
+        error={versions.error}
+        title="版本列表暂不可用"
+        impact="请重新读取发布版本，再选择要安装的版本"
+        retry={versions.reload}
+      />
+      <label>
+        选择安装版本
+        <select
+          aria-label="安装版本"
+          value={version}
+          disabled={versions.loading || !!versions.error}
+          onChange={(event) => {
+            onDismissError();
+            setVersion(event.target.value);
+          }}
+        >
+          <option value="">{versions.loading ? "正在读取版本…" : "选择精确发布版本"}</option>
+          {versions.value?.items.map((entry) => (
+            <option key={entry.version} value={entry.version}>
+              {entry.version}
+            </option>
+          ))}
+        </select>
+      </label>
+      {versions.value && !versions.loading && !versions.value.items.length && <p>此来源暂未提供可安装的发布版本</p>}
+      {versions.value?.items.find((entry) => entry.version === version)?.changelog && (
+        <pre>{versions.value.items.find((entry) => entry.version === version)!.changelog}</pre>
+      )}
+      {item.provider === "mcp-official" && (
+        <label>
+          远程 HTTP 端点
+          <select
+            aria-label="MCP 端点"
+            value={endpoint}
+            disabled={!remotes.length}
+            onChange={(event) => {
+              onDismissError();
+              setEndpoint(Number(event.target.value));
+            }}
+          >
+            {!remotes.length && <option value="0">此服务未提供可安装的 HTTP 端点</option>}
+            {remotes.map((remote, index) => (
+              <option key={remote.url} value={index}>
+                {remote.url}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {operationError && (
+        <CapabilityStatus
+          error={operationError.detail}
+          title="此版本安装未完成"
+          impact="请处理以下问题后重试，并在“已安装”中确认安装结果"
+          retry={operationError.retry}
+        />
+      )}
+      <div className="capability-install-footer">
+        <span>安装后，在“已安装”中为工作区启用</span>
+        <button
+          className="primary"
+          disabled={
+            busy ||
+            !version ||
+            versions.loading ||
+            !!versions.error ||
+            alreadyInstalled ||
+            (item.provider === "mcp-official" && !remotes.length)
+          }
+          onClick={() =>
+            void onInstall({
+              provider: item.provider,
+              packageId: item.packageId,
+              version,
+              ...(item.provider === "mcp-official" ? { endpointIndex: endpoint } : {})
+            })
+          }
+        >
+          <Icon name={alreadyInstalled ? "check" : "plus"} />
+          {busy ? "安装中…" : alreadyInstalled ? "此版本已安装" : "安装此版本"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -825,7 +1149,12 @@ function CapabilityDetail({
               ))}
             </select>
           </label>
-          <ErrorNotice error={resource.error} retry={resource.reload} />
+          <CapabilityStatus
+            error={resource.error}
+            title="文件暂时无法读取"
+            impact="请重试读取所选 Skill 文件，其他安装信息仍可查看"
+            retry={resource.reload}
+          />
           {resource.loading ? (
             <Loading />
           ) : (
@@ -852,28 +1181,81 @@ function CapabilityKind({ skill }: { skill: boolean }) {
   );
 }
 
-function CatalogSources({ selected, onSelect }: { selected?: string; onSelect: (provider: string) => void }) {
+function CatalogSources({
+  selected,
+  onSelect,
+  disabled,
+  sourceStatus
+}: {
+  selected: string;
+  onSelect: (provider: string) => void;
+  disabled: boolean;
+  sourceStatus?: string | undefined;
+}) {
   return (
-    <div className="capability-sources" aria-label="能力来源">
+    <div className="capability-sources" role="group" aria-label="选择发现来源">
       {catalogSources.map((source) => (
         <button
           key={source.id}
           className={`capability-source ${selected === source.id ? "selected" : ""}`}
-          aria-pressed={selected === undefined ? undefined : selected === source.id}
+          aria-pressed={selected === source.id}
+          disabled={disabled}
           onClick={() => onSelect(source.id)}
         >
-          <span className="capability-source-top">
-            <span className={`capability-kind source-${source.id}`}>
-              <Icon name={source.icon} />
-            </span>
-            <span className="capability-eyebrow">{source.label}</span>
-            {selected === source.id ? <Icon name="check" /> : <Icon name="arrowRight" />}
+          <span className={`capability-kind source-${source.id}`}>
+            <Icon name={source.icon} />
           </span>
-          <strong>{source.name}</strong>
-          <span className="capability-source-description">{source.description}</span>
+          <span className="capability-source-text">
+            <strong>{source.name}</strong>
+            <span className={sourceStatus && selected === source.id ? "capability-source-warning" : ""}>
+              {sourceStatus && selected === source.id ? sourceStatus : source.label}
+            </span>
+          </span>
+          <span className="capability-source-check">{selected === source.id && <Icon name="check" />}</span>
         </button>
       ))}
     </div>
+  );
+}
+
+function CapabilityStatus({
+  error,
+  title,
+  impact,
+  retry
+}: {
+  error?: string | undefined;
+  title: string;
+  impact: string;
+  retry: () => void;
+}) {
+  if (!error) return null;
+  const issue = capabilityIssue(error);
+  return (
+    <section className="capability-status" role="status">
+      <span className="capability-status-icon">
+        <Icon name="settings" />
+      </span>
+      <div className="capability-status-content">
+        <h3>{issue.title || title}</h3>
+        <p>{impact}</p>
+        <p>{issue.reason}</p>
+        <div className="capability-status-actions">
+          <a className="button" href={`#/system?section=${issue.section}`}>
+            去配置
+            <Icon name="arrowRight" />
+          </a>
+          <button onClick={retry}>
+            <Icon name="refresh" />
+            重试
+          </button>
+          <details>
+            <summary>查看详情</summary>
+            <pre>{error}</pre>
+          </details>
+        </div>
+      </div>
+    </section>
   );
 }
 

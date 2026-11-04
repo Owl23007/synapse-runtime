@@ -20,7 +20,7 @@ const Capabilities = lazy(() =>
   import("../features/capabilities/capabilities-page.js").then((module) => ({ default: module.Capabilities }))
 );
 
-/** 页面按功能懒加载，工作台和运行列表自行同步查询参数，避免更新地址丢失查看状态 */
+/** 页面按功能懒加载，设置深链接传入配置分类，其他页面保留各自的查询上下文 */
 export function AppRouter({ route, client, revision }: ViewProps & { route: AppRoute }) {
   let page;
   switch (route.section) {
@@ -61,7 +61,14 @@ export function AppRouter({ route, client, revision }: ViewProps & { route: AppR
     case "system":
     case "channels":
     case "tasks":
-      page = <System key={route.section} client={client} view={route.section} />;
+      page = (
+        <System
+          key={route.section}
+          client={client}
+          view={route.section}
+          configSection={route.query.get("section") ?? "runtime"}
+        />
+      );
       break;
     default:
       page = <Empty title="页面不存在" text="从左侧导航选择一个页面" />;
