@@ -43,7 +43,7 @@ export function AppShell({
   return (
     <MaterialProvider>
       <div
-        className={`shell ${section === "workspace" ? "shell-workspace" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+        className={`shell ${section === "workspace" ? "shell-workspace" : ""} ${section === "runs" && !route.id ? "shell-runs" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
       >
         <a
           className="skip-link"
@@ -101,10 +101,9 @@ export function AppShell({
           </div>
         </aside>
         <div className="main-shell">
-          {section !== "workspace" && (
+          {section !== "workspace" && !(section === "runs" && !route.id) && (
             <header className="topbar">
               <span>
-                工作空间 <span className="separator">/</span>
                 {PAGE_ITEMS.find((item) => item.section === section)?.label ??
                   (section === "system" ? "系统状态" : "页面")}
               </span>

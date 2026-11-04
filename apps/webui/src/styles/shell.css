@@ -452,3 +452,39 @@ nav a[aria-current="page"] {
     min-height: 540px;
   }
 }
+
+/* 运行页由两栏各自滚动，不能再用固定最小高度撑开浏览器 */
+.shell-runs .main-shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.shell-runs main {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-4);
+  overflow: hidden;
+}
+@media (max-width: 760px) {
+  .shell-runs {
+    height: 100dvh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .shell-runs .sidebar {
+    flex-shrink: 0;
+  }
+  .shell-runs .main-shell {
+    flex: 1;
+    height: auto;
+  }
+  .shell-runs main {
+    padding: var(--space-2);
+  }
+}
