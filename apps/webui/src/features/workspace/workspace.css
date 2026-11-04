@@ -1457,11 +1457,13 @@
   overflow: hidden;
 }
 .workspace-body.with-inspector {
-  /* 正文滚动止于面板左侧，避免滚动轨道叠到面板的独立滚动区域 */
+  /* 图表与文件视图避开浮动面板，以免遮挡操作控件 */
   padding-right: calc(var(--workspace-inspector) + var(--space-6));
 }
 .workspace-body.with-inspector[data-view="chat"] {
-  --inspector-reserve: 0px;
+  /* 只给正文留出面板空间，让对话的滚动轨道仍位于整个工作区右侧 */
+  --inspector-reserve: calc(var(--workspace-inspector) + var(--space-6));
+  padding-right: 0;
 }
 .workspace-view {
   --conversation-gutter: clamp(24px, 3vw, 48px);
@@ -1493,26 +1495,22 @@
   justify-content: flex-start;
   gap: var(--space-2);
   min-width: 0;
-  max-width: 100%;
+  width: 100%;
   min-height: var(--control-height);
-  padding: var(--space-1) 0;
-  border: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   font: inherit;
 }
 .session-title-button span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.session-title-button .icon {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--muted);
-  opacity: 0;
-}
-.session-title-button:is(:hover, :focus-visible) .icon {
-  opacity: 1;
+.session-title-button:is(:hover, :focus-visible) {
+  border-color: var(--border);
+  background: transparent;
 }
 .session-title-editor {
   display: flex;
@@ -1520,17 +1518,16 @@
   gap: var(--space-1);
   align-items: center;
   min-width: 0;
-  max-width: 460px;
+  width: 100%;
 }
 .session-title-editor input {
   flex: 1;
   width: 0;
   min-width: 60px;
-}
-.session-title-editor .icon-button {
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  border-radius: var(--radius-control);
 }
 .session-title-error {
   flex-basis: 100%;
@@ -1543,6 +1540,11 @@
   font-weight: var(--weight-medium);
   line-height: var(--leading-control);
   max-width: none;
+}
+.workspace-title {
+  font-size: var(--text-section);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-control);
 }
 .shell-workspace .workspace-header > .icon-button {
   border-color: transparent;
@@ -1692,14 +1694,20 @@
   max-width: 85%;
 }
 .shell-workspace .chat-message.user .message-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   background: transparent;
 }
 .shell-workspace .chat-message.user .message-meta {
-  justify-content: flex-end;
-  min-height: 20px;
-  padding-right: var(--space-2);
+  flex-shrink: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
 }
 .shell-workspace .chat-message.user .message-text {
+  min-width: 0;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-float) var(--radius-float) var(--space-1) var(--radius-float);
   background: var(--accent-soft);
@@ -1844,8 +1852,8 @@
 }
 .composer-file-picker {
   inset: auto;
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(420px, 60dvh);
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(520px, 70dvh);
   margin: 0;
   padding: var(--space-3);
   border: 1px solid var(--border);
@@ -1853,30 +1861,205 @@
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow-float);
-  overflow: auto;
+  overflow: hidden;
 }
-.composer-file-actions {
+.composer-file-picker:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.composer-file-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
-.composer-file-actions a {
+.composer-file-heading strong {
   font-size: var(--text-control);
+  font-weight: var(--weight-medium);
 }
-.composer-file-picker .file-row {
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-2);
+.composer-file-heading .icon-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: var(--space-1);
+  border: 0;
+  background: transparent;
+}
+.composer-file-heading > .icon-button:last-child {
+  margin-left: auto;
+}
+.composer-file-sources {
+  display: grid;
+  gap: var(--space-1);
+}
+.composer-file-sources > button {
+  width: 100%;
+  padding: var(--space-3);
+  gap: var(--space-3);
+  text-align: left;
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+.composer-file-sources > button > .icon:first-child {
+  color: var(--muted);
+}
+.composer-file-sources > button > .icon:last-child {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--muted);
+}
+.composer-file-sources strong,
+.composer-file-sources small {
+  display: block;
+}
+.composer-file-sources strong {
+  font-size: var(--text-control);
+  font-weight: var(--weight-medium);
+}
+.composer-file-sources small {
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-small);
   white-space: normal;
 }
-.composer-file-picker .file-row > span:first-child {
-  min-width: 0;
+.composer-file-scopes {
+  display: flex;
+  flex-shrink: 0;
+  padding: var(--space-1);
+  gap: var(--space-1);
+  background: var(--surface-hover);
+  border-radius: var(--radius-control);
 }
-.composer-file-picker .file-row > span:last-child {
-  flex: 0 0 auto;
+.composer-file-scopes button {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+.composer-file-scopes button[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-panel);
+}
+.composer-workspace-select {
+  gap: var(--space-1);
   font-size: var(--text-small);
   color: var(--muted);
+}
+.composer-workspace-select select {
+  color: var(--text);
+  font-size: var(--text-control);
+}
+.composer-file-hint,
+.composer-file-progress {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.composer-file-progress {
+  color: var(--accent);
+}
+.composer-file-search {
+  position: relative;
+  flex-shrink: 0;
+}
+.composer-file-search > .icon {
+  position: absolute;
+  left: var(--space-2);
+  top: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.composer-file-search input {
+  padding-left: var(--space-8);
+  font-size: var(--text-control);
+}
+.composer-file-results {
+  min-height: 0;
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.composer-file-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  border-color: transparent;
+  border-radius: var(--radius-control);
+  text-align: left;
+}
+.composer-file-row > .icon {
+  color: var(--muted);
+}
+.composer-file-row[aria-pressed="true"] {
+  opacity: 1;
+  background: var(--surface-hover);
+}
+.composer-file-row[aria-pressed="true"] .composer-file-action {
+  color: var(--success);
+}
+.composer-file-name {
+  min-width: 0;
+}
+.composer-file-name strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-control);
+  font-weight: var(--weight-medium);
+}
+.composer-file-name small {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+.composer-file-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  color: var(--accent);
+}
+.composer-file-action .icon {
+  width: 14px;
+  height: 14px;
+}
+.composer-files-more {
+  width: 100%;
+  border: 0;
+  font-size: var(--text-small);
+}
+.composer-file-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-small);
+}
+.composer-file-footer > span {
+  margin-left: auto;
+  color: var(--muted);
+}
+.composer-file-footer > button {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-small);
+  border-radius: var(--radius-control);
 }
 .composer-files-empty {
   margin: var(--space-4) 0 var(--space-2);
@@ -1997,7 +2180,8 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 var(--space-5) var(--space-4);
+  margin: 0 var(--space-2) var(--space-3) 0;
+  padding: 0 calc(var(--space-5) - var(--space-2)) var(--space-1) var(--space-5);
   scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
@@ -2401,7 +2585,7 @@ details[open] > summary .disclosure-action .icon {
   }
   .shell-workspace .workspace-header h2 {
     font-size: var(--text-section);
-    max-width: 160px;
+    max-width: none;
   }
   .shell-workspace .workspace-header > .line-select {
     flex: 0 1 112px;

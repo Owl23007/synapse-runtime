@@ -6,7 +6,7 @@ import { Surface } from "../../../shared/ui/surface.js";
 import { type WorkspaceController } from "../hooks/use-workspace.js";
 import { message } from "../../../shared/lib/runtime.js";
 
-/** 标题就地编辑，分支与运行面板入口固定排列在标题栏右侧 */
+/** 标题点击后就地编辑，回车或失焦保存，分支与运行入口固定在右侧 */
 export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController }) {
   const {
     initialSession,
@@ -33,12 +33,35 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const pending = useRef(false);
+  const cancelled = useRef(false);
   useEffect(() => {
     if (editing) {
       input.current?.focus();
       input.current?.select();
     }
   }, [editing]);
+  const saveTitle = async () => {
+    if (pending.current || cancelled.current) return;
+    const title = draft.trim();
+    if (!title || title === currentPresentation.title) {
+      setEditing(false);
+      return;
+    }
+    pending.current = true;
+    setSaving(true);
+    setError("");
+    try {
+      await workspace.client.renameSession(initialSession, title);
+      setNonce((value) => value + 1);
+      setEditing(false);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  };
   if (!data.value) return null;
   return (
     <>
@@ -49,18 +72,7 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
               className="session-title-editor"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (saving || !draft.trim()) return;
-                setSaving(true);
-                setError("");
-                void workspace.client
-                  .renameSession(initialSession, draft.trim())
-                  .then(() => {
-                    setNonce((value) => value + 1);
-                    setEditing(false);
-                    return undefined;
-                  })
-                  .catch((cause) => setError(message(cause)))
-                  .finally(() => setSaving(false));
+                void saveTitle();
               }}
             >
               <input
@@ -68,37 +80,24 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
                 aria-label="会话标题"
                 maxLength={120}
                 value={draft}
-                disabled={saving}
+                readOnly={saving}
+                aria-invalid={Boolean(error)}
+                aria-busy={saving}
                 onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => void saveTitle()}
                 onKeyDown={(event) => {
                   if (event.nativeEvent.isComposing) {
                     if (event.key === "Enter") event.preventDefault();
                     return;
                   }
                   if (event.key === "Escape" && !saving) {
+                    event.preventDefault();
                     event.stopPropagation();
+                    cancelled.current = true;
                     setEditing(false);
                   }
                 }}
               />
-              <button
-                className="icon-button"
-                aria-label="保存会话标题"
-                title="保存标题"
-                disabled={saving || !draft.trim()}
-              >
-                <Icon name="check" />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="取消编辑标题"
-                title="取消编辑"
-                disabled={saving}
-                onClick={() => setEditing(false)}
-              >
-                <Icon name="close" />
-              </button>
               {error && (
                 <span role="alert" className="session-title-error">
                   {error}
@@ -115,11 +114,11 @@ export function WorkspaceHeader({ workspace }: { workspace: WorkspaceController 
                   onClick={() => {
                     setDraft(currentPresentation.title);
                     setError("");
+                    cancelled.current = false;
                     setEditing(true);
                   }}
                 >
                   <span>{currentPresentation.title}</span>
-                  <Icon name="edit" />
                 </button>
               ) : (
                 currentPresentation.title

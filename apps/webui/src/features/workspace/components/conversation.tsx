@@ -117,7 +117,11 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
           </div>
         )}
         {messages.map((item) => (
-          <article key={item.id} className={`chat-message ${item.type === "user_message" ? "user" : "assistant"}`}>
+          <article
+            key={item.id}
+            className={`chat-message ${item.type === "user_message" ? "user" : "assistant"}`}
+            aria-label={item.type === "user_message" ? "你发送的消息" : undefined}
+          >
             {item.type !== "user_message" && (
               <div className="message-avatar">
                 <SynapseMark />
@@ -125,9 +129,9 @@ export function WorkspaceConversation({ workspace }: { workspace: WorkspaceContr
             )}
             <div className="message-body">
               <div className="message-meta">
-                <strong>
-                  {item.type === "user_message" ? "你" : item.type === "branch_result" ? "分支结果已合并" : "Synapse"}
-                </strong>
+                {item.type !== "user_message" && (
+                  <strong>{item.type === "branch_result" ? "分支结果已合并" : "Synapse"}</strong>
+                )}
                 <time dateTime={item.createdAt} title={time(item.createdAt)}>
                   {messageTime(item.createdAt)}
                 </time>
