@@ -2,7 +2,6 @@ import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import type { CapabilityBinding, CapabilityInfo, CatalogItem, RuntimeAdminClient } from "@synapse/runtime-client";
 import type { ViewProps } from "../../shared/types/runtime.js";
 import { useLoad } from "../../shared/hooks/use-load.js";
-import { PageTitle } from "../../shared/ui/content.js";
 import { Loading } from "../../shared/ui/feedback.js";
 import { Icon } from "../../shared/ui/icons.js";
 import { navigateTabs } from "../../shared/ui/tabs.js";
@@ -110,47 +109,44 @@ export function Capabilities({ client, revision }: ViewProps) {
   };
   return (
     <div className="capabilities-page">
-      <div className="capability-heading">
+      <header className="capability-heading">
         <span className="capability-heading-icon">
           <Icon name="plug" />
         </span>
-        <PageTitle
-          title="能力中心"
-          description="发现技能与工具，为你的工作区拓展更多可能"
-          action={
-            <div className="capability-actions">
-              <button className="capability-refresh" onClick={refresh}>
-                <Icon name="refresh" />
-                刷新
-              </button>
-              {tab !== "discover" && (
-                <button className="primary" onClick={() => discover()}>
-                  <Icon name="plus" />
-                  发现能力
-                </button>
-              )}
-            </div>
-          }
-        />
-      </div>
-      <dl className="capability-summary" aria-label="能力概览">
-        <div>
-          <dt>已安装版本</dt>
-          <dd>{installed.value && !installed.error ? items.length : "—"}</dd>
+        <div className="capability-heading-copy">
+          <h1>能力中心</h1>
         </div>
-        <div>
-          <dt>Skills</dt>
-          <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "skill").length : "—"}</dd>
+        <dl className="capability-summary" aria-label="能力概览">
+          <div>
+            <dt>已安装版本</dt>
+            <dd>{installed.value && !installed.error ? items.length : "—"}</dd>
+          </div>
+          <div>
+            <dt>Skills</dt>
+            <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "skill").length : "—"}</dd>
+          </div>
+          <div>
+            <dt>MCP 服务</dt>
+            <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "mcp").length : "—"}</dd>
+          </div>
+          <div title={workspaceName ? `工作区：${workspaceName}` : "暂无工作区"}>
+            <dt>当前工作区已启用</dt>
+            <dd>{enabledCount ?? "—"}</dd>
+          </div>
+        </dl>
+        <div className="capability-actions">
+          <button className="capability-refresh" onClick={refresh}>
+            <Icon name="refresh" />
+            刷新
+          </button>
+          {tab !== "discover" && (
+            <button className="primary" onClick={() => discover()}>
+              <Icon name="plus" />
+              发现能力
+            </button>
+          )}
         </div>
-        <div>
-          <dt>MCP 服务</dt>
-          <dd>{installed.value && !installed.error ? items.filter((item) => item.kind === "mcp").length : "—"}</dd>
-        </div>
-        <div title={workspaceName ? `工作区：${workspaceName}` : "暂无工作区"}>
-          <dt>当前工作区已启用</dt>
-          <dd>{enabledCount ?? "—"}</dd>
-        </div>
-      </dl>
+      </header>
       <div className="tabs capability-tabs" role="tablist" aria-label="能力管理" onKeyDown={navigateTabs}>
         {tabs.map(([key, label, icon]) => (
           <button
@@ -173,7 +169,7 @@ export function Capabilities({ client, revision }: ViewProps) {
         id={`${tabId}-panel`}
         aria-labelledby={`${tabId}-${tab}`}
         tabIndex={0}
-        className="capability-content"
+        className={`capability-content ${tab === "discover" ? "is-discover" : ""}`}
       >
         {tab !== "discover" && error?.tab === tab && (
           <CapabilityStatus
@@ -556,59 +552,56 @@ function Discover({
   return (
     <div className="capability-discovery">
       <section className="capability-discovery-tools" aria-label="发现与搜索能力">
-        <div className="capability-source-label">
-          <h2>选择发现来源</h2>
-          <span>先选择来源，再搜索或填写安装信息</span>
+        <div className="capability-source-control">
+          <span className="capability-source-label">来源</span>
+          <CatalogSources
+            selected={provider}
+            onSelect={(nextProvider) => {
+              if (nextProvider === provider) return;
+              // 来源与搜索上下文在同一事件中切换，避免旧关键词或结果被解释为新来源的数据
+              setQ("");
+              setQuery(undefined);
+              setFilter("all");
+              setSelected(undefined);
+              onProviderChange(nextProvider);
+            }}
+            disabled={busy}
+            sourceStatus={
+              results.error
+                ? "搜索暂不可用"
+                : operationError?.detail.includes("mcp_host_requires_configuration")
+                  ? "需配置主机"
+                  : undefined
+            }
+          />
         </div>
-        <CatalogSources
-          selected={provider}
-          onSelect={(source) => {
-            if (source === provider) return;
-            // 来源与搜索上下文在同一事件中切换，避免旧关键词或结果被解释为新来源的数据
-            setQ("");
-            setQuery(undefined);
-            setFilter("all");
-            setSelected(undefined);
-            onProviderChange(source);
-          }}
-          disabled={busy}
-          sourceStatus={
-            results.error
-              ? "搜索暂不可用"
-              : operationError?.detail.includes("mcp_host_requires_configuration")
-                ? "需配置主机"
-                : undefined
-          }
-        />
         {provider !== "github" && (
-          <>
-            <label className="capability-search-label" htmlFor={searchId}>
-              在 {source.description} 中搜索
-            </label>
-            <form
-              className="capability-search"
-              onSubmit={(event) => {
-                event.preventDefault();
-                search(q);
-              }}
-            >
+          <form
+            className="capability-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              search(q);
+            }}
+          >
+            <label className="capability-search-scope" htmlFor={searchId}>
               <Icon name="search" />
-              <input
-                id={searchId}
-                aria-label={`搜索 ${source.name}`}
-                placeholder={
-                  provider === "clawhub" ? "输入技能名称或关键词，例如 github" : "输入 MCP 服务名称或关键词，例如 files"
-                }
-                maxLength={500}
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-              />
-              <button className="primary" disabled={!q.trim() || (results.loading && query !== undefined)}>
-                <Icon name="search" />
-                搜索能力
-              </button>
-            </form>
-          </>
+              <span>{source.description}</span>
+            </label>
+            <input
+              id={searchId}
+              aria-label={`搜索 ${source.name}`}
+              placeholder={
+                provider === "clawhub" ? "输入技能名称或关键词，例如 github" : "输入 MCP 服务名称或关键词，例如 files"
+              }
+              maxLength={500}
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+            />
+            <button className="primary" disabled={!q.trim() || (results.loading && query !== undefined)}>
+              <Icon name="search" />
+              搜索能力
+            </button>
+          </form>
         )}
       </section>
       {provider === "github" ? (
@@ -624,7 +617,6 @@ function Discover({
             <div className="capability-results-heading">
               <div>
                 <h2>搜索结果</h2>
-                <p>{query !== undefined ? `${source.description} · “${query}”` : "输入关键词，发现适合工作区的能力"}</p>
               </div>
               {query !== undefined && !results.loading && !results.error && (
                 <span>
@@ -1135,7 +1127,6 @@ function CapabilityDetail({
           检查更新
         </button>
       </div>
-      <p className="muted">Workspace 启用与用户权限同时生效，Skill 不会新增执行权限；旧 Run 保留原版本引用</p>
       {files.length > 0 && (
         <>
           <label>
