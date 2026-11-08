@@ -53,7 +53,7 @@
     "@synapse/runtime-tool-web": "workspace:*",
     "@synapse/runtime-user-config": "workspace:*",
     "nova-http": "^0.2.1",
-    "pdfjs-dist": "^6.4.299",
+    "pdfjs-dist": "^6.5.438",
     "zod": "^4.6.7"
   },
   "devDependencies": {
